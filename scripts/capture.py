@@ -227,6 +227,17 @@ def main():
 
                 results.append({'input': input_val, 'output': output, 'fp': fp, 'calls': list(recorder_local)})
 
+            # Warn about watched functions that were never called during capture
+            called_fns = set()
+            for r in results:
+                for call in r['calls']:
+                    called_fns.add(call['fn'])
+            uncalled_watches = [w for w in watches if w not in called_fns]
+            if uncalled_watches:
+                print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(uncalled_watches)}")
+                print(f"      The fingerprint may be based on incomplete data.")
+                print(f"      Consider splitting into separate clusters or adjusting the entry function.")
+
             # Use first result as golden
             golden = results[0]
             fp = golden['fp']

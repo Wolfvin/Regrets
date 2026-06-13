@@ -145,6 +145,15 @@ def main():
         else:
             print('\n❌ Regret guard FAILED — some clusters are red.')
 
+    elif command == 'chain':
+        success = run(f'node {SCRIPTS_DIR}/contest.mjs {extra_args}')
+
+    elif command == 'scan':
+        success = run(f'python3 {SCRIPTS_DIR}/scan.py {extra_args}')
+
+    elif command == 'coverage':
+        success = run(f'python3 {SCRIPTS_DIR}/coverage.py {extra_args}')
+
     elif command == 'help':
         print("""
 regret.py — Unified Regret Runner (Python)
@@ -157,6 +166,9 @@ Usage:
   python scripts/regret.py drift [--cluster <id>]       Drift detection (5 runs)
   python scripts/regret.py ci                            CI mode (fail-fast)
   python scripts/regret.py rollback <id>                Rollback cluster (re-capture + validate)
+  python scripts/regret.py chain [--capture|--validate]  Chain testing
+  python scripts/regret.py scan <path> [--manifest]      Scan source, suggest clusters
+  python scripts/regret.py coverage [--cluster <id>]     Branch coverage analysis
   python scripts/regret.py guard                         Pre-build gate
 
 Auto-detects stack from manifest.json and dispatches to the right handler.
