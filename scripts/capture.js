@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 
@@ -409,6 +409,7 @@ for (const cluster of clusters) {
       kwargs ? `kwargs: ${kwargs}` : null,
       materializeOutput ? `materializeOutput: true` : null,
       outputEncoding ? `outputEncoding: ${outputEncoding}` : null,
+      `env: ${JSON.stringify(getEnvSnapshot())}`,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,

@@ -22,7 +22,7 @@ from pathlib import Path
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    _numpy_to_native, materialize_output, snapshot_state
+    _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -144,6 +144,11 @@ def parse_regret(content):
             meta['kwargs'] = val.lower() == 'true'
         elif key == 'outputTransform':
             meta['outputTransform'] = val
+        elif key == 'env':
+            try:
+                meta['env'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['env'] = val
         elif key == 'materializeOutput':
             meta['materializeOutput'] = val.lower() == 'true'
         elif key == 'trackMutation':
@@ -377,6 +382,14 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
+
+            # Check environment snapshot if present in .regret file
+            regret_env = regret.get('env')
+            if regret_env and isinstance(regret_env, dict):
+                current_env = get_env_snapshot()
+                for k, v in regret_env.items():
+                    if current_env.get(k) != v:
+                        print(f"  ⚠️  {cluster_id}: environment changed: {k} was {v}, now {current_env.get(k)}")
 
             mod = importlib.import_module(module_path)
 

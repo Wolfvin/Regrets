@@ -21,7 +21,7 @@ from functools import wraps
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    materialize_output, snapshot_state
+    materialize_output, snapshot_state, get_env_snapshot
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -421,6 +421,10 @@ def main():
                 lines.append("trackMutation: true")
                 if golden.get('input_mutation_fingerprint'):
                     lines.append(f"mutationFingerprint: {golden['input_mutation_fingerprint']}")
+
+            # Environment snapshot
+            env_str = json.dumps(get_env_snapshot(), sort_keys=True)
+            lines.append(f"env: {env_str}")
 
             lines.append("---")
             lines.append(f"INPUT  {json_serialize(golden['input'])}")

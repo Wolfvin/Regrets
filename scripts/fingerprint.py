@@ -168,12 +168,54 @@ def to_base36(n):
 
 
 def deep_clone(val):
-    """Deep clone via JSON round-trip. Handles numpy arrays by converting to native types."""
+    """Deep clone via JSON round-trip. Handles numpy arrays by converting to native types.
+
+    Enhanced to handle non-JSON-serializable types that commonly appear in class-heavy
+    libraries (e.g. bytes, tuples with bytes, class instances with get_val_d()):
+    - bytes → hex string (deterministic, recoverable)
+    - tuple → list (JSON-safe, preserves order)
+    - class instances with get_val_d() → dict snapshot
+    - class instances with to_dict() → dict snapshot
+    - other non-serializable → repr() string (lossy but deterministic)
+
+    This prevents the silent fallthrough where deep_clone returns the SAME object reference
+    instead of an actual clone, which causes mutation corruption in the ghost recorder.
+    """
     val = _numpy_to_native(val)
+    # Handle bytes → hex string (deterministic, recoverable)
+    if isinstance(val, bytes):
+        return val.hex()
+    # Handle tuples → list (JSON-safe, preserves order)
+    if isinstance(val, tuple):
+        return [deep_clone(v) for v in val]
+    # Handle lists — recurse to catch nested bytes/tuples/instances
+    if isinstance(val, list):
+        return [deep_clone(v) for v in val]
+    # Handle dicts — recurse to catch nested bytes/tuples/instances
+    if isinstance(val, dict):
+        return {k: deep_clone(v) for k, v in val.items()}
+    # Handle class instances with get_val_d() (e.g. pycrate Envelope)
+    if hasattr(val, 'get_val_d') and callable(val.get_val_d):
+        try:
+            return deep_clone(val.get_val_d())
+        except Exception:
+            pass
+    # Handle class instances with to_dict() (e.g. many Python data classes)
+    if hasattr(val, 'to_dict') and callable(val.to_dict):
+        try:
+            return deep_clone(val.to_dict())
+        except Exception:
+            pass
+    # Primitives: return as-is
+    if isinstance(val, (int, float, str, bool)) or val is None:
+        return val
+    # Attempt JSON round-trip for other types
     try:
         return json.loads(json.dumps(val))
     except (TypeError, ValueError):
-        return val
+        # Fallback: repr() string (lossy but deterministic — at least it won't
+        # return the same reference, preventing mutation corruption)
+        return repr(val)
 
 
 def materialize_output(val):
@@ -381,3 +423,89 @@ def extract_schema(obj):
             schema[k] = extract_schema(obj[k])
         return schema
     return type(obj).__name__  # "str", "int", "float", "bool"
+
+
+def snapshot_output(val, transform=None):
+    """Transform output before fingerprinting, enabling class-heavy libraries.
+
+    This function applies a named transform to the output value before it enters
+    the fingerprint pipeline. It solves the problem of class instances that have
+    meaningful internal state but are not JSON-serializable.
+
+    Supported transforms:
+    - None: pass through (use deep_clone as before)
+    - 'get_val_d': call val.get_val_d() if available (e.g. pycrate Envelope)
+    - 'to_dict': call val.to_dict() if available (e.g. dataclasses, pydantic)
+    - 'to_bytes': call val.to_bytes() if available (e.g. pycrate Element)
+    - 'repr': use repr(val) as the fingerprinted value
+    - 'hex': convert bytes to hex string
+    - callable: call transform(val) and use the result
+
+    For tuples and lists, each element is transformed independently.
+    """
+    if transform is None:
+        return deep_clone(val)
+
+    # If transform is a callable (but not a string), call it directly
+    if callable(transform) and not isinstance(transform, str):
+        return deep_clone(transform(val))
+
+    # Handle tuples and lists — transform each element
+    if isinstance(val, tuple):
+        return [snapshot_output(v, transform) for v in val]
+    if isinstance(val, list):
+        return [snapshot_output(v, transform) for v in val]
+
+    # Named transforms
+    if transform == 'get_val_d':
+        if hasattr(val, 'get_val_d') and callable(val.get_val_d):
+            return deep_clone(val.get_val_d())
+        return deep_clone(val)
+    elif transform == 'to_dict':
+        if hasattr(val, 'to_dict') and callable(val.to_dict):
+            return deep_clone(val.to_dict())
+        return deep_clone(val)
+    elif transform == 'to_bytes':
+        if hasattr(val, 'to_bytes') and callable(val.to_bytes):
+            return deep_clone(val.to_bytes())
+        return deep_clone(val)
+    elif transform == 'repr':
+        return repr(val)
+    elif transform == 'hex':
+        if isinstance(val, bytes):
+            return val.hex()
+        return deep_clone(val)
+    else:
+        # Unknown transform — fall back to deep_clone
+        return deep_clone(val)
+
+
+def get_env_snapshot():
+    """Capture a snapshot of the current Python environment for reproducibility.
+
+    Records key environment facts that could affect fingerprint stability:
+    - Python version
+    - Installed packages (with versions) for known-affecting packages
+    - Module-level state keys for registered modules
+
+    This snapshot is stored in the .regret file and compared during validation
+    to detect environment drift before running functions.
+    """
+    import sys
+    import platform
+
+    snapshot = {
+        'python_version': platform.python_version(),
+        'python_impl': platform.python_implementation(),
+    }
+
+    # Check for optional packages that affect behavior
+    optional_packages = ['numpy', 'gmpy2', 'gmpy']
+    for pkg in optional_packages:
+        try:
+            mod = __import__(pkg)
+            snapshot[pkg] = getattr(mod, '__version__', 'installed')
+        except ImportError:
+            snapshot[pkg] = 'not_installed'
+
+    return snapshot

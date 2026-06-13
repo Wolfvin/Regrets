@@ -2,6 +2,7 @@
 // No dependencies. Works in Node.js 16+.
 
 import { createHash } from 'crypto'
+import { deepClone } from './ghost.js'
 
 /**
  * Stable JSON stringify — keys sorted recursively.
@@ -203,4 +204,75 @@ export function extractSchema(obj) {
     return schema
   }
   return typeof obj  // "string", "number", "boolean"
+}
+
+/**
+ * Transform output before fingerprinting, enabling class-heavy libraries.
+ * JS-side equivalent of Python's snapshot_output().
+ *
+ * Supported transforms:
+ * - null/undefined: pass through (use deepClone as before)
+ * - 'to_dict': call val.toDict() if available
+ * - 'to_json': call val.toJSON() if available
+ * - 'repr': use JSON.stringify(val) as the fingerprinted value
+ * - 'hex': convert Buffer/Uint8Array to hex string
+ * - function: call transform(val) and use the result
+ */
+export function snapshotOutput(val, transform) {
+  if (transform == null) return deepClone(val)
+
+  // If transform is a function, call it directly
+  if (typeof transform === 'function') {
+    return deepClone(transform(val))
+  }
+
+  // Handle arrays — transform each element
+  if (Array.isArray(val)) {
+    return val.map(v => snapshotOutput(v, transform))
+  }
+
+  // Named transforms
+  if (transform === 'to_dict' && val && typeof val.toDict === 'function') {
+    return deepClone(val.toDict())
+  }
+  if (transform === 'to_json' && val && typeof val.toJSON === 'function') {
+    return deepClone(val.toJSON())
+  }
+  if (transform === 'repr') {
+    return JSON.stringify(val)
+  }
+  if (transform === 'hex') {
+    if (Buffer.isBuffer(val) || (ArrayBuffer.isView(val) && !(val instanceof DataView))) {
+      return Buffer.from(val).toString('hex')
+    }
+    return deepClone(val)
+  }
+
+  // Unknown transform — fall back to deepClone
+  return deepClone(val)
+}
+
+/**
+ * Capture a snapshot of the current Node.js environment for reproducibility.
+ * Records key environment facts that could affect fingerprint stability.
+ */
+export function getEnvSnapshot() {
+  const snapshot = {
+    node_version: process.version,
+    platform: process.platform,
+    arch: process.arch,
+  }
+
+  // Check for optional packages that affect behavior
+  const optionalPackages = ['numpy', 'gmpy2']
+  for (const pkg of optionalPackages) {
+    try {
+      const mod = require(pkg)
+      snapshot[pkg] = mod.version || 'installed'
+    } catch {
+      snapshot[pkg] = 'not_installed'
+    }
+  }
+
+  return snapshot
 }

@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } 
 import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
 import { pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 
@@ -62,6 +62,9 @@ function parseRegret(content) {
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'outputTransform') meta.outputTransform = val
+    else if (key === 'env') {
+      try { meta.env = JSON.parse(val) } catch { meta.env = val }
+    }
     else if (key === 'kwargs') meta.kwargs = val === 'true'
     else if (key === 'materializeOutput') meta.materializeOutput = val === 'true'
     else if (key === 'trackMutation') meta.trackMutation = val === 'true'
@@ -203,6 +206,16 @@ async function runCluster(clusterDef, regret) {
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, outputTransform: manifestOutputTransform = null } = clusterDef
   const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
+
+  // Check environment snapshot if present in .regret file
+  if (regret.env && typeof regret.env === 'object') {
+    const currentEnv = getEnvSnapshot()
+    for (const [k, v] of Object.entries(regret.env)) {
+      if (currentEnv[k] !== v) {
+        console.warn(`  ⚠️  ${clusterDef.id}: environment changed: ${k} was ${v}, now ${currentEnv[k]}`)
+      }
+    }
+  }
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
