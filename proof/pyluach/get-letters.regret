@@ -1,0 +1,13 @@
+cluster: get-letters
+version: 1
+fingerprint: 2lcwua6
+captured: 2026-06-13T15:42:12.259118+00:00
+watches: [_get_letters]
+entry: _get_letters
+stack: python
+fingerprintLevel: entry
+module: pyluach.gematria
+---
+INPUT  1
+OUTPUT "א"
+HASH   2lcwua6
