@@ -145,6 +145,9 @@ def main():
         else:
             print('\n❌ Regret guard FAILED — some clusters are red.')
 
+    elif command == 'check':
+        success = run(f'python3 {SCRIPTS_DIR}/check.py {extra_args}')
+
     elif command == 'chain':
         stacks = detect_stacks()
         for stack in stacks:
@@ -179,6 +182,7 @@ Usage:
   python scripts/regret.py coverage [--cluster <id>]     Branch coverage analysis
   python scripts/regret.py audit [--strict]              Pre-refactor readiness audit
   python scripts/regret.py guard                         Pre-build gate
+  python scripts/regret.py check [--cluster <id>]       Pre-flight manifest validation
 
 Auto-detects stack from manifest.json and dispatches to the right handler.
 """)
