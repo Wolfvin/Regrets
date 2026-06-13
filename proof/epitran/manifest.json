@@ -1,0 +1,114 @@
+{
+  "clusters": [
+    {
+      "id": "spa-transliterate",
+      "entry": "transliterate",
+      "watches": ["transliterate", "general_trans"],
+      "module": "epitran.adapters.spa_transliterate",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Spanish (spa-Latn) orthographic text to IPA transliteration",
+      "inputs": ["hola", "queso", "general", "cuestión", "sábado", ""]
+    },
+    {
+      "id": "deu-transliterate",
+      "entry": "transliterate",
+      "watches": ["transliterate", "general_trans"],
+      "module": "epitran.adapters.deu_transliterate",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "German (deu-Latn) orthographic text to IPA transliteration",
+      "inputs": ["hallo", "Über", "Straße", ""]
+    },
+    {
+      "id": "fra-transliterate",
+      "entry": "transliterate",
+      "watches": ["transliterate", "general_trans"],
+      "module": "epitran.adapters.fra_transliterate",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "French (fra-Latn) orthographic text to IPA transliteration",
+      "inputs": ["bonjour", "café", "résumé", ""]
+    },
+    {
+      "id": "spa-strict-trans",
+      "entry": "strict_trans",
+      "watches": ["strict_trans", "general_trans"],
+      "module": "epitran.adapters.spa_strict_trans",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Spanish strict transliteration (unmapped chars filtered)",
+      "inputs": ["hola", "queso123", ""]
+    },
+    {
+      "id": "spa-word-to-tuples",
+      "entry": "word_to_tuples",
+      "watches": ["word_to_tuples"],
+      "module": "epitran.adapters.spa_word_to_tuples",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintMode": "schema",
+      "description": "Spanish word to tuples (structural — category, case, orth, phon, vectors)",
+      "inputs": ["hola", "¡Hola!", ""]
+    },
+    {
+      "id": "ligaturize",
+      "entry": "ligaturize",
+      "watches": ["ligaturize"],
+      "module": "epitran.ligaturize",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert IPA affricate sequences to precomposed ligatures",
+      "inputs": ["t͡s", "t͡ʃ", "t͡ɕ", "d͡z", "d͡ʒ", "d͡ʑ", "abc", ""]
+    },
+    {
+      "id": "puncnorm",
+      "entry": "norm",
+      "watches": ["norm"],
+      "module": "epitran.adapters.puncnorm_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Punctuation normalization — map fancy punctuation to basic forms",
+      "inputs": ["«hello»", "—", "…", "abc", ""]
+    },
+    {
+      "id": "strip-diacritics",
+      "entry": "process",
+      "watches": ["process"],
+      "module": "epitran.adapters.strip_diacritics_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Strip specified diacritics from text for spa-Latn",
+      "inputs": ["hola", "áéíóú", ""]
+    },
+    {
+      "id": "ipa-to-xsampa",
+      "entry": "ipa2xs",
+      "watches": ["ipa2xs", "longest_prefix"],
+      "module": "epitran.adapters.xsampa_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert IPA string to X-SAMPA representation",
+      "inputs": ["ola", "haloː", "bɔ̃ʒuʁ", ""]
+    },
+    {
+      "id": "rules-apply",
+      "entry": "apply",
+      "watches": ["apply"],
+      "module": "epitran.adapters.rules_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Apply context-sensitive rules to text (empty rules for basic test)",
+      "inputs": ["hello", "test", ""]
+    }
+  ]
+}
