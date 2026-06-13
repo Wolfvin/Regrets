@@ -6,8 +6,14 @@
  * Deep clone a value via JSON round-trip.
  * Handles most JSON-compatible values. Non-JSON values pass through unchanged.
  * TypedArrays are converted to regular arrays so they serialize deterministically.
+ * Map objects are converted to plain objects for JSON compatibility.
  */
 export function deepClone(val) {
+  // Handle Map — convert to plain object before cloning
+  if (val instanceof Map) {
+    const obj = Object.fromEntries(val)
+    return deepClone(obj)
+  }
   // Handle TypedArrays — convert to regular array before cloning
   // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
   if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
