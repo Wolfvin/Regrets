@@ -6,6 +6,7 @@
  * Deep clone a value via JSON round-trip.
  * Handles most JSON-compatible values. Non-JSON values are converted to
  * serializable representations before cloning:
+ *   - BigInt → string with "n" suffix (e.g., 18n → "18n")
  *   - TypedArrays → regular arrays
  *   - Map → plain object (entries become key-value pairs)
  *   - Set → array of values
@@ -15,6 +16,11 @@
  * which silently drops non-serializable values (backward-compatible behavior).
  */
 export function deepClone(val) {
+  // Handle BigInt → string with "n" suffix for round-trip fidelity
+  // BigInt cannot be JSON.stringify'd, so we convert to a tagged string
+  if (typeof val === 'bigint') {
+    return val.toString() + 'n'
+  }
   // Handle TypedArrays — convert to regular array before cloning
   // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
   if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {

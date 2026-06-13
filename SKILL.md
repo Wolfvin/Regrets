@@ -596,7 +596,9 @@ regression-testing/
     ├── class-based.md           ← Class-based library wrapper pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
-    └── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
+    ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
+    ├── braille-encode.md       ← Case study: qntm/braille-encode (binary↔Braille)
+    └── base1.md                ← Case study: qntm/base1 (unary encoding, BigInt)
 ```
 
 ---

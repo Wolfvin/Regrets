@@ -296,3 +296,43 @@ fp := fingerprint(input, result)
 3. When the same function is re-exported from the barrel file with an alias (e.g., `export { cariKurupTaun as cariKurupTahunJawa }`), use the **original** name from the sub-module, not the alias.
 4. This approach actually provides better isolation — each cluster only loads what it needs, avoiding side effects from unrelated module initialization.
 5. After refactoring, if you extract new functions into their own modules, add new clusters pointing to those modules directly.
+
+---
+
+## Capture failed: BigInt cannot be serialized
+
+**Problem:** Running `npm run regret:capture` produces `TypeError: Do not know how to serialize a BigInt` when capturing a cluster whose entry function returns a BigInt value, or when a watched function accepts/returns BigInt.
+
+**Cause:** The fingerprint algorithm uses `JSON.stringify` (via `stableStringify`) to serialize inputs and outputs. JavaScript's `JSON.stringify` throws a `TypeError` when encountering BigInt values, as there is no standard JSON representation for arbitrary-precision integers.
+
+**Solution:**
+1. **Create adapter functions** that wrap the BigInt-based function, converting BigInt inputs/outputs to/from string representations:
+   ```js
+   // Original: encodeL returns BigInt
+   export const encodeL = uint8Array =>
+     uint8Array.reduce((l, b) => l * 256n + BigInt(b) + 1n, 0n)
+
+   // Adapter: converts BigInt output to string (JSON-serializable)
+   export const encodeLToString = uint8Array => String(encodeL(uint8Array))
+
+   // Adapter: converts string input to BigInt (JSON-serializable)
+   export const decodeLFromString = bigintStr => decodeL(BigInt(bigintStr))
+   ```
+2. Use the adapter functions as the `entry` in your manifest cluster instead of the original BigInt-based functions.
+3. The original functions remain unchanged and can still be called directly — the adapters only exist for fingerprint compatibility.
+4. See `references/base1.md` for a complete worked example with the qntm/base1 library.
+
+---
+
+## Watched function never called during capture
+
+**Problem:** The capture log shows `⚠️ Watched function(s) never called during capture: someInternalFn` even though the function is clearly called when the entry point runs.
+
+**Cause:** The Ghost Proxy wraps module-level exports. When function A calls function B internally (direct reference within the same module), the call bypasses the proxy because it uses the original function reference, not the proxied one. This is a fundamental limitation of the JavaScript Proxy pattern — proxies only intercept access through the proxy object, not through captured closures or direct internal references.
+
+**Solution:**
+1. Use `fingerprintLevel: "entry"` and only list the entry function in `watches` — you don't need to watch internal helpers when you're only fingerprinting the entry output.
+2. If you truly need to observe internal calls, refactor to use dependency injection: pass the internal function as a parameter so it can be intercepted.
+3. For cross-module calls where function A imports function B from another module, use the re-export pattern documented in `references/braille-encode.md`.
+4. Remove internal function names from the `watches` array to eliminate the warning.
+

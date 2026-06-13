@@ -12,6 +12,11 @@ import { createHash } from 'crypto'
  */
 export function stableStringify(obj) {
   if (obj === null || obj === undefined) return String(obj)
+  // Handle BigInt — serialize as tagged string for deterministic representation
+  // e.g., 18n → "BigInt:18" — preserves value without JSON.stringify error
+  if (typeof obj === 'bigint') {
+    return 'BigInt:' + obj.toString()
+  }
   // Handle Map — convert to sorted array of entries for deterministic serialization
   if (obj instanceof Map) {
     const entries = [...obj.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))
