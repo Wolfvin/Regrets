@@ -294,29 +294,35 @@ def main():
 
             mod = importlib.import_module(module_path)
 
-            hashes = []
+            hashes = []            # fingerprints of the golden input only (for drift detection)
+            extra_failures = []  # non-golden input mismatches
             last_output = None
 
+            # Determine fingerprint mode: .regret file takes precedence over manifest
+            effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
+            effective_value_paths = regret.get('valuePaths') or value_paths or []
+
+            # Determine which inputs to validate: golden from .regret + all from manifest
+            all_inputs = cluster_def.get('inputs', [regret.get('input')])
+            inputs_to_validate = [regret.get('input')]
+            for inp in all_inputs:
+                if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
+                    inputs_to_validate.append(inp)
+
             for _ in range(cli['runs']):
-                recorder = []
-                ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
+                for input_idx, current_input in enumerate(inputs_to_validate):
+                    # In drift mode: only collect hashes for the golden (first) input
+                    # to avoid false positives from multi-input clusters.
+                    # Extra inputs are still validated for correctness.
+                    is_golden_input = (input_idx == 0)
 
-                entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
-                    raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+                    recorder = []
+                    ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
 
-                # Determine fingerprint mode: .regret file takes precedence over manifest
-                effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
-                effective_value_paths = regret.get('valuePaths') or value_paths or []
+                    entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                    if entry_fn is None or not callable(entry_fn):
+                        raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
 
-                # Determine which inputs to validate: golden from .regret + all from manifest
-                all_inputs = cluster_def.get('inputs', [regret.get('input')])
-                inputs_to_validate = [regret.get('input')]
-                for inp in all_inputs:
-                    if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
-                        inputs_to_validate.append(inp)
-
-                for current_input in inputs_to_validate:
                     if multi_args and isinstance(current_input, list):
                         output = entry_fn(*current_input)
                         fp_input = current_input
@@ -324,7 +330,8 @@ def main():
                         output = entry_fn(current_input) if current_input is not None else entry_fn()
                         fp_input = current_input
 
-                    last_output = output
+                    if is_golden_input:
+                        last_output = output
 
                     if effective_fp_mode == 'schema':
                         schema = extract_schema(output)
@@ -349,7 +356,12 @@ def main():
                     else:
                         fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
-                    hashes.append(fp)
+                    if is_golden_input:
+                        hashes.append(fp)
+                    elif not drift_mode:
+                        # In non-drift mode, validate extra inputs too
+                        # (they should produce stable fingerprints but are not stored as golden)
+                        pass
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')

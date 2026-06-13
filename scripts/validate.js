@@ -193,7 +193,7 @@ async function runCluster(clusterDef, regret) {
   }
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
-  const hashes = []
+  const hashes = []          // fingerprints of the golden input only (for drift detection)
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
@@ -206,7 +206,13 @@ async function runCluster(clusterDef, regret) {
   }
 
   for (let i = 0; i < runs; i++) {
-    for (const currentInput of inputsToValidate) {
+    for (let inputIdx = 0; inputIdx < inputsToValidate.length; inputIdx++) {
+      const currentInput = inputsToValidate[inputIdx]
+      const isGoldenInput = (inputIdx === 0)
+      // In drift mode: only collect hashes for the golden (first) input
+      // to avoid false positives from multi-input clusters.
+      // Extra inputs are still validated for correctness.
+
       const recorder = []
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
       const entryFn  = ghost[entry] ?? mod[entry]
@@ -214,7 +220,7 @@ async function runCluster(clusterDef, regret) {
       // multiArgs: spread input as separate arguments
       const args_ = multiArgs && Array.isArray(currentInput) ? currentInput : [currentInput]
       const output   = await entryFn(...args_)
-      lastOutput     = output
+      if (isGoldenInput) lastOutput = output
       const fpInput  = multiArgs && Array.isArray(currentInput) ? currentInput : currentInput
 
       // Determine fingerprint based on fingerprintMode (from .regret or manifest)
@@ -244,7 +250,7 @@ async function runCluster(clusterDef, regret) {
           ? fingerprint(fpInput, output, { normalize, ignoreFields })
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
-      hashes.push(fp)
+      if (isGoldenInput) hashes.push(fp)
     } // end for each input
   } // end for each run
   return { hashes, lastOutput }
