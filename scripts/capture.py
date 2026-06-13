@@ -76,6 +76,52 @@ def consume_generator(val):
     return val
 
 
+def apply_input_transform(input_val, transform):
+    """Apply an inputTransform to convert JSON-safe input to the actual function input type.
+
+    This solves the problem of functions that expect bytes, bytearray, or other
+    non-JSON-serializable types as input. Since manifest.json can only store
+    JSON-safe values, an inputTransform converts them back before calling the
+    entry function.
+
+    Supported transforms:
+    - "hex_to_bytes": Convert hex string input to bytes
+      e.g., "0a1b2c" → b"\\x0a\\x1b\\x2c"
+    - "list_to_bytes": Convert list of integers to bytes
+      e.g., [10, 27, 44] → b"\\x0a\\x1b\\x2c"
+    - "list_of_hex_to_bytes": Convert list of hex strings to list of bytes
+      e.g., ["0a1b", "2c3d"] → [b"\\x0a\\x1b", b"\\x2c\\x3d"]
+
+    For multiArgs clusters, the transform is applied to each argument individually.
+    """
+    if transform is None:
+        return input_val
+
+    if transform == 'hex_to_bytes':
+        if isinstance(input_val, str):
+            return bytes.fromhex(input_val)
+        if isinstance(input_val, list):
+            # Multi-arg: convert each hex string arg to bytes
+            return [bytes.fromhex(v) if isinstance(v, str) else v for v in input_val]
+        return input_val
+
+    elif transform == 'list_to_bytes':
+        if isinstance(input_val, list):
+            # Check if this is a list of integers (single bytes arg)
+            if all(isinstance(v, int) for v in input_val):
+                return bytes(input_val)
+            # Or multi-arg where one arg is a list of ints
+            return [bytes(v) if isinstance(v, list) and all(isinstance(x, int) for x in v) else v for v in input_val]
+        return input_val
+
+    elif transform == 'list_of_hex_to_bytes':
+        if isinstance(input_val, list):
+            return [bytes.fromhex(v) if isinstance(v, str) else v for v in input_val]
+        return input_val
+
+    return input_val
+
+
 def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
@@ -247,6 +293,7 @@ def main():
         kwargs_mode = cluster.get('kwargs', False)
         inputs = cluster.get('inputs', [None])
         output_transform = cluster.get('outputTransform', None)
+        input_transform = cluster.get('inputTransform', None)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -277,6 +324,10 @@ def main():
                 # (immutable record), one for the args (may be mutated by the function)
                 input_for_record = deep_clone(input_val)
                 input_for_args = deep_clone(input_val)
+
+                # Apply input transform (e.g., hex_to_bytes for bytes-argument functions)
+                if input_transform:
+                    input_for_args = apply_input_transform(input_for_args, input_transform)
 
                 if multi_args and isinstance(input_for_args, list):
                     output = entry_fn(*input_for_args)
@@ -371,6 +422,8 @@ def main():
                 lines.append(f"module: {module_path}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
+            if input_transform:
+                lines.append(f"inputTransform: {input_transform}")
 
             lines.append("---")
             lines.append(f"INPUT  {json_serialize(golden['input'])}")
