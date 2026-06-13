@@ -1,0 +1,80 @@
+{
+  "clusters": [
+    {
+      "id": "calculate-biorhythm",
+      "entry": "calculateBiorhythm",
+      "watches": ["calculateBiorhythm"],
+      "file": "regret-adapter.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Core biorhythm calculation: given birth date and analysis date strings, compute physical, emotional, intellectual sinusoidal values",
+      "inputs": [
+        ["1990-01-15", "2024-06-13"],
+        ["2000-12-25", "2024-01-01"],
+        ["1985-07-04", "2024-07-04"],
+        ["1995-03-20", "1995-03-20"],
+        ["1970-01-01", "2024-06-13"]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "calculate-biorhythm-range",
+      "entry": "calculateBiorhythmRange",
+      "watches": ["calculateBiorhythmRange"],
+      "file": "regret-adapter.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Calculate biorhythm values for a range of days around the target date. Returns array of day+biorhythm objects.",
+      "inputs": [
+        ["1990-01-15", "2024-06-13", 3],
+        ["2000-12-25", "2024-01-01", 1]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "get-how-many-full-cycles",
+      "entry": "getHowManyFullCycles",
+      "watches": ["getHowManyFullCycles"],
+      "file": "regret-adapter.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Count how many full 21252-day biorhythm cycles a person has completed between birth and analysis date",
+      "inputs": [
+        ["1990-01-15", "2024-06-13"],
+        ["2000-12-25", "2024-01-01"],
+        ["1970-01-01", "2024-06-13"]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "get-difference-in-days",
+      "entry": "getDifferenceInDays",
+      "watches": ["getDifferenceInDays"],
+      "file": "regret-adapter.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Calculate the number of days between two dates, fundamental building block for all biorhythm calculations",
+      "inputs": [
+        ["2024-06-13", "1990-01-15"],
+        ["2024-01-01", "2000-12-25"],
+        ["2024-07-04", "1985-07-04"]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "get-date-range",
+      "entry": "getDateRange",
+      "watches": ["getDateRange"],
+      "file": "regret-adapter.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Generate a range of date strings centered around a target date, used by biorhythm range calculations",
+      "inputs": [
+        ["2024-06-13", 3],
+        ["2024-01-01", 1],
+        ["2024-07-04", 5]
+      ],
+      "multiArgs": true
+    }
+  ]
+}

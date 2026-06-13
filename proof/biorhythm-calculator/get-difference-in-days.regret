@@ -1,0 +1,12 @@
+cluster: get-difference-in-days
+version: 1
+fingerprint: 2ad0spn
+captured: 2026-06-13T14:07:36.268Z
+watches: [getDifferenceInDays]
+entry: getDifferenceInDays
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["2024-06-13","1990-01-15"]
+OUTPUT 12568
+HASH   2ad0spn

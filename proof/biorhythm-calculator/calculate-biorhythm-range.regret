@@ -1,0 +1,12 @@
+cluster: calculate-biorhythm-range
+version: 1
+fingerprint: 4630kdi
+captured: 2026-06-13T14:07:36.268Z
+watches: [calculateBiorhythmRange]
+entry: calculateBiorhythmRange
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["1990-01-15","2024-06-13",3]
+OUTPUT [{"day":"2024-06-10","biorhythm":{"physical":0.94,"emotional":-1,"intellectual":-1}},{"day":"2024-06-11","biorhythm":{"physical":0.82,"emotional":-0.97,"intellectual":-0.97}},{"day":"2024-06-12","biorhythm":{"physical":0.63,"emotional":-0.9,"intellectual":-0.91}},{"day":"2024-06-13","biorhythm":{"physical":0.4,"emotional":-0.78,"intellectual":-0.81}},{"day":"2024-06-14","biorhythm":{"physical":0.14,"emotional":-0.62,"intellectual":-0.69}},{"day":"2024-06-15","biorhythm":{"physical":-0.14,"emotional":-0.43,"intellectual":-0.54}},{"day":"2024-06-16","biorhythm":{"physical":-0.4,"emotional":-0.22,"intellectual":-0.37}}]
+HASH   4630kdi

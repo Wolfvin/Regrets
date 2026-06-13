@@ -1,0 +1,12 @@
+cluster: get-how-many-full-cycles
+version: 1
+fingerprint: 3igav9t
+captured: 2026-06-13T14:07:36.268Z
+watches: [getHowManyFullCycles]
+entry: getHowManyFullCycles
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["1990-01-15","2024-06-13"]
+OUTPUT 0.5913796348578957
+HASH   3igav9t

@@ -1,0 +1,83 @@
+const {CYCLE_LENGTHS} = require('./constants');
+const {getDifferenceInDays, getDateRange} = require('./dates');
+
+/**
+ * @typedef BiorhythmResult
+ * @property {number} physical
+ * @property {number} emotional
+ * @property {number} intellectual
+ */
+
+/**
+ * @typedef BiorhythmRangeResult
+ * @property {Date} day
+ * @property {BiorhythmResult} biorhythm
+ */
+
+/**
+ * Round a number to the specified number of decimal places.
+ * Replaces the `processNumber` function from `number-helper-functions`.
+ *
+ * @param {number} num The number to round
+ * @param {number} decimals Number of decimal places
+ * @returns {number} Rounded number
+ */
+function roundTo(num, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.round(num * factor) / factor;
+}
+
+/**
+ * Computes a single biorhythm value for a given cycle length.
+ * Previously this was a closure created by `createCalculator`.
+ * Inlined for clarity — the closure added indirection without benefit.
+ *
+ * @param {number} daysDifference Days since birth
+ * @param {number} cycleLength The biorhythm cycle length (23, 28, or 33)
+ * @param {number} [decimals=2] Number of decimal places for rounding
+ * @returns {number} Biorhythm value between -1 and 1
+ */
+function computeBiorhythmValue(daysDifference, cycleLength, decimals = 2) {
+  const dividend = 2 * Math.PI * daysDifference;
+  return roundTo(Math.sin(dividend / cycleLength), decimals);
+}
+
+/**
+ * Calculates biorhythm based on birth date and a custom date
+ *
+ * @param {Date} dateOfBirth The date of birth, as Date
+ * @param {Date} dateToAnalyze The date to obtain the biorhythm data on
+ * @returns {BiorhythmResult} Object that represents the day's status
+ */
+function calculateBiorhythm(dateOfBirth, dateToAnalyze) {
+  const daysDifference = getDifferenceInDays(dateToAnalyze, dateOfBirth);
+  return {
+    physical: computeBiorhythmValue(daysDifference, CYCLE_LENGTHS.physical),
+    emotional: computeBiorhythmValue(daysDifference, CYCLE_LENGTHS.emotional),
+    intellectual: computeBiorhythmValue(daysDifference, CYCLE_LENGTHS.intellectual),
+  };
+}
+
+/**
+ * Gets biorhythms for date range
+ *
+ * @param {Date} dateOfBirth The date of birth, as Date
+ * @param {Date} dateToAnalyze The date to obtain the biorhythm data on
+ * @param {number} amountOfDays Number of days to add in range (Ex. 3 will give desired date as well as 3 days before, and 3 days after)
+ * @returns {BiorhythmRangeResult[]} Objects array that represents the days' status
+ */
+function calculateBiorhythmRange(dateOfBirth, dateToAnalyze, amountOfDays) {
+  const dates = getDateRange(dateToAnalyze, amountOfDays);
+  return dates.map((day) => ({
+    biorhythm: calculateBiorhythm(dateOfBirth, day),
+    day,
+  }));
+}
+
+module.exports = {
+  calculateBiorhythm,
+  calculateBiorhythmRange,
+  // Export for direct testing and reuse
+  computeBiorhythmValue,
+  roundTo,
+};

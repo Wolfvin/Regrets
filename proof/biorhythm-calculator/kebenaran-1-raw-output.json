@@ -1,0 +1,252 @@
+{
+  "calculate-biorhythm": [
+    {
+      "input": [
+        "1990-01-15",
+        "2024-06-13"
+      ],
+      "output": {
+        "physical": 0.4,
+        "emotional": -0.78,
+        "intellectual": -0.81
+      }
+    },
+    {
+      "input": [
+        "2000-12-25",
+        "2024-01-01"
+      ],
+      "output": {
+        "physical": -0.14,
+        "emotional": 1,
+        "intellectual": -1
+      }
+    },
+    {
+      "input": [
+        "1985-07-04",
+        "2024-07-04"
+      ],
+      "output": {
+        "physical": 0.82,
+        "emotional": -1,
+        "intellectual": -0.87
+      }
+    },
+    {
+      "input": [
+        "1995-03-20",
+        "1995-03-20"
+      ],
+      "output": {
+        "physical": 0,
+        "emotional": 0,
+        "intellectual": 0
+      }
+    },
+    {
+      "input": [
+        "1970-01-01",
+        "2024-06-13"
+      ],
+      "output": {
+        "physical": -0.82,
+        "emotional": 1,
+        "intellectual": -0.76
+      }
+    }
+  ],
+  "calculate-biorhythm-range": [
+    {
+      "input": [
+        "1990-01-15",
+        "2024-06-13",
+        3
+      ],
+      "output": [
+        {
+          "day": "2024-06-10",
+          "biorhythm": {
+            "physical": 0.94,
+            "emotional": -1,
+            "intellectual": -1
+          }
+        },
+        {
+          "day": "2024-06-11",
+          "biorhythm": {
+            "physical": 0.82,
+            "emotional": -0.97,
+            "intellectual": -0.97
+          }
+        },
+        {
+          "day": "2024-06-12",
+          "biorhythm": {
+            "physical": 0.63,
+            "emotional": -0.9,
+            "intellectual": -0.91
+          }
+        },
+        {
+          "day": "2024-06-13",
+          "biorhythm": {
+            "physical": 0.4,
+            "emotional": -0.78,
+            "intellectual": -0.81
+          }
+        },
+        {
+          "day": "2024-06-14",
+          "biorhythm": {
+            "physical": 0.14,
+            "emotional": -0.62,
+            "intellectual": -0.69
+          }
+        },
+        {
+          "day": "2024-06-15",
+          "biorhythm": {
+            "physical": -0.14,
+            "emotional": -0.43,
+            "intellectual": -0.54
+          }
+        },
+        {
+          "day": "2024-06-16",
+          "biorhythm": {
+            "physical": -0.4,
+            "emotional": -0.22,
+            "intellectual": -0.37
+          }
+        }
+      ]
+    },
+    {
+      "input": [
+        "2000-12-25",
+        "2024-01-01",
+        1
+      ],
+      "output": [
+        {
+          "day": "2023-12-31",
+          "biorhythm": {
+            "physical": 0.14,
+            "emotional": 0.97,
+            "intellectual": -0.99
+          }
+        },
+        {
+          "day": "2024-01-01",
+          "biorhythm": {
+            "physical": -0.14,
+            "emotional": 1,
+            "intellectual": -1
+          }
+        },
+        {
+          "day": "2024-01-02",
+          "biorhythm": {
+            "physical": -0.4,
+            "emotional": 0.97,
+            "intellectual": -0.97
+          }
+        }
+      ]
+    }
+  ],
+  "get-how-many-full-cycles": [
+    {
+      "input": [
+        "1990-01-15",
+        "2024-06-13"
+      ],
+      "output": 0.5913796348578957
+    },
+    {
+      "input": [
+        "2000-12-25",
+        "2024-01-01"
+      ],
+      "output": 0.39558629776021076
+    },
+    {
+      "input": [
+        "1970-01-01",
+        "2024-06-13"
+      ],
+      "output": 0.9357707509881423
+    }
+  ],
+  "get-difference-in-days": [
+    {
+      "input": [
+        "2024-06-13",
+        "1990-01-15"
+      ],
+      "output": 12568
+    },
+    {
+      "input": [
+        "2024-01-01",
+        "2000-12-25"
+      ],
+      "output": 8407
+    },
+    {
+      "input": [
+        "2024-07-04",
+        "1985-07-04"
+      ],
+      "output": 14245
+    }
+  ],
+  "get-date-range": [
+    {
+      "input": [
+        "2024-06-13",
+        3
+      ],
+      "output": [
+        "2024-06-10",
+        "2024-06-11",
+        "2024-06-12",
+        "2024-06-13",
+        "2024-06-14",
+        "2024-06-15",
+        "2024-06-16"
+      ]
+    },
+    {
+      "input": [
+        "2024-01-01",
+        1
+      ],
+      "output": [
+        "2023-12-31",
+        "2024-01-01",
+        "2024-01-02"
+      ]
+    },
+    {
+      "input": [
+        "2024-07-04",
+        5
+      ],
+      "output": [
+        "2024-06-29",
+        "2024-06-30",
+        "2024-07-01",
+        "2024-07-02",
+        "2024-07-03",
+        "2024-07-04",
+        "2024-07-05",
+        "2024-07-06",
+        "2024-07-07",
+        "2024-07-08",
+        "2024-07-09"
+      ]
+    }
+  ]
+}
