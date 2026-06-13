@@ -257,7 +257,16 @@ switch (command) {
   }
 
   case 'diff': {
-    success = run('node', [`${SCRIPTS_DIR}/diff.js`, ...passThroughArgs])
+    const diffStacks = detectStacks()
+    let diffOk = true
+    for (const stack of diffStacks) {
+      if (stack === 'python') {
+        diffOk = run('python3', [`${SCRIPTS_DIR}/diff.py`, ...passThroughArgs]) && diffOk
+      } else {
+        diffOk = run('node', [`${SCRIPTS_DIR}/diff.js`, ...passThroughArgs]) && diffOk
+      }
+    }
+    success = diffOk
     break
   }
 

@@ -98,22 +98,38 @@ def count_branches_in_function(source: str, function_name: str) -> list[dict]:
 
 
 def estimate_paths(branches: list[dict]) -> int:
-    """Estimate minimum number of execution paths based on branches."""
+    """Estimate minimum number of execution paths based on branches.
+
+    Uses a linear heuristic instead of multiplicative to avoid
+    false alarms on functions with many sequential (not independent)
+    branches. For example, a function with 10 sequential if/else
+    branches doesn't need 2^10=1024 test inputs — it needs roughly
+    2*branches inputs to cover true+false for each branch.
+
+    The multiplicative approach (paths *= 2 per branch) assumes all
+    branches are independent, which is almost never true for real code.
+    Sequential branches in the same function are usually mutually
+    exclusive (early returns, elif chains, sequential checks).
+    """
     if not branches:
         return 1
-    paths = 1
+
+    # Count branch decision points (each needs at least one true + one false test)
+    decision_points = 0
     for b in branches:
         if b['type'] == 'if':
-            # if/else = 2 paths, if without else = 2 paths (true + fall-through)
-            paths *= 2
+            decision_points += 1
         elif b['type'] == 'match':
-            paths *= b['cases']
+            decision_points += b['cases'] - 1  # N cases = N-1 extra paths
         elif b['type'] == 'try':
-            paths *= (b['handlers'] + 1)  # +1 for no-exception path
+            decision_points += b['handlers']  # each handler is a path
         elif b['type'] == 'boolop':
-            paths *= b['operands']
-        # for/while loops don't multiply paths the same way
-    return min(paths, 64)  # cap at 64 to avoid explosion
+            decision_points += b['operands'] - 1  # and/or short circuits
+
+    # Minimum: 2 inputs per decision point (true + false)
+    # Plus 1 for the base path
+    min_paths = max(2 * decision_points + 1, len(branches))
+    return min(min_paths, 64)  # cap at 64 to avoid explosion
 
 
 def find_source_file(module_path: str, python_path: str = '') -> str | None:
