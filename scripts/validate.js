@@ -193,7 +193,8 @@ async function runCluster(clusterDef, regret) {
   }
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
-  const hashes = []
+  const hashes = []          // flat list of all hashes (golden input only, for backward compat)
+  const perInputHashes = []  // structured: perInputHashes[inputIdx] = [hash_run1, hash_run2, ...]
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
@@ -205,8 +206,13 @@ async function runCluster(clusterDef, regret) {
     }
   }
 
+  for (let inputIdx = 0; inputIdx < inputsToValidate.length; inputIdx++) {
+    perInputHashes.push([])
+  }
+
   for (let i = 0; i < runs; i++) {
-    for (const currentInput of inputsToValidate) {
+    for (let inputIdx = 0; inputIdx < inputsToValidate.length; inputIdx++) {
+      const currentInput = inputsToValidate[inputIdx]
       const recorder = []
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
       const entryFn  = ghost[entry] ?? mod[entry]
@@ -244,10 +250,12 @@ async function runCluster(clusterDef, regret) {
           ? fingerprint(fpInput, output, { normalize, ignoreFields })
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
-      hashes.push(fp)
+      // Only push to flat hashes array for the golden input (index 0)
+      if (inputIdx === 0) hashes.push(fp)
+      perInputHashes[inputIdx].push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+  return { hashes, lastOutput, perInputHashes }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +314,13 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, lastOutput, skipped, perInputHashes } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Drift detection: check stability per input (each input must produce same hash across all runs)
+    // perInputHashes[inputIdx] = [hash_run1, hash_run2, ...] — stable if all hashes for an input are identical
+    const isDrift = driftMode && perInputHashes.some(inputHashes => new Set(inputHashes).size > 1)
 
     if (updateMode) {
       if (isMatch) {
@@ -323,7 +333,12 @@ for (const file of regretFiles) {
       }
     } else if (driftMode) {
       if (isDrift) {
-        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+        // Show which input(s) are drifting
+        const driftDetails = perInputHashes
+          .map((inputHashes, idx) => new Set(inputHashes).size > 1 ? `input#${idx}=[${inputHashes.join(' / ')}]` : null)
+          .filter(Boolean)
+          .join(', ')
+        console.log(`  ❌ ${id.padEnd(35)} DRIFT  ${driftDetails}`)
         results.push({ id, pass: false, drift: true })
       } else {
         const icon = isMatch ? '✅' : '❌'
