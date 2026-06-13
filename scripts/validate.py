@@ -297,6 +297,17 @@ def main():
             hashes = []
             last_output = None
 
+            # Determine which inputs to validate: golden from .regret + all from manifest
+            all_inputs = cluster_def.get('inputs', [regret.get('input')])
+            inputs_to_validate = [regret.get('input')]
+            for inp in all_inputs:
+                if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
+                    inputs_to_validate.append(inp)
+
+            # Track hashes per-input for proper drift detection
+            # Each entry: list of hashes for that input across all runs
+            per_input_hashes = [[] for _ in inputs_to_validate]
+
             for _ in range(cli['runs']):
                 recorder = []
                 ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
@@ -309,14 +320,7 @@ def main():
                 effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
                 effective_value_paths = regret.get('valuePaths') or value_paths or []
 
-                # Determine which inputs to validate: golden from .regret + all from manifest
-                all_inputs = cluster_def.get('inputs', [regret.get('input')])
-                inputs_to_validate = [regret.get('input')]
-                for inp in all_inputs:
-                    if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
-                        inputs_to_validate.append(inp)
-
-                for current_input in inputs_to_validate:
+                for inp_idx, current_input in enumerate(inputs_to_validate):
                     if multi_args and isinstance(current_input, list):
                         output = entry_fn(*current_input)
                         fp_input = current_input
@@ -350,10 +354,15 @@ def main():
                         fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
                     hashes.append(fp)
+                    per_input_hashes[inp_idx].append(fp)
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+            # Drift detection: check per-input (not across inputs)
+            # A cluster has drift if any single input produces different hashes across runs
+            is_drift = drift_mode and any(
+                len(set(input_hashes)) > 1 for input_hashes in per_input_hashes
+            )
 
             if update_mode:
                 if is_match:
