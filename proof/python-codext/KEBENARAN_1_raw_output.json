@@ -1,0 +1,325 @@
+{
+  "morse-encode": {
+    "entry": "morse_encode",
+    "outputs": [
+      {
+        "input": "hello world",
+        "output": ".... . .-.. .-.. --- / .-- --- .-. .-.. -.."
+      },
+      {
+        "input": "SOS",
+        "output": "... --- ..."
+      },
+      {
+        "input": "test 123",
+        "output": "- . ... - / .---- ..--- ...--"
+      }
+    ]
+  },
+  "morse-decode": {
+    "entry": "morse_decode",
+    "outputs": [
+      {
+        "input": ".... . .-.. .-.. ---",
+        "output": "hello"
+      },
+      {
+        "input": "... --- ...",
+        "output": "sos"
+      }
+    ]
+  },
+  "braille-encode": {
+    "entry": "braille_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "⠓⠑⠇⠇⠕"
+      },
+      {
+        "input": "test",
+        "output": "⠞⠑⠎⠞"
+      },
+      {
+        "input": "ABC 123",
+        "output": "⠁⠃⠉⠀⠂⠆⠒"
+      }
+    ]
+  },
+  "galactic-encode": {
+    "entry": "galactic_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "₸ᒷꖎꖎ⁊"
+      },
+      {
+        "input": "test",
+        "output": "ℸᒷ߆ℸ"
+      }
+    ]
+  },
+  "kenny-encode": {
+    "entry": "kenny_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "mfpmpppmfpmfppf"
+      },
+      {
+        "input": "This is a Test",
+        "output": "FmpmfpmfffmmfffmfffmmfffmmmfffFmpmppfmmfmp"
+      }
+    ]
+  },
+  "kenny-decode": {
+    "entry": "kenny_decode",
+    "outputs": [
+      {
+        "input": "mfpmff",
+        "output": "hi"
+      }
+    ]
+  },
+  "affine-encode": {
+    "entry": "affine_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "jgnnq"
+      },
+      {
+        "input": "test",
+        "output": "vguv"
+      }
+    ]
+  },
+  "affine-decode": {
+    "entry": "affine_decode",
+    "outputs": [
+      {
+        "input": "jgnnq",
+        "output": "hello"
+      }
+    ]
+  },
+  "vigenere-encode": {
+    "entry": "vigenere_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "rijvs"
+      },
+      {
+        "input": "test",
+        "output": "diqd"
+      }
+    ]
+  },
+  "vigenere-decode": {
+    "entry": "vigenere_decode",
+    "outputs": [
+      {
+        "input": "rijvs",
+        "output": "hello"
+      }
+    ]
+  },
+  "atbash-encode": {
+    "entry": "atbash_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "svool"
+      },
+      {
+        "input": "test",
+        "output": "gvhg"
+      }
+    ]
+  },
+  "rot13-encode": {
+    "entry": "rot13_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "uryyb"
+      },
+      {
+        "input": "test",
+        "output": "grfg"
+      }
+    ]
+  },
+  "hexagram-encode": {
+    "entry": "hexagram_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "䷮䷭䷾䷷䷹䷭䷠☯"
+      },
+      {
+        "input": "test",
+        "output": "䷰䷭䷾䷼䷰䷁☯☯"
+      }
+    ]
+  },
+  "hexagram-decode": {
+    "entry": "hexagram_decode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "hello"
+      },
+      {
+        "input": "test",
+        "output": "test"
+      }
+    ]
+  },
+  "rick-encode": {
+    "entry": "rick_encode",
+    "outputs": [
+      {
+        "input": "HELLO",
+        "output": "LET UP GOnna GOnna AND"
+      },
+      {
+        "input": "TEST",
+        "output": "TELL UP gonna TELL"
+      }
+    ]
+  },
+  "rick-decode": {
+    "entry": "rick_decode",
+    "outputs": [
+      {
+        "input": "LET UP GOnna GOnna AND",
+        "output": "hello"
+      }
+    ]
+  },
+  "dna-encode": {
+    "entry": "dna_encode",
+    "outputs": [
+      {
+        "input": "test",
+        "output": "GTGAGCGGGTATGTGA"
+      },
+      {
+        "input": "hello",
+        "output": "GCCAGCGGGCTAGCTAGCTT"
+      }
+    ]
+  },
+  "dna-decode": {
+    "entry": "dna_decode",
+    "outputs": [
+      {
+        "input": "GTGAGCGGGTATGTGA",
+        "output": "test"
+      }
+    ]
+  },
+  "bacon-encode": {
+    "entry": "bacon_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "aabbbaabaaababaababaabbab"
+      },
+      {
+        "input": "test",
+        "output": "baabaaabaabaaabbaaba"
+      }
+    ]
+  },
+  "barbie-encode": {
+    "entry": "barbie_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "sabbr"
+      },
+      {
+        "input": "test",
+        "output": "hafh"
+      }
+    ]
+  },
+  "navajo-encode": {
+    "entry": "navajo_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "tse-gah ah-jah dibeh-yazzie dibeh-yazzie a-kha"
+      }
+    ]
+  },
+  "base32-encode": {
+    "entry": "base32_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "NBSWY3DP"
+      },
+      {
+        "input": "test",
+        "output": "ORSXG5A="
+      }
+    ]
+  },
+  "base32-decode": {
+    "entry": "base32_decode",
+    "outputs": [
+      {
+        "input": "NBSWY3DP",
+        "output": "hello"
+      }
+    ]
+  },
+  "atbash-decode": {
+    "entry": "atbash_decode",
+    "outputs": [
+      {
+        "input": "svool",
+        "output": "hello"
+      }
+    ]
+  },
+  "rot13-decode": {
+    "entry": "rot13_decode",
+    "outputs": [
+      {
+        "input": "uryyb",
+        "output": "hello"
+      }
+    ]
+  },
+  "baudot-encode": {
+    "entry": "baudot_encode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "'0101100010110111101100111'"
+      },
+      {
+        "input": "TEST",
+        "output": "'10101000101010010101'"
+      }
+    ]
+  },
+  "braille-decode": {
+    "entry": "braille_decode",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "hello"
+      },
+      {
+        "input": "test",
+        "output": "test"
+      }
+    ]
+  }
+}

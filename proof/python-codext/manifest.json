@@ -1,0 +1,301 @@
+{
+  "clusters": [
+    {
+      "id": "morse-encode",
+      "entry": "morse_encode",
+      "watches": ["morse_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Morse code",
+      "inputs": ["hello world", "SOS", "test 123"]
+    },
+    {
+      "id": "morse-decode",
+      "entry": "morse_decode",
+      "watches": ["morse_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Morse code to text",
+      "inputs": [".... . .-.. .-.. ---", "... --- ..."]
+    },
+    {
+      "id": "braille-encode",
+      "entry": "braille_encode",
+      "watches": ["braille_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Braille Unicode characters",
+      "inputs": ["hello", "test", "ABC 123"]
+    },
+    {
+      "id": "galactic-encode",
+      "entry": "galactic_encode",
+      "watches": ["galactic_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Galactic alphabet (Minecraft enchantment table)",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "kenny-encode",
+      "entry": "kenny_encode",
+      "watches": ["kenny_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Kenny's language (South Park)",
+      "inputs": ["hello", "This is a Test"]
+    },
+    {
+      "id": "kenny-decode",
+      "entry": "kenny_decode",
+      "watches": ["kenny_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Kenny's language to text",
+      "inputs": ["mfpmff"]
+    },
+    {
+      "id": "affine-encode",
+      "entry": "affine_encode",
+      "watches": ["affine_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text using Affine cipher (default key)",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "affine-decode",
+      "entry": "affine_decode",
+      "watches": ["affine_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Affine cipher text (default key)",
+      "inputs": ["jgnnq"]
+    },
+    {
+      "id": "vigenere-encode",
+      "entry": "vigenere_encode",
+      "watches": ["vigenere_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text using Vigenere cipher (default key)",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "vigenere-decode",
+      "entry": "vigenere_decode",
+      "watches": ["vigenere_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Vigenere cipher text (default key)",
+      "inputs": ["rijvs"]
+    },
+    {
+      "id": "atbash-encode",
+      "entry": "atbash_encode",
+      "watches": ["atbash_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text using Atbash cipher",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "rot13-encode",
+      "entry": "rot13_encode",
+      "watches": ["rot13_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text using ROT13",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "hexagram-encode",
+      "entry": "hexagram_encode",
+      "watches": ["hexagram_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to I-Ching hexagrams",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "hexagram-decode",
+      "entry": "hexagram_decode",
+      "watches": ["hexagram_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode I-Ching hexagrams to text (roundtrip)",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "rick-encode",
+      "entry": "rick_encode",
+      "watches": ["rick_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Rick Astley's song words",
+      "inputs": ["HELLO", "TEST"]
+    },
+    {
+      "id": "rick-decode",
+      "entry": "rick_decode",
+      "watches": ["rick_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Rick Astley's song words to text",
+      "inputs": ["LET UP GOnna GOnna AND"]
+    },
+    {
+      "id": "dna-encode",
+      "entry": "dna_encode",
+      "watches": ["dna_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to DNA nucleotide sequence (method 1)",
+      "inputs": ["test", "hello"]
+    },
+    {
+      "id": "dna-decode",
+      "entry": "dna_decode",
+      "watches": ["dna_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode DNA nucleotide sequence to text (method 1)",
+      "inputs": ["GTGAGCGGGTATGTGA"]
+    },
+    {
+      "id": "bacon-encode",
+      "entry": "bacon_encode",
+      "watches": ["bacon_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text using Bacon cipher",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "barbie-encode",
+      "entry": "barbie_encode",
+      "watches": ["barbie_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text using Barbie cipher",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "navajo-encode",
+      "entry": "navajo_encode",
+      "watches": ["navajo_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Navajo code talk",
+      "inputs": ["hello"]
+    },
+    {
+      "id": "base32-encode",
+      "entry": "base32_encode",
+      "watches": ["base32_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Base32",
+      "inputs": ["hello", "test"]
+    },
+    {
+      "id": "base32-decode",
+      "entry": "base32_decode",
+      "watches": ["base32_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Base32 to text",
+      "inputs": ["NBSWY3DP"]
+    },
+    {
+      "id": "atbash-decode",
+      "entry": "atbash_decode",
+      "watches": ["atbash_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Atbash cipher text",
+      "inputs": ["svool"]
+    },
+    {
+      "id": "rot13-decode",
+      "entry": "rot13_decode",
+      "watches": ["rot13_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode ROT13 text",
+      "inputs": ["uryyb"]
+    },
+    {
+      "id": "baudot-encode",
+      "entry": "baudot_encode",
+      "watches": ["baudot_encode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to Baudot code",
+      "inputs": ["hello", "TEST"]
+    },
+    {
+      "id": "braille-decode",
+      "entry": "braille_decode",
+      "watches": ["braille_decode"],
+      "module": "regrets_adapter",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode Braille to text (roundtrip)",
+      "inputs": ["hello", "test"]
+    }
+  ]
+}
