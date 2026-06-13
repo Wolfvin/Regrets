@@ -458,6 +458,9 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
+| Next.js | Adapter modules (pure logic extraction) | Value (default) | See `references/nextjs.md` |
+| Tauri apps | esbuild transpile + adapter modules | Value (default) | See `references/tauri-apps.md` |
+| Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
 
 ---
 
@@ -596,11 +599,17 @@ regression-testing/
     ├── extension.md            ← Browser extension variant
     ├── class-based.md           ← Class-based library wrapper pattern
     ├── esoteric-language.md     ← Esoteric language interpreter testing pattern
+    ├── nextjs.md                ← Next.js integration — adapter modules for noEmit projects
+    ├── tauri-apps.md            ← Tauri app integration — esbuild transpile + adapter modules
+    ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
+    ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
     ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
     ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
+    ├── case-study-pyenigma.md  ← Case study: pyEnigma (stateful class-based API + roundtrip)
+    ├── case-study-lindenmayer.md ← Case study: lindenmayer (L-System, rollup naming collision)
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
     ├── braille-encode.md       ← Case study: qntm/braille-encode (binary↔Braille)
@@ -667,6 +676,12 @@ What stack is the target project?
     └── Extract pure logic first → then use JS/TS scripts
 └── Esolang Interpreter
     └── Extract pure logic + create adapter → then use Python/JS scripts
+└── Next.js
+    └── Extract pure logic into adapter modules → then use JS scripts (see references/nextjs.md)
+└── Tauri App
+    └── esbuild transpile + adapter modules → then use JS scripts (see references/tauri-apps.md)
+└── Color Science Library
+    └── Adapter module + dist/index.js import → handles circular ESM deps (see references/colorimetry.md)
 ```
 
 ### Manifest Cluster: Complete Example with All Fields
