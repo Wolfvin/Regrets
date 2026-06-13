@@ -99,10 +99,15 @@ for (const cluster of clusters) {
 
     for (const input of testInputs) {
       recorder.length = 0  // clear between runs
-      const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
+      // Deep-clone input BEFORE calling the function to prevent mutation from corrupting the stored input
+      // Two clones: one for the .regret file (immutable record), one for the args (may be mutated by the function)
+      // (e.g., fill() in isbn3 mutates its input object in-place)
+      const inputForRecord = deepClone(input)  // immutable pre-call snapshot for .regret file
+      const inputForArgs = deepClone(input)    // may be mutated by the function call
+      const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const output = await entryFn(...args_)
       
-      const fpInput = cluster.multiArgs && Array.isArray(input) ? input : input
+      const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
       // Determine fingerprint based on fingerprintMode
       let fp
@@ -131,7 +136,7 @@ for (const cluster of clusters) {
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
 
-      results.push({ input, output, fp, calls: [...recorder] })
+      results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
     }
 
     // Use first run as the golden (representative) for the .regret file

@@ -193,7 +193,8 @@ async function runCluster(clusterDef, regret) {
   }
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
-  const hashes = []
+  const hashes = []           // flat array of all fingerprints (golden input only, for backward compat)
+  const hashesByInput = {}    // { inputKey: [fp_run1, fp_run2, ...] } — for per-input drift detection
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
@@ -211,11 +212,15 @@ async function runCluster(clusterDef, regret) {
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
       const entryFn  = ghost[entry] ?? mod[entry]
       if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
-      // multiArgs: spread input as separate arguments
-      const args_ = multiArgs && Array.isArray(currentInput) ? currentInput : [currentInput]
+      // Deep-clone input before calling to prevent mutation from corrupting fingerprint
+      // Two clones: one for fingerprint (immutable record), one for args (may be mutated by function)
+      const inputForFp = deepClone(currentInput)
+      const inputForArgs = deepClone(currentInput)
+      // multiArgs: spread input as separate arguments (use separate clone for args)
+      const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const output   = await entryFn(...args_)
       lastOutput     = output
-      const fpInput  = multiArgs && Array.isArray(currentInput) ? currentInput : currentInput
+      const fpInput  = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
 
       // Determine fingerprint based on fingerprintMode (from .regret or manifest)
       const mode = regret.fingerprintMode || fingerprintMode || 'value'
@@ -244,10 +249,19 @@ async function runCluster(clusterDef, regret) {
           ? fingerprint(fpInput, output, { normalize, ignoreFields })
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
-      hashes.push(fp)
+
+      // Track per-input fingerprints for drift detection
+      const inputKey = JSON.stringify(currentInput)
+      if (!hashesByInput[inputKey]) hashesByInput[inputKey] = []
+      hashesByInput[inputKey].push(fp)
+
+      // Only push golden input fingerprints to the flat array (for backward compat)
+      if (JSON.stringify(currentInput) === JSON.stringify(regret.input)) {
+        hashes.push(fp)
+      }
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+  return { hashes, hashesByInput, lastOutput }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +320,21 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, hashesByInput, lastOutput, skipped } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Per-input drift detection: each input must be stable across all runs
+    // (fixes false positive when multiple inputs produce different but stable fingerprints)
+    let isDrift = false
+    if (driftMode) {
+      for (const [inputKey, inputHashes] of Object.entries(hashesByInput)) {
+        if (new Set(inputHashes).size > 1) {
+          isDrift = true
+          break
+        }
+      }
+    }
 
     if (updateMode) {
       if (isMatch) {
@@ -322,12 +346,19 @@ for (const file of regretFiles) {
         results.push({ id, pass: true, updated: true })
       }
     } else if (driftMode) {
+      const inputCount = Object.keys(hashesByInput).length
       if (isDrift) {
-        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+        // Show which input(s) drifted
+        const driftedInputs = Object.entries(hashesByInput)
+          .filter(([, h]) => new Set(h).size > 1)
+          .map(([k, h]) => `    input=${k.slice(0, 40)}  hashes=[${h.join(' / ')}]`)
+        console.log(`  ❌ ${id.padEnd(35)} DRIFT  (${inputCount} input${inputCount > 1 ? 's' : ''})`)
+        driftedInputs.forEach(l => console.log(l))
         results.push({ id, pass: false, drift: true })
       } else {
         const icon = isMatch ? '✅' : '❌'
-        console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
+        const inputInfo = inputCount > 1 ? ` × ${runs} (${inputCount} inputs)` : ` × ${runs}`
+        console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}${inputInfo}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
         results.push({ id, pass: isMatch })
       }
     } else {
