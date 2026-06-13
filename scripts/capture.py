@@ -124,6 +124,10 @@ def apply_output_transform(output, transform):
             return len(obj)
         elif transform == 'type':
             return type(obj).__name__
+        elif transform == 'hex':
+            if isinstance(obj, bytes):
+                return obj.hex()
+            return obj
         else:
             raise ValueError(f"Unknown outputTransform: '{transform}'")
 
