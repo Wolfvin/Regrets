@@ -239,13 +239,21 @@ def main():
         sys.exit(1)
 
     # Add pythonPath to sys.path if specified in any Python cluster
+    # Supports both single string ("src") and array of strings (["src", "lib"])
     for cluster in manifest.get('clusters', []):
         if cluster.get('stack') == 'python':
-            python_path = cluster.get('pythonPath', '')
-            if python_path:
-                abs_path = os.path.join(os.getcwd(), python_path)
-                if abs_path not in sys.path:
-                    sys.path.insert(0, abs_path)
+            raw_python_path = cluster.get('pythonPath', '')
+            if isinstance(raw_python_path, str):
+                python_paths = [raw_python_path] if raw_python_path else []
+            elif isinstance(raw_python_path, list):
+                python_paths = raw_python_path
+            else:
+                python_paths = []
+            for python_path in python_paths:
+                if python_path:
+                    abs_path = os.path.join(os.getcwd(), python_path)
+                    if abs_path not in sys.path:
+                        sys.path.insert(0, abs_path)
 
     update_mode = bool(cli['update'])
     drift_mode = cli['runs'] > 1 and not update_mode

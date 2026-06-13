@@ -183,6 +183,11 @@ switch (command) {
     break
   }
 
+  case 'audit': {
+    success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
+    break
+  }
+
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -218,6 +223,7 @@ Usage:
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows)
   node scripts/regret.js scan <path> [--manifest]      Scan source, suggest clusters
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
+  node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
