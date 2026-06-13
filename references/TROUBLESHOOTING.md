@@ -38,6 +38,8 @@ Common issues encountered during regret-based regression testing, with causes an
 
 **Cause:** Hidden non-determinism in the code path. Common culprits include: `Date.now()` or `new Date()` producing different timestamps across runs; `Math.random()` or UUID generation; global mutable state modified by another cluster's test run; or network/API calls that return varying responses.
 
+**Note (v1.1+):** Drift detection now checks per-input stability. Previously, clusters with multiple inputs were falsely flagged as drifting because different inputs naturally produce different fingerprints. Now, drift is only detected when the *same input* produces different fingerprints across runs. If you were experiencing false drift reports on multi-input clusters, update to the latest validate.js.
+
 **Solution:**
 1. Add `"normalize": ["timestamps"]` to the cluster in `manifest.json` if the output contains ISO datetime strings.
 2. Add `"normalize": ["uuids"]` if the output contains UUID v4 values.
