@@ -60,6 +60,7 @@ function parseRegret(content) {
     else if (key === 'ignoreFields') meta.ignoreFields = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
+    else if (key === 'kwargs') meta.kwargs = val === 'true'
     else if (key === 'version') meta.version = Number(val)
     else if (key === 'constructorArgs' || key === 'setup') meta[key] = JSON.parse(val)
     else if (key === 'instanceMethods') {

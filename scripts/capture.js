@@ -57,7 +57,7 @@ for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
-          instanceMethods = {} } = cluster
+          instanceMethods = {}, kwargs = false } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -222,6 +222,8 @@ for (const cluster of clusters) {
         recorder.length = 0  // clear between runs
         const inputForRecord = deepClone(input)
         const inputForArgs = deepClone(input)
+        // kwargs is a no-op for JS: JS has no **kwargs syntax, so dict inputs are
+        // always passed as a single object argument regardless of the kwargs flag.
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
         const output = deepClone(rawOutput)
@@ -306,6 +308,7 @@ for (const cluster of clusters) {
       constructorArgs?.length ? `constructorArgs: ${JSON.stringify(constructorArgs)}` : null,
       setup?.length ? `setup: ${JSON.stringify(setup)}` : null,
       Object.keys(instanceMethods).length ? `instanceMethods: ${JSON.stringify(instanceMethods)}` : null,
+      kwargs ? `kwargs: ${kwargs}` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,

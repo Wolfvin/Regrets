@@ -163,6 +163,7 @@ def main():
         fingerprint_mode = cluster.get('fingerprintMode', 'value')
         value_paths = cluster.get('valuePaths', [])
         multi_args = cluster.get('multiArgs', False)
+        kwargs_mode = cluster.get('kwargs', False)
         inputs = cluster.get('inputs', [None])
 
         print(f"\n📡 Capturing: {cid}")
@@ -198,6 +199,16 @@ def main():
                 if multi_args and isinstance(input_for_args, list):
                     output = entry_fn(*input_for_args)
                     fp_input = input_for_record
+                elif kwargs_mode and isinstance(input_for_args, dict):
+                    # kwargs mode: input dict is unpacked as keyword arguments
+                    # e.g., input {"tiles": [...], "win_tile": 36} → entry_fn(tiles=[...], win_tile=36)
+                    output = entry_fn(**input_for_args)
+                    fp_input = input_for_record
+                elif kwargs_mode and not isinstance(input_for_args, dict):
+                    raise TypeError(
+                        f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                        f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                    )
                 else:
                     output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                     fp_input = input_for_record
@@ -266,6 +277,8 @@ def main():
                 lines.append(f"ignoreFields: [{', '.join(ignore_fields)}]")
             if cluster.get('multiArgs'):
                 lines.append(f"multiArgs: {multi_args}")
+            if kwargs_mode:
+                lines.append(f"kwargs: {kwargs_mode}")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
 

@@ -81,6 +81,8 @@ def parse_regret(content):
             meta['fingerprintMode'] = val
         elif key == 'valuePaths':
             meta['valuePaths'] = [p.strip() for p in val.strip('[]').split(',') if p.strip()]
+        elif key == 'kwargs':
+            meta['kwargs'] = val.lower() == 'true'
         else:
             meta[key] = val
 
@@ -292,6 +294,7 @@ def main():
             fp_mode = cluster_def.get('fingerprintMode', 'value')
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
+            kwargs_mode = regret.get('kwargs', cluster_def.get('kwargs', False))
 
             mod = importlib.import_module(module_path)
 
@@ -325,6 +328,15 @@ def main():
                     if multi_args and isinstance(input_for_args, list):
                         output = entry_fn(*input_for_args)
                         fp_input = input_for_fp
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        # kwargs mode: input dict is unpacked as keyword arguments
+                        output = entry_fn(**input_for_args)
+                        fp_input = input_for_fp
+                    elif kwargs_mode and not isinstance(input_for_args, dict):
+                        raise TypeError(
+                            f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                            f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                        )
                     else:
                         output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                         fp_input = input_for_fp
