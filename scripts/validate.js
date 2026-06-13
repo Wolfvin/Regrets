@@ -193,7 +193,8 @@ async function runCluster(clusterDef, regret) {
   }
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
-  const hashes = []
+  const hashes = []           // flat list of all hashes (for backward compat)
+  const hashesPerInput = {}   // { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
   let lastOutput = null
 
   // Determine which inputs to validate.
@@ -254,9 +255,14 @@ async function runCluster(clusterDef, regret) {
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
       hashes.push(fp)
+
+      // Track per-input hashes for drift detection
+      const inputKey = JSON.stringify(currentInput)
+      if (!hashesPerInput[inputKey]) hashesPerInput[inputKey] = []
+      hashesPerInput[inputKey].push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+  return { hashes, hashesPerInput, lastOutput }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -266,10 +272,14 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
   const now = new Date().toISOString()
   // Sanitize reason: replace newlines to prevent audit.log corruption
   const safeReason = reason.replace(/[\r\n]+/g, ' ')
+  // Convert TypedArrays to regular arrays for JSON serialization
+  const serializableOutput = ArrayBuffer.isView(liveOutput) && !(liveOutput instanceof DataView)
+    ? Array.from(liveOutput)
+    : liveOutput
   const newContent = regret.raw
     .replace(/^fingerprint: .+$/m, `fingerprint: ${newHash}`)
     .replace(/^captured: .+$/m,    `captured: ${now}`)
-    .replace(/^OUTPUT .+$/m,       `OUTPUT ${JSON.stringify(liveOutput)}`)
+    .replace(/^OUTPUT .+$/m,       `OUTPUT ${JSON.stringify(serializableOutput)}`)
     .replace(/^HASH .+$/m,         `HASH   ${newHash}`)
   writeFileSync(regretPath, newContent, 'utf8')
 
@@ -315,11 +325,14 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, hashesPerInput, lastOutput, skipped } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Per-input drift detection: each input must produce the same hash across all runs.
+    // Previous logic used `new Set(hashes).size > 1` which was wrong — it compared
+    // fingerprints from DIFFERENT inputs against each other, causing false drift reports.
+    const isDrift  = driftMode && Object.values(hashesPerInput).some(inputHashes => new Set(inputHashes).size > 1)
 
     if (updateMode) {
       if (isMatch) {

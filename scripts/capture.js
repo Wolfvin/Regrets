@@ -141,6 +141,12 @@ for (const cluster of clusters) {
     const regretPath = join(outDir, `${id}.regret`)
     const timestamp  = new Date().toISOString()
 
+    // Convert TypedArrays to regular arrays for JSON serialization
+    // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
+    const serializableOutput = ArrayBuffer.isView(output) && !(output instanceof DataView)
+      ? Array.from(output)
+      : output
+
     const content = [
       `cluster: ${id}`,
       `version: 1`,
@@ -156,7 +162,7 @@ for (const cluster of clusters) {
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
       `---`,
       `INPUT  ${JSON.stringify(input)}`,
-      `OUTPUT ${JSON.stringify(output)}`,
+      `OUTPUT ${JSON.stringify(serializableOutput)}`,
       `HASH   ${fp}`,
     ].filter(Boolean).join('\n')
 
