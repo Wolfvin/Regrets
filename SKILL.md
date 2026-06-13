@@ -217,11 +217,13 @@ Non-deterministic values are normalized before hashing:
 | `epochs` | Unix epoch numbers (1B–10T) | `<EPOCH>` |
 | `absPaths` | Absolute file paths | `<ROOT>/...` |
 | `dynamicDates` | Embedded MMYYYY/YYYY in strings | `<MMYYYY>`/`<YYYY>` |
+| `normalizeNow` | Current-time-derived output (function calls `new Date()` internally) | `<NOW_MMYYYY>`/`<NOW_YYYY>` |
 | `floatTolerance` | Floats rounded to 2dp before hashing | `round(n * 100) / 100` |
 | `floatTolerance:N` | Floats rounded to N decimal places | `round(n * 10^N) / 10^N` |
 | `floatPrecision` | Whole-value floats → integers, decimal floats → 2dp, string floats stripped | `1500000.0` → `1500000` |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
+Use `normalizeNow` when the function's output IS derived from the current time (e.g., `filenameFallback()` that calls `new Date()` to produce `"FPK-062026"`). Unlike `dynamicDates` which normalizes embedded dates in data, `normalizeNow` signals that the entire output meaning is "the current time expressed as a filename". The distinct placeholders (`<NOW_MMYYYY>` vs `<MMYYYY>`) help audit reviewers distinguish "data contains a date" from "output IS a date".
 Use `floatTolerance` for financial/scientific computing where tiny floating-point differences (e.g., `123456.0` vs `123456.00000001`) should not trigger false negatives. `floatTolerance:0` rounds to integers — ideal for IDR amounts.
 Use `floatPrecision` for OCR/parsing pipelines where the same value may appear as `1500000` or `1500000.0` depending on the parsing path — common in financial OCR where integer amounts are sometimes stored as floats. Both rules can coexist: `floatTolerance` handles representation differences, `floatPrecision` handles type equivalence and string normalization.
 
@@ -871,6 +873,7 @@ regression-testing/
     ├── case-study-petungan.md  ← Case study: petungan (Javanese calendar, circular dep)
     ├── case-study-riimut.md    ← Case study: riimut (rune transliteration, dual-truth)
     ├── case-study-shakespearelang.md ← Case study: shakespearelang (esoteric language)
+    ├── case-study-coretax.md       ← Case study: Coretax-Auto-Downloader (date-dependent output, discriminated unions, God Object)
     ├── dual-truth-verification.md ← Dual-truth verification pattern
     └── mapping-transliteration.md ← Mapping/transliteration library guide
 ```
