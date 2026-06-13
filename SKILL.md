@@ -600,7 +600,11 @@ regression-testing/
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
     ├── braille-encode.md       ← Case study: qntm/braille-encode (binary↔Braille)
-    └── base1.md                ← Case study: qntm/base1 (unary encoding, BigInt)
+    ├── base1.md                ← Case study: qntm/base1 (unary encoding, BigInt)
+    ├── stateful-encoding.md    ← Stateful encoding libraries (Baudot, Morse, shift states)
+    ├── case-study-ogham.md     ← Case study: evanshortiss/ogham (CJS wrapper pattern)
+    ├── esoteric-language.md    ← Esoteric language interpreter testing pattern
+    └── single-file-python.md   ← Single-file Python module integration pattern
 ```
 
 ---
