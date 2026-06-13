@@ -1,0 +1,12 @@
+cluster: braille-decode
+version: 1
+fingerprint: 26mquf3
+captured: 2026-06-13T13:52:53.686Z
+watches: [decode]
+entry: decode
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "⡓⣘⠙⣋⢹⠀⡥⠐"
+OUTPUT [212,29,140,217,143,0,178,4]
+HASH   26mquf3

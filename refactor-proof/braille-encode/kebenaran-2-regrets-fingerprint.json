@@ -1,0 +1,4 @@
+{
+  "braille-encode": "cluster: braille-encode\nversion: 1\nfingerprint: 38nwscl\ncaptured: 2026-06-13T13:52:53.686Z\nwatches: [encode]\nentry: encode\nstack: js\nfingerprintLevel: entry\n---\nINPUT  [212,29,140,217,143,0,178,4]\nOUTPUT \"⡓⣘⠙⣋⢹⠀⡥⠐\"\nHASH   38nwscl",
+  "braille-decode": "cluster: braille-decode\nversion: 1\nfingerprint: 26mquf3\ncaptured: 2026-06-13T13:52:53.686Z\nwatches: [decode]\nentry: decode\nstack: js\nfingerprintLevel: entry\n---\nINPUT  \"⡓⣘⠙⣋⢹⠀⡥⠐\"\nOUTPUT [212,29,140,217,143,0,178,4]\nHASH   26mquf3"
+}

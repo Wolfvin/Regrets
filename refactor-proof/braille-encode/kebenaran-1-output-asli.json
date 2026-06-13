@@ -1,0 +1,98 @@
+{
+  "encode": {
+    "[212,29,140,217,143,0,178,4]": {
+      "input": [
+        212,
+        29,
+        140,
+        217,
+        143,
+        0,
+        178,
+        4
+      ],
+      "output": "⡓⣘⠙⣋⢹⠀⡥⠐",
+      "outputType": "string",
+      "outputLength": 8
+    },
+    "[0]": {
+      "input": [
+        0
+      ],
+      "output": "⠀",
+      "outputType": "string",
+      "outputLength": 1
+    },
+    "[255,0,128,127,1]": {
+      "input": [
+        255,
+        0,
+        128,
+        127,
+        1
+      ],
+      "output": "⣿⠀⠁⣾⢀",
+      "outputType": "string",
+      "outputLength": 5
+    },
+    "[15,240,85,170]": {
+      "input": [
+        15,
+        240,
+        85,
+        170
+      ],
+      "output": "⢸⡇⣒⠭",
+      "outputType": "string",
+      "outputLength": 4
+    }
+  },
+  "decode": {
+    "\"⡓⣘⠙⣋⢹⠀⡥⠐\"": {
+      "input": "⡓⣘⠙⣋⢹⠀⡥⠐",
+      "output": [
+        212,
+        29,
+        140,
+        217,
+        143,
+        0,
+        178,
+        4
+      ],
+      "outputType": "Uint8Array",
+      "outputLength": 8
+    },
+    "\"⠀\"": {
+      "input": "⠀",
+      "output": [
+        0
+      ],
+      "outputType": "Uint8Array",
+      "outputLength": 1
+    },
+    "\"⣿\"": {
+      "input": "⣿",
+      "output": [
+        255
+      ],
+      "outputType": "Uint8Array",
+      "outputLength": 1
+    },
+    "\"⠇⣇⡧⣧⡗⣗⡷⣷\"": {
+      "input": "⠇⣇⡧⣧⡗⣗⡷⣷",
+      "output": [
+        224,
+        241,
+        242,
+        243,
+        244,
+        245,
+        246,
+        247
+      ],
+      "outputType": "Uint8Array",
+      "outputLength": 8
+    }
+  }
+}

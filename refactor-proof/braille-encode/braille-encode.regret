@@ -1,0 +1,12 @@
+cluster: braille-encode
+version: 1
+fingerprint: 38nwscl
+captured: 2026-06-13T13:52:53.686Z
+watches: [encode]
+entry: encode
+stack: js
+fingerprintLevel: entry
+---
+INPUT  [212,29,140,217,143,0,178,4]
+OUTPUT "⡓⣘⠙⣋⢹⠀⡥⠐"
+HASH   38nwscl
