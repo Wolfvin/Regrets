@@ -42,7 +42,8 @@ const rawOutputs = {}
 for (const cluster of manifest.clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [],
-          inputs, classMethod, constructor: constructorName, constructorArgs, setup } = cluster
+          inputs, classMethod, constructor: constructorName, constructorArgs, setup,
+          singletonMethod, singletonName } = cluster
 
   if (stack && stack !== 'js' && stack !== 'ts') {
     console.log(`  ⏭️  ${id}: stack=${stack} — skipping (use truth.py for Python)`)
@@ -85,6 +86,25 @@ for (const cluster of manifest.clusters) {
         const inputForArgs = deepClone(input)
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await instance[classMethod](...args_)
+        outputs.push({ input: deepClone(input), output: deepClone(rawOutput) })
+      }
+      rawOutputs[id] = outputs
+    } else if (singletonMethod) {
+      // ── Singleton method entry ────────────────────────────────────────
+      const singletonExportName = singletonName || entry
+      let singleton = rawModule[singletonExportName] ?? rawModule.default?.[singletonExportName]
+      // CJS fallback
+      if (!singleton && rawModule.default && typeof rawModule.default === 'object' && typeof rawModule.default[singletonMethod] === 'function') {
+        singleton = rawModule.default
+      }
+      if (!singleton || typeof singleton !== 'object') throw new Error(`Singleton "${singletonExportName}" not found`)
+      if (typeof singleton[singletonMethod] !== 'function') throw new Error(`Method "${singletonMethod}" not found on singleton "${singletonExportName}"`)
+
+      const outputs = []
+      for (const input of testInputs) {
+        const inputForArgs = deepClone(input)
+        const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const rawOutput = await singleton[singletonMethod](...args_)
         outputs.push({ input: deepClone(input), output: deepClone(rawOutput) })
       }
       rawOutputs[id] = outputs
