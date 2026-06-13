@@ -15,6 +15,73 @@ import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from 
 import { createGhost, deepClone, normalizeHtml } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 
+// ─── Shared output transform logic (mirrors capture.js) ────────────────────────
+// Supports: 'str', 'json', 'keys', 'toString', 'toJSON', 'pojo', 'repr', 'len', 'type'
+
+function applyOutputTransform(output, transform) {
+  if (!transform) return output
+  if (transform === 'str') {
+    if (Array.isArray(output)) return output.map(item => String(item))
+    return String(output)
+  }
+  if (transform === 'json') {
+    if (Array.isArray(output)) return output.map(item => JSON.parse(JSON.stringify(item)))
+    return JSON.parse(JSON.stringify(output))
+  }
+  if (transform === 'keys') {
+    if (output && typeof output === 'object') return Object.keys(output)
+    return output
+  }
+  if (transform === 'toString') {
+    if (Array.isArray(output)) return output.map(item => (item && typeof item.toString === 'function') ? item.toString() : String(item))
+    if (output && typeof output.toString === 'function' && typeof output !== 'string') return output.toString()
+    return String(output)
+  }
+  if (transform === 'toJSON') {
+    if (Array.isArray(output)) return output.map(item => (item && typeof item.toJSON === 'function') ? item.toJSON() : deepClone(item))
+    if (output && typeof output.toJSON === 'function') return output.toJSON()
+    return deepClone(output)
+  }
+  if (transform === 'pojo') return toPojo(output)
+  if (transform === 'repr') return JSON.stringify(output)
+  if (transform === 'len') {
+    if (Array.isArray(output)) return output.length
+    if (typeof output === 'string') return output.length
+    if (output && typeof output === 'object') return Object.keys(output).length
+    return 0
+  }
+  if (transform === 'type') {
+    if (output === null) return 'null'
+    if (output === undefined) return 'undefined'
+    if (Array.isArray(output)) return 'array'
+    if (output && output.constructor && output.constructor.name !== 'Object') return output.constructor.name
+    return typeof output
+  }
+  if (transform.includes('.')) return output // handled async in caller
+  return output
+}
+
+function toPojo(val) {
+  if (val === null || val === undefined) return val
+  if (typeof val !== 'object') return val
+  if (typeof val === 'bigint') return val.toString() + 'n'
+  if (Array.isArray(val)) return val.map(toPojo)
+  if (val instanceof Map) {
+    const entries = [...val.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    return Object.fromEntries(entries.map(([k, v]) => [k, toPojo(v)]))
+  }
+  if (val instanceof Set) return [...val].map(toPojo)
+  if (val instanceof Date) return val.toISOString()
+  if (val instanceof RegExp) return val.toString()
+  if (ArrayBuffer.isView(val) && !(val instanceof DataView)) return Array.from(val).map(toPojo)
+  if (typeof val.toJSON === 'function') return toPojo(val.toJSON())
+  const result = {}
+  for (const key of Object.keys(val)) {
+    try { const v = val[key]; if (typeof v !== 'function') result[key] = toPojo(v) } catch { /* skip */ }
+  }
+  return result
+}
+
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 
 function getArg(args, flag) {
@@ -332,35 +399,18 @@ async function runCluster(clusterDef, regret) {
 
         // Apply outputTransform if specified (from .regret or manifest)
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
-        let transformedOutput = consumedOutput
-        if (outputTransform) {
-          if (outputTransform === 'str') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => String(item))
-            } else {
-              transformedOutput = String(consumedOutput)
-            }
-          } else if (outputTransform === 'json') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
-            } else {
-              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
-            }
-          } else if (outputTransform === 'keys') {
-            if (consumedOutput && typeof consumedOutput === 'object') {
-              transformedOutput = Object.keys(consumedOutput)
-            }
-          } else if (outputTransform.includes('.')) {
-            // Custom: "module.function" — dynamic import
-            const lastDot = outputTransform.lastIndexOf('.')
-            const modPath = outputTransform.slice(0, lastDot)
-            const fnName = outputTransform.slice(lastDot + 1)
-            try {
-              const customMod = await import(resolve(process.cwd(), modPath))
-              transformedOutput = customMod[fnName](consumedOutput)
-            } catch (e) {
-              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-            }
+        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
+
+        // Handle async custom outputTransform (module.function pattern)
+        if (outputTransform && outputTransform.includes('.')) {
+          const lastDot = outputTransform.lastIndexOf('.')
+          const modPath = outputTransform.slice(0, lastDot)
+          const fnName = outputTransform.slice(lastDot + 1)
+          try {
+            const customMod = await import(resolve(process.cwd(), modPath))
+            transformedOutput = customMod[fnName](consumedOutput)
+          } catch (e) {
+            throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
           }
         }
 
@@ -414,35 +464,18 @@ async function runCluster(clusterDef, regret) {
 
         // Apply outputTransform if specified (from .regret or manifest)
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
-        let transformedOutput = consumedOutput
-        if (outputTransform) {
-          if (outputTransform === 'str') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => String(item))
-            } else {
-              transformedOutput = String(consumedOutput)
-            }
-          } else if (outputTransform === 'json') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
-            } else {
-              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
-            }
-          } else if (outputTransform === 'keys') {
-            if (consumedOutput && typeof consumedOutput === 'object') {
-              transformedOutput = Object.keys(consumedOutput)
-            }
-          } else if (outputTransform.includes('.')) {
-            // Custom: "module.function" — dynamic import
-            const lastDot = outputTransform.lastIndexOf('.')
-            const modPath = outputTransform.slice(0, lastDot)
-            const fnName = outputTransform.slice(lastDot + 1)
-            try {
-              const customMod = await import(resolve(process.cwd(), modPath))
-              transformedOutput = customMod[fnName](consumedOutput)
-            } catch (e) {
-              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-            }
+        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
+
+        // Handle async custom outputTransform (module.function pattern)
+        if (outputTransform && outputTransform.includes('.')) {
+          const lastDot = outputTransform.lastIndexOf('.')
+          const modPath = outputTransform.slice(0, lastDot)
+          const fnName = outputTransform.slice(lastDot + 1)
+          try {
+            const customMod = await import(resolve(process.cwd(), modPath))
+            transformedOutput = customMod[fnName](consumedOutput)
+          } catch (e) {
+            throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
           }
         }
 
