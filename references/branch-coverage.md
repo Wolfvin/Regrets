@@ -4,7 +4,19 @@
 
 Regrets captures ONE execution path per input. If a function has `if/else`, early returns, exception paths, or `match` statements, only the path triggered by the given input is fingerprinted. The rest are invisible.
 
-**Example of the danger:**
+**Example of the danger (JavaScript):**
+
+```javascript
+function validateAge(age) {
+  if (age < 0) return "invalid: negative"    // Branch 1
+  if (age === 0) return "invalid: zero"       // Branch 2
+  if (age < 18) return "minor"                // Branch 3
+  if (age >= 65) return "senior"              // Branch 4
+  return "adult"                               // Branch 5
+}
+```
+
+**Example of the danger (Python):**
 
 ```python
 def compute(value):
@@ -16,57 +28,57 @@ def compute(value):
         return zero_special_case()
 ```
 
-With input `[5]`, only the `value > 0` branch is fingerprinted. A refactor that breaks `process_negative()` or `zero_special_case()` would pass all GREEN — because those branches were never tested.
+With input `[25]` (JS) or `[5]` (Python), only one branch is fingerprinted. A refactor that breaks the other branches would pass all GREEN — because those branches were never tested.
 
-## Solution 1: `regret scan` — Discover What to Test
+## Branch Coverage Report
 
-Before writing a manifest, scan the source code to discover which functions are good cluster candidates:
-
-```bash
-python scripts/scan.py src/my_module.py
-python scripts/scan.py src/ --recursive
-python scripts/scan.py src/ --manifest > regrets/manifest.json
-```
-
-`scan` analyzes Python files using AST and reports:
-
-| Output | Description |
-|--------|-------------|
-| Function name | All defined functions |
-| Purity | Whether the function is pure (no IO, random, global state) |
-| Branch count | Estimated number of branches (if/match/try) |
-| Call graph | Which other functions this one calls (→ watch candidates) |
-| Suggested cluster | Auto-generated cluster ID, entry, watches |
-
-### Purity Heuristic
-
-Functions are marked "pure" if they contain no:
-- `global` or `nonlocal` statements
-- `open()`, `print()`, `input()`, `exec()`, `eval()` calls
-- `random.*()` calls
-- Network calls (`urllib`, `requests`, `http`, `socket`)
-
-Pure functions are the best cluster candidates because they produce deterministic output.
-
-### Generating a Manifest
+Run `regret coverage` to see how well your inputs cover all branches:
 
 ```bash
-python scripts/scan.py src/ --recursive --manifest > regrets/manifest.json
-```
+# Auto-detects stack from manifest
+node scripts/regret.js coverage
+node scripts/regret.js coverage --cluster validate-age --verbose
 
-This generates a ready-to-use manifest.json with only pure functions suggested as clusters. Review and adjust before running `regret capture`.
-
-## Solution 2: `regret coverage` — Know What You're Missing
-
-After writing a manifest and capturing fingerprints, check branch coverage:
-
-```bash
+# Direct Python invocation
 python scripts/coverage.py
 python scripts/coverage.py --cluster my-cluster
 python scripts/coverage.py --detailed
 ```
 
-`coverage` reads the manifest, finds the source files, and uses static analysis to estimate:
+Output:
+
+```
+BRANCH COVERAGE REPORT
+────────────────────────────────────────────────────────────────────────────────
+cluster                          inputs  branches   coverage   status
+────────────────────────────────────────────────────────────────────────────────
+validate-age                     1       5          20%        🔴 UNDER-COVERED
+format-currency                  3       3          100%       ✅ WELL-COVERED
+sanitize-input                   2       4          50%        🟡 PARTIAL
+────────────────────────────────────────────────────────────────────────────────
+
+⚠️  Coverage Recommendations:
+  validate-age                   → add at least 4 more input(s) to cover branches
+  sanitize-input                 → consider adding inputs for edge cases and error paths
+```
+
+## How Branch Counting Works
+
+The coverage tool uses static analysis to count decision points:
+
+**JS (regex-based heuristics):**
+
+| Pattern | What it counts | Example |
+|---------|---------------|---------|
+| `if (cond)` | Conditional branch | `if (x > 0)` |
+| `else { }` | Alternative branch | `else { return -1 }` |
+| `cond ? a : b` | Ternary branch | `x ? x : default` |
+| `case X:` | Switch case | `switch(type) { case "A": ... }` |
+| Early `return` | Exit before end | `if (!valid) return null` |
+| `catch { }` | Error path | `try { ... } catch { ... }` |
+| `&&` / `||` | Short-circuit path | `a && b`, `x || default` |
+
+**Python (AST-based):**
 
 | Metric | Description |
 |--------|-------------|
@@ -79,35 +91,93 @@ python scripts/coverage.py --detailed
 
 | Label | Meaning |
 |-------|---------|
-| ✅ FULL | No branches — single input covers everything |
+| ✅ FULL / WELL-COVERED (≥80%) | No branches — single input covers everything, or inputs ≥ branches |
 | ✅ LIKELY FULL | Number of inputs ≥ estimated minimum paths |
-| 🟡 PARTIAL | Some branches likely uncovered (50-99%) |
-| 🔴 LOW | Most branches uncovered (<50%) |
+| 🟡 PARTIAL (50-79%) | Some branches likely uncovered |
+| 🔴 LOW / UNDER-COVERED (<50%) | Most branches uncovered — CI gate fails |
 
-### What to Do with Partial/Low Coverage
+**Note:** This is an approximation. The actual number of reachable paths may differ due to:
+- Unreachable code
+- Mutually exclusive conditions
+- Exception-based control flow
 
-1. Read the `--detailed` output to see exactly which lines have branches
-2. Add inputs that trigger the uncovered branches
-3. Re-capture and re-validate
-4. Re-run coverage to verify improvement
+## Minimum Input Rule
 
-### Example
+For each cluster, the number of inputs should be **at least equal to** the number of branches. This doesn't guarantee full coverage (combinatorial explosion for nested branches), but it's the minimum required to exercise each path at least once.
 
 ```
-BRANCH COVERAGE REPORT
-────────────────────────────────────────────────────────────────────────
-cluster                               branches  min_paths  inputs  coverage
-────────────────────────────────────────────────────────────────────────
-  sexagenary-cycle-from-int                 1          2       1     🟡 PARTIAL ~50%
-  four-pillars-from-datetime                5         32       1     🔴 LOW ~3%
-  hexagram-from-binary                      1          2       2     ✅ LIKELY FULL
-  earthly-branch-phase                      0          1       1     ✅ FULL
-────────────────────────────────────────────────────────────────────────
-
-⚠️  2/4 cluster(s) may have uncovered branches.
-   These clusters could pass all GREEN but miss execution paths.
-   Add more inputs to cover all branches.
+inputs >= branches  →  MINIMUM requirement
+inputs >= branches * 1.5  →  GOOD coverage
+inputs >= branches * 2  →  THOROUGH coverage
 ```
+
+The `regret coverage` command exits with code 1 if any cluster is under-covered (score < 50%), making it suitable as a CI gate.
+
+## The Branch Map Pattern
+
+For rigorous refactoring, create a `regrets/branch-map.md` file before writing the manifest:
+
+```markdown
+# Branch Map
+
+## validateAge(age)
+- Branch 1: age < 0 → "invalid: negative"
+  - Input needed: -1
+- Branch 2: age === 0 → "invalid: zero"
+  - Input needed: 0
+- Branch 3: age < 18 → "minor"
+  - Input needed: 10
+- Branch 4: age >= 65 → "senior"
+  - Input needed: 70
+- Branch 5: else → "adult"
+  - Input needed: 25
+
+## calculateDiscount(type, amount)
+- Branch 1: type === "vip" → amount * 0.3
+  - Input needed: ["vip", 100]
+- Branch 2: type === "member" → amount * 0.1
+  - Input needed: ["member", 100]
+- Branch 3: type === "guest" → amount * 0
+  - Input needed: ["guest", 100]
+- Branch 4: amount > 1000 → bonus 5%
+  - Input needed: ["vip", 1500]
+```
+
+This manual analysis is more thorough than automated branch counting, and forces the agent to think about what each branch does and what input exercises it.
+
+## Scan Command — Discover What to Test
+
+Before writing a manifest, scan the source code to discover which functions are good cluster candidates:
+
+```bash
+# Auto-detects stack from manifest
+node scripts/regret.js scan
+node scripts/regret.js scan --dir src/lib/
+node scripts/regret.js scan --stack python
+node scripts/regret.js scan --format manifest > regrets/manifest.json
+
+# Direct Python invocation
+python scripts/scan.py src/my_module.py
+python scripts/scan.py src/ --recursive
+python scripts/scan.py src/ --manifest > regrets/manifest.json
+```
+
+The scan command:
+1. Walks the project directory
+2. Identifies exported functions
+3. Estimates cyclomatic complexity / purity
+4. Suggests clusters prioritized by complexity
+5. Can output a manifest.json starting point with `--format manifest`
+
+### Purity Heuristic (Python)
+
+Functions are marked "pure" if they contain no:
+- `global` or `nonlocal` statements
+- `open()`, `print()`, `input()`, `exec()`, `eval()` calls
+- `random.*()` calls
+- Network calls (`urllib`, `requests`, `http`, `socket`)
+
+Pure functions are the best cluster candidates because they produce deterministic output.
 
 ## Integration with Regrets Workflow
 
@@ -116,18 +186,32 @@ The scan and coverage commands fit into the existing workflow:
 ```
 1. regret scan src/ --manifest   → Generate initial manifest
 2. Edit manifest (adjust inputs, add normalization rules)
-3. regret coverage               → Check coverage before capture
-4. Add inputs for uncovered branches
-5. regret capture                → Capture fingerprints
-6. regret drift                  → Ensure stability
-7. regret coverage               → Final coverage check
-8. regret health                 → All clusters SOLID?
-9. [GATE] All GREEN + FULL coverage → proceed to refactor
+3. regret capture                → Capture fingerprints
+4. regret coverage               → Check coverage (add inputs if UNDER-COVERED)
+5. regret drift                  → Ensure stability
+6. regret health                 → All clusters SOLID?
+7. [GATE] All GREEN + FULL coverage → proceed to refactor
 ```
+
+### Relationship to Health Score
+
+| Report | Measures | When to check |
+|--------|----------|--------------|
+| `regret health` | Update/drift history | After multiple refactor cycles |
+| `regret coverage` | Input-to-branch ratio | Before first refactor |
+| `regret drift` | Non-determinism | Before and after refactor |
+
+A cluster that is SOLID in health but UNDER-COVERED in coverage is a **false sense of security** — it has never changed, but only because no input exercises the code that would break.
+
+## What to Do with Partial/Low Coverage
+
+1. Read the `--verbose` / `--detailed` output to see exactly which lines have branches
+2. Add inputs that trigger the uncovered branches
+3. Re-capture and re-validate
+4. Re-run coverage to verify improvement
 
 ## Limitations
 
-- **Static analysis only** — coverage estimates are based on AST, not runtime tracing
+- **Static analysis only** — coverage estimates are based on regex heuristics (JS) or AST (Python), not runtime tracing
 - **Path explosion** — for functions with many independent branches, the minimum path count can be very high. In practice, test the most important branches, not all combinations
-- **Python only** — scan and coverage currently support Python source files only. JS/TS support would require a different AST parser
-- **No dynamic branch tracking** — we don't instrument code to track which branches were actually hit at runtime. This would require code coverage tools (e.g., `coverage.py`) integration
+- **No dynamic branch tracking** — we don't instrument code to track which branches were actually hit at runtime. This would require code coverage tools (e.g., `coverage.py`, Istanbul/nyc) integration

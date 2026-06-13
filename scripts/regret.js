@@ -10,7 +10,8 @@
 //   node scripts/regret.js drift
 //   node scripts/regret.js ci
 //   node scripts/regret.js guard
-
+//   node scripts/regret.js coverage [--cluster <id>] [--verbose]
+//   node scripts/regret.js scan [--dir src/] [--stack js] [--format manifest]
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -241,12 +242,32 @@ switch (command) {
   }
 
   case 'scan': {
-    success = run('python3', [`${SCRIPTS_DIR}/scan.py`, ...passThroughArgs])
+    const stacks = detectStacks()
+    for (const stack of stacks) {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+        success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
+      } else if (stack === 'python') {
+        success = run('python3', [`${SCRIPTS_DIR}/scan.py`, ...passThroughArgs]) && success
+      } else {
+        // Default to JS scanner for unknown stacks
+        success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
+      }
+    }
     break
   }
 
   case 'coverage': {
-    success = run('python3', [`${SCRIPTS_DIR}/coverage.py`, ...passThroughArgs])
+    const stacks = detectStacks()
+    for (const stack of stacks) {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+        success = run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs]) && success
+      } else if (stack === 'python') {
+        success = run('python3', [`${SCRIPTS_DIR}/coverage.py`, ...passThroughArgs]) && success
+      } else {
+        // Default to JS coverage for unknown stacks
+        success = run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs]) && success
+      }
+    }
     break
   }
 
@@ -292,7 +313,7 @@ Usage:
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
-  node scripts/regret.js scan <path> [--manifest]      Scan source, suggest clusters
+  node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate
