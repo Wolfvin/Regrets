@@ -173,6 +173,16 @@ switch (command) {
     break
   }
 
+  case 'scan': {
+    success = run('python3', [`${SCRIPTS_DIR}/scan.py`, ...passThroughArgs])
+    break
+  }
+
+  case 'coverage': {
+    success = run('python3', [`${SCRIPTS_DIR}/coverage.py`, ...passThroughArgs])
+    break
+  }
+
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -206,6 +216,8 @@ Usage:
   node scripts/regret.js ci                            CI mode (fail-fast)
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows)
+  node scripts/regret.js scan <path> [--manifest]      Scan source, suggest clusters
+  node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js guard                         Pre-build gate
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
