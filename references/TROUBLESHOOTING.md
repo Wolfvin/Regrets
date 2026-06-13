@@ -236,3 +236,63 @@ fp := fingerprint(input, result)
 3. For multiple return values, ensure the wrapper struct uses consistent JSON field names and ordering.
 4. Run the cross-stack parity test: `go test -run TestCrossStackParity` in the generated test file.
 5. Compare the intermediate `combined` string (before hashing) from both stacks to isolate where serialization diverges.
+
+---
+
+## TypeScript project: import pkg from package.json fails
+
+**Problem:** Running capture or validate on a TypeScript project fails with `ERR_IMPORT_ATTRIBUTE_MISSING: Module "file:///path/to/package.json" needs an import attribute of "type: json"`, or similar errors related to importing `package.json` from TypeScript source.
+
+**Cause:** Node.js 22+ (and especially Node.js 24+) enforces import attributes for JSON modules. When a TypeScript source file imports `package.json` (e.g., `import pkg from '../package.json'`), the compiled JS output does not include the required `with { type: 'json' }` import attribute that Node.js demands. This causes the dynamic import in capture.js to fail when loading the module.
+
+**Solution:**
+1. **Point manifest `file` to sub-modules instead of the main index.** If the main `index.ts` imports `package.json`, use individual sub-modules that do not have this import issue. For example, instead of `"file": "dist/index.js"`, use `"file": "dist/batur.js"` or `"file": "dist/silpin.js"` where the functions are actually defined.
+2. **Use `resolveJsonModule` in `tsconfig.json`.** Ensure `"resolveJsonModule": true` is set, though this alone does not fix the Node.js attribute requirement.
+3. **Avoid importing `package.json` in library code.** Extract version information to a separate constant file (e.g., `version.ts` that exports the version string directly) instead of importing from `package.json`.
+4. **Use the `--manifest` flag** to explicitly specify the manifest location if path resolution is affected.
+5. For Node.js 24+, consider adding `--experimental-json-modules` flag, though this is not a long-term solution.
+
+---
+
+## Async functions returning Promises
+
+**Problem:** Capture or validate on async functions that return `Promise<T>` appears to hang, or the fingerprint is incorrect.
+
+**Cause:** The Ghost Proxy in `ghost.js` handles promises transparently — it awaits resolution before recording the result. However, if the async function never resolves (e.g., a missing `resolve()` call in a manually-constructed Promise), the capture will hang indefinitely. Also, if the function throws inside a Promise constructor without proper rejection, the error may be silently swallowed.
+
+**Solution:**
+1. Ensure all async entry functions properly resolve or reject. Avoid the `new Promise((resolve, reject) => { ... })` anti-pattern when `async/await` can be used instead.
+2. The ghost proxy correctly handles `Promise` return values — no special manifest configuration is needed for async functions.
+3. If capture hangs, add a timeout: `timeout 30s node scripts/capture.js` to identify which cluster is stuck.
+4. For functions that wrap synchronous logic in unnecessary Promises (common in older codebases), consider refactoring to use `async/await` instead of `new Promise()` — this makes the code easier to test and debug.
+5. The fingerprint is computed on the **resolved** value, not the Promise object itself. The ghost proxy awaits the Promise before recording.
+
+---
+
+## Clustering functions from the same file
+
+**Problem:** Multiple clusters reference the same `file` (e.g., several functions exported from `utils.js`), and capture/validate works for some but not others.
+
+**Cause:** This is fully supported — each cluster independently imports the module and creates its own ghost proxy. However, if functions in the same file share mutable state (global variables, module-level caches), running them sequentially during capture may cause cross-contamination where one cluster's execution affects another's output.
+
+**Solution:**
+1. This pattern is fine for pure functions — each cluster gets its own recorder and its own ghost proxy instance.
+2. If functions share mutable state, consider using `"fingerprintLevel": "entry"` to only hash the final output, not the internal call sequence.
+3. Run drift detection (`--runs 5`) after capture to catch any instability from shared state.
+4. If drift is detected, isolate the problematic cluster by running `--cluster <id>` individually and comparing results.
+5. For modules with many exports, consider splitting into smaller files with single responsibilities — this also makes refactoring easier.
+
+---
+
+## Working with TypeScript sub-modules (compiled output)
+
+**Problem:** The main `index.ts` barrel file re-exports from sub-modules, but importing it in the manifest fails due to complex dependency chains or package.json imports. You want to test functions defined in sub-modules directly.
+
+**Cause:** TypeScript projects often use barrel files (`index.ts`) that re-export everything from sub-modules. When the barrel file has problematic imports (like `package.json`), the entire module becomes unloadable. However, the individual sub-modules (`batur.js`, `silpin.js`, etc.) may work perfectly fine on their own.
+
+**Solution:**
+1. Point the manifest `file` field directly to the compiled sub-module: `"file": "dist/silpin.js"` instead of `"file": "dist/index.js"`.
+2. Use the function's exact export name from the sub-module as the `entry` field.
+3. When the same function is re-exported from the barrel file with an alias (e.g., `export { cariKurupTaun as cariKurupTahunJawa }`), use the **original** name from the sub-module, not the alias.
+4. This approach actually provides better isolation — each cluster only loads what it needs, avoiding side effects from unrelated module initialization.
+5. After refactoring, if you extract new functions into their own modules, add new clusters pointing to those modules directly.
