@@ -267,7 +267,18 @@ switch (command) {
   }
 
   case 'verify-kebenaran': {
-    success = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs])
+    const stacksForKebenaran = detectStacks()
+    let kebenaranOk = true
+    for (const stack of stacksForKebenaran) {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+        kebenaranOk = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs]) && kebenaranOk
+      } else if (stack === 'python') {
+        kebenaranOk = run('python3', [`${SCRIPTS_DIR}/verify_kebenaran.py`, ...passThroughArgs]) && kebenaranOk
+      } else {
+        console.log(`  ⏭️  Stack "${stack}" — verify-kebenaran not yet supported`)
+      }
+    }
+    success = kebenaranOk
     break
   }
 
@@ -359,7 +370,7 @@ Usage:
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js list                       List all clusters with status
-  node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
+  node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2 (JS+Python)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
