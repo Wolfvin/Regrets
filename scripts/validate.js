@@ -205,8 +205,15 @@ async function runCluster(clusterDef, regret) {
     }
   }
 
+  // Track fingerprints per-input across runs for accurate drift detection.
+  // Each input should produce a stable fingerprint across runs — different
+  // inputs can (and should) produce different fingerprints without that
+  // being flagged as drift.
+  const inputFingerprints = inputsToValidate.map(() => [])
+
   for (let i = 0; i < runs; i++) {
-    for (const currentInput of inputsToValidate) {
+    for (let j = 0; j < inputsToValidate.length; j++) {
+      const currentInput = inputsToValidate[j]
       const recorder = []
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
       const entryFn  = ghost[entry] ?? mod[entry]
@@ -244,10 +251,22 @@ async function runCluster(clusterDef, regret) {
           ? fingerprint(fpInput, output, { normalize, ignoreFields })
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
+      inputFingerprints[j].push(fp)
       hashes.push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+
+  // Per-input drift detection: a cluster is stable only if EACH input
+  // produces the same fingerprint across all runs. Different inputs can
+  // produce different fingerprints — that's expected, not drift.
+  const isDrift = inputFingerprints.some(fps => new Set(fps).size > 1)
+  const driftingInputs = isDrift
+    ? inputFingerprints
+        .map((fps, idx) => ({ idx, hashes: fps, stable: new Set(fps).size === 1 }))
+        .filter(x => !x.stable)
+    : []
+
+  return { hashes, lastOutput, isDrift, driftingInputs }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +325,13 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, lastOutput, skipped, isDrift: runClusterDrift, driftingInputs } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Use per-input drift detection from runCluster if available (multi-input aware)
+    // Fall back to flat-hash drift for backward compatibility (e.g. React clusters)
+    const isDrift  = driftMode && (runClusterDrift !== undefined ? runClusterDrift : new Set(hashes).size > 1)
 
     if (updateMode) {
       if (isMatch) {
@@ -323,7 +344,13 @@ for (const file of regretFiles) {
       }
     } else if (driftMode) {
       if (isDrift) {
-        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+        // Show per-input drift details when available
+        if (driftingInputs && driftingInputs.length > 0) {
+          const inputDetails = driftingInputs.map(d => `input#${d.idx}: [${d.hashes.join(' / ')}]`).join('; ')
+          console.log(`  ❌ ${id.padEnd(35)} DRIFT on ${driftingInputs.length} input(s) — ${inputDetails}`)
+        } else {
+          console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+        }
         results.push({ id, pass: false, drift: true })
       } else {
         const icon = isMatch ? '✅' : '❌'

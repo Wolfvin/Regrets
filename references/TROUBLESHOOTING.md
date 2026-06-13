@@ -236,3 +236,19 @@ fp := fingerprint(input, result)
 3. For multiple return values, ensure the wrapper struct uses consistent JSON field names and ordering.
 4. Run the cross-stack parity test: `go test -run TestCrossStackParity` in the generated test file.
 5. Compare the intermediate `combined` string (before hashing) from both stacks to isolate where serialization diverges.
+
+---
+
+## Drift detected on all clusters with multiple inputs
+
+**Problem:** Running `npm run regret:drift` reports drift on every cluster that has multiple inputs in the manifest, even though each individual input produces consistent output across runs.
+
+**Cause:** The drift detection collected all fingerprints from all inputs into a single flat array, then checked if all values were identical. Since different inputs produce different outputs (which is expected), different fingerprints appeared in the same array, triggering a false positive drift alert.
+
+This was a bug in both `validate.js` and `validate.py` — the drift check was global instead of per-input. For a cluster with inputs [A, B, C] and 5 runs, the correct check is: "Does input A produce the same fingerprint 5 times? Does B? Does C?" — NOT "Are all 15 fingerprints identical?"
+
+**Solution:**
+1. This was fixed in the per-input drift detection refactor. Make sure you are using the latest version of `validate.js` and `validate.py`.
+2. The fix tracks fingerprints per-input across runs and checks stability within each input group independently.
+3. Different inputs can (and should) produce different fingerprints — only per-input consistency matters.
+4. When drift is genuinely detected, the output now shows which specific input(s) are drifting, not just a flat list of hashes.

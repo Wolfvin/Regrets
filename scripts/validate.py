@@ -297,7 +297,20 @@ def main():
             hashes = []
             last_output = None
 
-            for _ in range(cli['runs']):
+            # Determine which inputs to validate: golden from .regret + all from manifest
+            all_inputs = cluster_def.get('inputs', [regret.get('input')])
+            inputs_to_validate = [regret.get('input')]
+            for inp in all_inputs:
+                if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
+                    inputs_to_validate.append(inp)
+
+            # Track fingerprints per-input across runs for accurate drift detection.
+            # Each input should produce a stable fingerprint across runs — different
+            # inputs can (and should) produce different fingerprints without that
+            # being flagged as drift.
+            input_fingerprints = [[] for _ in inputs_to_validate]
+
+            for run_idx in range(cli['runs']):
                 recorder = []
                 ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
 
@@ -309,14 +322,7 @@ def main():
                 effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
                 effective_value_paths = regret.get('valuePaths') or value_paths or []
 
-                # Determine which inputs to validate: golden from .regret + all from manifest
-                all_inputs = cluster_def.get('inputs', [regret.get('input')])
-                inputs_to_validate = [regret.get('input')]
-                for inp in all_inputs:
-                    if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
-                        inputs_to_validate.append(inp)
-
-                for current_input in inputs_to_validate:
+                for input_idx, current_input in enumerate(inputs_to_validate):
                     if multi_args and isinstance(current_input, list):
                         output = entry_fn(*current_input)
                         fp_input = current_input
@@ -349,11 +355,23 @@ def main():
                     else:
                         fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
+                    input_fingerprints[input_idx].append(fp)
                     hashes.append(fp)
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+
+            # Per-input drift detection: a cluster is stable only if EACH input
+            # produces the same fingerprint across all runs. Different inputs can
+            # produce different fingerprints — that's expected, not drift.
+            is_drift = drift_mode and any(len(set(fps)) > 1 for fps in input_fingerprints)
+            drifting_inputs = []
+            if is_drift:
+                drifting_inputs = [
+                    {'idx': i, 'hashes': fps, 'stable': len(set(fps)) == 1}
+                    for i, fps in enumerate(input_fingerprints)
+                    if len(set(fps)) > 1
+                ]
 
             if update_mode:
                 if is_match:
@@ -368,7 +386,15 @@ def main():
 
             elif drift_mode:
                 if is_drift:
-                    print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(hashes)}]")
+                    # Show per-input drift details when available
+                    if drifting_inputs:
+                        input_details = '; '.join(
+                            f"input#{d['idx']}: [{' / '.join(d['hashes'])}]"
+                            for d in drifting_inputs
+                        )
+                        print(f"  ❌ {cluster_id:<35} DRIFT on {len(drifting_inputs)} input(s) — {input_details}")
+                    else:
+                        print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(hashes)}]")
                     results.append({'id': cluster_id, 'pass': False, 'drift': True})
                 else:
                     icon = '✅' if is_match else '❌'
