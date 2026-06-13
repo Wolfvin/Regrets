@@ -296,3 +296,81 @@ fp := fingerprint(input, result)
 3. When the same function is re-exported from the barrel file with an alias (e.g., `export { cariKurupTaun as cariKurupTahunJawa }`), use the **original** name from the sub-module, not the alias.
 4. This approach actually provides better isolation — each cluster only loads what it needs, avoiding side effects from unrelated module initialization.
 5. After refactoring, if you extract new functions into their own modules, add new clusters pointing to those modules directly.
+
+---
+
+## CommonJS module with `__main__()` execution at top level
+
+**Problem:** Running `capture.js` on a CommonJS module that calls `__main__()` (or any execution function) at the top level causes the CLI to execute during `import()`, producing unexpected output or errors.
+
+**Cause:** Many Node.js scripts — especially those written in a competitive-programming or academic style — call their main function at the bottom of the file:
+
+```js
+function calculateTotalTilingCombinations(options) { ... }
+
+function __main__() {
+  const options = parseArgs(process.argv.slice(2), argsSchema);
+  const result = calculateTotalTilingCombinations(options);
+  console.log(result);
+  process.exit(0);
+}
+
+__main__();  // ← This runs during import()!
+```
+
+When `capture.js` uses `await import()` to load the module, `__main__()` executes immediately, causing the script to parse CLI arguments (which don't exist in the capture context) and exit.
+
+**Solution:**
+1. **Refactor the module** to use the `require.main === module` guard pattern:
+```js
+// Only run CLI when executed directly, not when imported
+if (require.main === module) {
+  main();
+}
+
+// Export functions for library use
+module.exports = { calculateTotalTilingCombinations, ... };
+```
+
+2. **Create an ESM adapter** that imports via `createRequire()`:
+```js
+// regret-adapters.mjs
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const solver = require('./dominoTilingSolver.js');
+
+export function calculateTilings(input) {
+  return solver.calculateTotalTilingCombinations(input);
+}
+```
+
+3. **Point the manifest to the adapter**, not the original module:
+```json
+{ "file": "regret-adapters.mjs", "stack": "js" }
+```
+
+4. This pattern is especially common in competitive-programming-style JavaScript, academic code, and mathematical utility libraries.
+
+---
+
+## BigInt return values break JSON serialization
+
+**Problem:** Capture or validate on a function that returns a `BigInt` value fails with `TypeError: Do not know how to serialize a BigInt`.
+
+**Cause:** `JSON.stringify()` cannot serialize `BigInt` values — it throws a TypeError. Regrets' fingerprint algorithm uses `stableStringify()` which calls `JSON.stringify()` internally. When a function returns `BigInt(12988816)`, the fingerprint computation fails.
+
+**Solution:**
+1. **Convert BigInt to string in the adapter** before returning:
+```js
+export function calculateTilingsBigInt(input) {
+  return solver.calculateTotalTilingCombinations(input).toString();
+}
+```
+
+2. The string representation is deterministic for the same BigInt value — `"12988816"` always represents the same number.
+
+3. **Do NOT use `Number(bigIntValue)`** — this loses precision for values exceeding `Number.MAX_SAFE_INTEGER` (2^53 - 1), which is exactly the case where BigInt is needed.
+
+4. For the fingerprint to remain stable, the string conversion must always produce the same representation. JavaScript's `BigInt.prototype.toString()` is deterministic, so this is safe.
+
+5. If the function sometimes returns a regular number and sometimes a BigInt (depending on input), normalize all returns to string in the adapter for consistency.

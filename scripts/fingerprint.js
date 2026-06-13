@@ -9,9 +9,16 @@ import { createHash } from 'crypto'
  *
  * Handles Map objects by converting them to sorted entry arrays,
  * since JSON.stringify(new Map()) produces "{}" which loses all data.
+ * Handles BigInt by converting to string with type marker, since
+ * JSON.stringify(BigInt) throws TypeError.
  */
 export function stableStringify(obj) {
   if (obj === null || obj === undefined) return String(obj)
+  // Handle BigInt — convert to string with type marker for deterministic serialization
+  // JSON.stringify(BigInt) throws TypeError, so we must handle it before other object checks
+  if (typeof obj === 'bigint') {
+    return 'BigInt:' + obj.toString()
+  }
   // Handle Map — convert to sorted array of entries for deterministic serialization
   if (obj instanceof Map) {
     const entries = [...obj.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))

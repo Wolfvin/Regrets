@@ -11,10 +11,16 @@
  *   - Set → array of values
  *   - RegExp → string pattern (e.g. "/^abc$/i")
  *   - Date → ISO string
+ *   - BigInt → string representation
  * Unknown types that can't be serialized fall through to JSON round-trip,
  * which silently drops non-serializable values (backward-compatible behavior).
  */
 export function deepClone(val) {
+  // Handle BigInt — convert to string to preserve exact value
+  // JSON.stringify(BigInt) throws TypeError, so we must handle it first
+  if (typeof val === 'bigint') {
+    return val.toString()
+  }
   // Handle TypedArrays — convert to regular array before cloning
   // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
   if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
