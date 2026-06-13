@@ -1,0 +1,83 @@
+{
+  "arithmetic-ops": {
+    "fingerprint": "1gbi171",
+    "captured": "2026-06-13T14:23:58.084Z",
+    "entry": "runProgram",
+    "stack": "js",
+    "fingerprintLevel": "entry",
+    "input": "89+.@",
+    "output": "17 ",
+    "hash": "1gbi171"
+  },
+  "stack-ops": {
+    "fingerprint": "441nn99",
+    "captured": "2026-06-13T14:23:58.085Z",
+    "entry": "runProgram",
+    "stack": "js",
+    "fingerprintLevel": "entry",
+    "input": "5:.@",
+    "output": "5 ",
+    "hash": "441nn99"
+  },
+  "direction-and-conditional": {
+    "fingerprint": "4buy70s",
+    "captured": "2026-06-13T14:23:58.085Z",
+    "entry": "runProgram",
+    "stack": "js",
+    "fingerprintLevel": "entry",
+    "input": "0_9*.@",
+    "output": "0 ",
+    "hash": "4buy70s"
+  },
+  "self-modify": {
+    "fingerprint": "2cpjb9w",
+    "captured": "2026-06-13T14:23:58.086Z",
+    "entry": "runProgram",
+    "stack": "js",
+    "fingerprintLevel": "entry",
+    "input": "88*51p51g.@",
+    "output": "64 ",
+    "hash": "2cpjb9w"
+  },
+  "string-mode": {
+    "fingerprint": "1r2rwct",
+    "captured": "2026-06-13T14:23:58.086Z",
+    "entry": "runProgram",
+    "stack": "js",
+    "fingerprintLevel": "entry",
+    "input": "\"!\"4,.@",
+    "output": "\u000433 ",
+    "hash": "1r2rwct"
+  },
+  "integer-input": {
+    "fingerprint": "tuuy7vr",
+    "captured": "2026-06-13T14:23:58.087Z",
+    "entry": "runProgramWithInput",
+    "stack": "js",
+    "fingerprintLevel": "entry",
+    "input": {
+      "program": "&9*.@",
+      "inputs": [
+        5
+      ]
+    },
+    "output": "45 ",
+    "hash": "tuuy7vr"
+  },
+  "state-capture": {
+    "fingerprint": "45ohksw",
+    "captured": "2026-06-13T14:23:58.087Z",
+    "entry": "runProgramCaptureState",
+    "stack": "js",
+    "fingerprintLevel": "entry",
+    "input": "5:93*+@",
+    "output": {
+      "output": "",
+      "stack": [
+        5,
+        32
+      ]
+    },
+    "hash": "45ohksw"
+  }
+}

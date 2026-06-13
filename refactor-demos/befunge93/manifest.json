@@ -1,0 +1,105 @@
+{
+  "clusters": [
+    {
+      "id": "arithmetic-ops",
+      "entry": "runProgram",
+      "watches": ["runProgram"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Arithmetic instruction contracts: add, subtract, multiply, divide, modulo, not, greater-than",
+      "inputs": [
+        "89+.@",
+        "93-.@",
+        "67*.@",
+        "93/.@",
+        "97%.@",
+        "98`.@",
+        "89`.@",
+        "0!.@",
+        "5!.@"
+      ]
+    },
+    {
+      "id": "stack-ops",
+      "entry": "runProgram",
+      "watches": ["runProgram"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Stack manipulation contracts: duplicate, swap, discard",
+      "inputs": [
+        "5:.@",
+        "53\\.@",
+        "5$.@",
+        "5:93*+.@"
+      ]
+    },
+    {
+      "id": "direction-and-conditional",
+      "entry": "runProgram",
+      "watches": ["runProgram"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Direction control and conditional branching: horizontal if, loops with direction changes",
+      "inputs": [
+        "0_9*.@",
+        "1234v\n>9 #5>:#._@\n^876<"
+      ]
+    },
+    {
+      "id": "self-modify",
+      "entry": "runProgram",
+      "watches": ["runProgram"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Self-modification using p (put) and g (get) commands",
+      "inputs": [
+        "88*51p51g.@",
+        "951p51g.@"
+      ]
+    },
+    {
+      "id": "string-mode",
+      "entry": "runProgram",
+      "watches": ["runProgram"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "String mode: push character ASCII values enclosed in quotes",
+      "inputs": [
+        "\"!\"4,.@",
+        "\"AB\"..@",
+        "\"~\"4,.@"
+      ]
+    },
+    {
+      "id": "integer-input",
+      "entry": "runProgramWithInput",
+      "watches": ["runProgramWithInput"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Integer input (& command) with fixed input values — deterministic with fixed inputs",
+      "inputs": [
+        { "program": "&9*.@", "inputs": [5] },
+        { "program": "&&+.@", "inputs": [3, 4] }
+      ]
+    },
+    {
+      "id": "state-capture",
+      "entry": "runProgramCaptureState",
+      "watches": ["runProgramCaptureState"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Captures both output and final stack state for programs that leave data on the stack",
+      "inputs": [
+        "5:93*+@",
+        "1234+++@"
+      ]
+    }
+  ]
+}
