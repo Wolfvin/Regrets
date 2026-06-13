@@ -1,0 +1,98 @@
+{
+  "clusters": [
+    {
+      "id": "crazy-operation",
+      "entry": "crazy_operation",
+      "watches": ["crazy_operation"],
+      "module": "malbolge.utils",
+      "stack": "python",
+      "multiArgs": true,
+      "fingerprintLevel": "entry",
+      "description": "Malbolge 'crazy' ternary digit-wise operation on two values using custom truth table",
+      "inputs": [
+        [0, 0],
+        [1, 2],
+        [59048, 59048],
+        [100, 200],
+        [0, 59048]
+      ]
+    },
+    {
+      "id": "ternary-rotate",
+      "entry": "ternary_rotate",
+      "watches": ["ternary_rotate"],
+      "module": "malbolge.utils",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Rotate the ternary representation left by one position",
+      "inputs": [
+        0,
+        1,
+        59048,
+        100,
+        42
+      ]
+    },
+    {
+      "id": "convert-to-base3",
+      "entry": "convert_to_base3",
+      "watches": ["convert_to_base3"],
+      "module": "malbolge.utils",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert integer to ternary representation (LSB first, 10 digits)",
+      "inputs": [
+        0,
+        1,
+        59048,
+        100,
+        42
+      ]
+    },
+    {
+      "id": "convert-to-base10",
+      "entry": "convert_to_base10",
+      "watches": ["convert_to_base10"],
+      "module": "malbolge.utils",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert ternary digits (LSB first) back to base 10",
+      "inputs": [
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+        [1, 2, 1, 0, 0, 0, 0, 0, 0, 0]
+      ]
+    },
+    {
+      "id": "normalize-encoding",
+      "entry": "normalize",
+      "watches": ["normalize"],
+      "module": "malbolge.encoding",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert ASCII characters to Malbolge opcodes (only valid instructions preserved)",
+      "inputs": [
+        ["a"],
+        ["("],
+        ["z"],
+        ["a", "b", "c", "d", "e"]
+      ]
+    },
+    {
+      "id": "reverse-normalize-encoding",
+      "entry": "reverse_normalize",
+      "watches": ["reverse_normalize"],
+      "module": "malbolge.encoding",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode Malbolge opcodes back into printable ASCII characters",
+      "inputs": [
+        ["j"],
+        ["p"],
+        ["<"],
+        ["i", "j", "p", "<", "v"]
+      ]
+    }
+  ]
+}

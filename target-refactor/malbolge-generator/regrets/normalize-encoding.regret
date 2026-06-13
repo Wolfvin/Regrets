@@ -1,0 +1,13 @@
+cluster: normalize-encoding
+version: 1
+fingerprint: 39oq5w6
+captured: 2026-06-13T14:20:42.495217+00:00
+watches: [normalize]
+entry: normalize
+stack: python
+fingerprintLevel: entry
+module: malbolge.encoding
+---
+INPUT  ["a"]
+OUTPUT []
+HASH   39oq5w6
