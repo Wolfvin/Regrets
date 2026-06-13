@@ -596,7 +596,9 @@ regression-testing/
     ├── class-based.md           ← Class-based library wrapper pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
-    └── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
+    ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
+    ├── case-study-pustaka.md   ← Case study: Javanese Calendar library
+    └── case-study-hebrew.md    ← Case study: Hebrew Gematria library
 ```
 
 ---
