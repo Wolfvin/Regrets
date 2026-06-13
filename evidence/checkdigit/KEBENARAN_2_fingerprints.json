@@ -1,0 +1,80 @@
+{
+  "crc-calculate": {
+    "fingerprint": "9nv1c9g",
+    "entry": "calculate",
+    "watches": "[calculate]",
+    "stack": "python"
+  },
+  "crc-validate": {
+    "fingerprint": "5v0lg0u",
+    "entry": "validate",
+    "watches": "[validate]",
+    "stack": "python"
+  },
+  "gs1-calculate": {
+    "fingerprint": "12y0m2e",
+    "entry": "calculate",
+    "watches": "[calculate]",
+    "stack": "python"
+  },
+  "gs1-validate": {
+    "fingerprint": "6c9uztk",
+    "entry": "validate",
+    "watches": "[validate]",
+    "stack": "python"
+  },
+  "isbn-calculate": {
+    "fingerprint": "3r1uv28",
+    "entry": "calculate",
+    "watches": "[calculate]",
+    "stack": "python"
+  },
+  "isbn-validate": {
+    "fingerprint": "2bv0xbf",
+    "entry": "validate",
+    "watches": "[validate]",
+    "stack": "python"
+  },
+  "luhn-calculate": {
+    "fingerprint": "51gm84l",
+    "entry": "calculate",
+    "watches": "[calculate]",
+    "stack": "python"
+  },
+  "luhn-missing": {
+    "fingerprint": "4kfs5if",
+    "entry": "missing",
+    "watches": "[missing]",
+    "stack": "python"
+  },
+  "luhn-validate": {
+    "fingerprint": "175ui4z",
+    "entry": "validate",
+    "watches": "[validate]",
+    "stack": "python"
+  },
+  "parity-calculate": {
+    "fingerprint": "36veue9",
+    "entry": "calculate",
+    "watches": "[calculate]",
+    "stack": "python"
+  },
+  "parity-validate": {
+    "fingerprint": "69e0yh5",
+    "entry": "validate",
+    "watches": "[validate]",
+    "stack": "python"
+  },
+  "verhoeff-calculate": {
+    "fingerprint": "2975zr4",
+    "entry": "calculate",
+    "watches": "[calculate]",
+    "stack": "python"
+  },
+  "verhoeff-validate": {
+    "fingerprint": "ojcvyde",
+    "entry": "validate",
+    "watches": "[validate]",
+    "stack": "python"
+  }
+}

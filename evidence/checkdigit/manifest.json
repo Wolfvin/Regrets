@@ -1,0 +1,195 @@
+{
+  "clusters": [
+    {
+      "id": "luhn-calculate",
+      "entry": "calculate",
+      "watches": ["calculate"],
+      "module": "checkdigit.luhn",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate Luhn check digit for credit card / IMEI numbers",
+      "inputs": [
+        "53251309870224",
+        "950123440000",
+        "0",
+        "123456789"
+      ]
+    },
+    {
+      "id": "luhn-validate",
+      "entry": "validate",
+      "watches": ["validate"],
+      "module": "checkdigit.luhn",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Validate Luhn check digit",
+      "inputs": [
+        "541756116585277",
+        "79927398713",
+        "49927398717",
+        "1234567812345678"
+      ]
+    },
+    {
+      "id": "luhn-missing",
+      "entry": "missing",
+      "watches": ["missing"],
+      "module": "checkdigit.luhn",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Find missing digit in Luhn code",
+      "inputs": [
+        "54175611658527?",
+        "515853022?76176"
+      ]
+    },
+    {
+      "id": "isbn-calculate",
+      "entry": "calculate",
+      "watches": ["calculate"],
+      "module": "checkdigit.isbn",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate ISBN-10 and ISBN-13 check digits (ISBN-10 may return X)",
+      "inputs": [
+        "043942089",
+        "978186197876",
+        "019852663"
+      ]
+    },
+    {
+      "id": "isbn-validate",
+      "entry": "validate",
+      "watches": ["validate"],
+      "module": "checkdigit.isbn",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Validate ISBN-10 and ISBN-13 check digits",
+      "inputs": [
+        "0198526636",
+        "9781566199094"
+      ]
+    },
+    {
+      "id": "verhoeff-calculate",
+      "entry": "calculate",
+      "watches": ["calculate"],
+      "module": "checkdigit.verhoeff",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate Verhoeff check digit using dihedral Cayley group tables",
+      "inputs": [
+        "236",
+        "123456",
+        "1337"
+      ]
+    },
+    {
+      "id": "verhoeff-validate",
+      "entry": "validate",
+      "watches": ["validate"],
+      "module": "checkdigit.verhoeff",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Validate Verhoeff check digit",
+      "inputs": [
+        "585649",
+        "13735"
+      ]
+    },
+    {
+      "id": "gs1-calculate",
+      "entry": "calculate",
+      "watches": ["calculate"],
+      "module": "checkdigit.gs1",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate GS1 check digit (GTIN, EAN, UPC, GLN, etc.)",
+      "inputs": [
+        "00199999980000110",
+        "67368623738347505"
+      ]
+    },
+    {
+      "id": "gs1-validate",
+      "entry": "validate",
+      "watches": ["validate"],
+      "module": "checkdigit.gs1",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Validate GS1 check digit",
+      "inputs": [
+        "224245438987081447",
+        "961552634342856982"
+      ]
+    },
+    {
+      "id": "crc-calculate",
+      "entry": "calculate",
+      "watches": ["calculate"],
+      "module": "checkdigit.crc",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate CRC check value for binary data with polynomial",
+      "multiArgs": true,
+      "inputs": [
+        ["1010", "1011"],
+        ["100110010100111101111101", "11010111101"]
+      ]
+    },
+    {
+      "id": "crc-validate",
+      "entry": "validate",
+      "watches": ["validate"],
+      "module": "checkdigit.crc",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Validate CRC check value against binary data",
+      "multiArgs": true,
+      "inputs": [
+        ["1010101", "101"],
+        ["1000101", "101"]
+      ]
+    },
+    {
+      "id": "parity-calculate",
+      "entry": "calculate",
+      "watches": ["calculate"],
+      "module": "checkdigit.parity",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate parity bit (even/odd) for binary data",
+      "inputs": [
+        "0110",
+        "01101",
+        "0"
+      ]
+    },
+    {
+      "id": "parity-validate",
+      "entry": "validate",
+      "watches": ["validate"],
+      "module": "checkdigit.parity",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Validate parity bit against binary data",
+      "inputs": [
+        "01100",
+        "01101"
+      ]
+    }
+  ]
+}
