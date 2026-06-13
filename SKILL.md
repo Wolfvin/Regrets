@@ -555,6 +555,8 @@ node scripts/regret.js chain --validate   # Validate against golden
 
 Chain fingerprints are stored as `.chain` files in `regrets/chains/`.
 
+**Python chains:** When the manifest contains Python clusters, `regret chain` automatically uses the Python chain runner (`scripts/contest.py`) instead of the JS runner (`scripts/contest.mjs`). This handles `module` (dot notation) imports correctly for Python stacks.
+
 Read `references/contest.md` for the full specification.
 
 ---
