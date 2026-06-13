@@ -334,6 +334,11 @@ switch (command) {
     break
   }
 
+  case 'mutate-audit': {
+    success = run('python3', [`${SCRIPTS_DIR}/mutate_audit.py`, ...passThroughArgs])
+    break
+  }
+
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -378,6 +383,7 @@ Usage:
   node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
+  node scripts/regret.js mutate-audit <path>            Detect functions that mutate input args
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
 

@@ -514,6 +514,42 @@ node scripts/scan.js
 
 This scans the project, identifies exported functions, estimates cyclomatic complexity, and suggests clusters. Use `--format manifest` to generate a starting manifest.json.
 
+The scanner also detects **non-serializable return types** (numpy arrays, openpyxl Workbooks, cv2 images, etc.) and flags them with a `🔴non-serializable-return` warning. These functions need an `outputTransform` in the manifest before they can be fingerprinted.
+
+---
+
+## Gap 6 — Mutation Audit
+
+Many projects — especially OCR pipelines, data enrichment, and validation layers — have functions that **mutate their input arguments in-place** instead of returning new objects. This causes:
+
+1. Fingerprints to differ because mutation-added keys change the output hash
+2. `trackMutation` detects the change but doesn't identify which keys were added
+3. Agents don't know which keys to add to `ignoreFields`
+
+Use `regret mutate-audit` to detect these functions:
+
+```bash
+python3 scripts/mutate_audit.py src/
+python3 scripts/mutate_audit.py src/pipeline.py --detailed
+python3 scripts/mutate_audit.py src/ --recursive
+```
+
+This uses AST analysis to find functions that:
+- Assign to subscript of a parameter: `param[key] = value`
+- Call mutating methods: `param.append()`, `param.update()`, etc.
+- Delete keys from parameters: `del param[key]`
+
+For each mutation, it suggests concrete `ignoreFields` values:
+
+```
+⚠️  validate_red_flag (line 12)
+   Mutates: transactions
+   Keys:    flag, catatan_manual, _suspect_field
+   💡 Suggested ignoreFields: ["_suspect_field", "catatan_manual", "flag"]
+```
+
+Run this **before** defining clusters to ensure you don't miss mutation-added keys.
+
 ---
 
 ## Refactor Targets (what AI should push toward)
@@ -825,6 +861,8 @@ regression-testing/
 │   ├── coverage.js             ← branch coverage analysis (detect under-covered clusters)
 │   ├── branch-map.js           ← auto-generate regrets/branch-map.md with input suggestions
 │   ├── scan.js                 ← project scanner (suggest clusters from source)
+│   ├── scan.py                 ← Python project scanner (suggest clusters + non-serializable detection)
+│   ├── mutate_audit.py         ← Mutation audit (detect functions that mutate input args)
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
 │   └── test.mjs                ← integration test suite (209 tests)
 └── references/
@@ -847,6 +885,7 @@ regression-testing/
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
     ├── python-pipeline.md       ← Python pipeline pattern (OCR, NLP, data processing)
+    ├── ocr-pipeline.md          ← OCR pipeline pattern (mutation, LLM non-determinism, spatial data)
     ├── ocr-parsing-pipeline.md ← OCR & parsing pipeline pattern (pure logic extraction + float precision)
     ├── branch-coverage.md     ← branch coverage analysis and branch-map pattern
     ├── typescript-projects.md  ← TypeScript workflow guide (preBuild, source mapping, --ts flag)
