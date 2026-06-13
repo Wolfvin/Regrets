@@ -374,6 +374,11 @@ switch (command) {
     break
   }
 
+  case 'compare': {
+    success = run('node', [`${SCRIPTS_DIR}/compare.js`, ...passThroughArgs])
+    break
+  }
+
   case 'help':
   default:
     console.log(`
@@ -390,6 +395,7 @@ Usage:
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js list                       List all clusters with status
   node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2 (JS+Python)
+  node scripts/regret.js compare --pre <dir> --post <dir>  Compare pre vs post refactor baselines
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
