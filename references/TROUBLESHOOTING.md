@@ -239,75 +239,60 @@ fp := fingerprint(input, result)
 
 ---
 
-## TypedArray input produces wrong fingerprint
+## TypeScript project: import pkg from package.json fails
 
-**Problem:** A function that accepts `Uint8Array` as input produces a different fingerprint when called through Regrets compared to manual computation. Or, the `.regret` file shows `{"0":72,"1":101,...}` instead of `[72,101,...]` for the INPUT.
+**Problem:** Running capture or validate on a TypeScript project fails with `ERR_IMPORT_ATTRIBUTE_MISSING: Module "file:///path/to/package.json" needs an import attribute of "type: json"`, or similar errors related to importing `package.json` from TypeScript source.
 
-**Cause:** The `deepClone` function in `ghost.js` converts TypedArrays to regular arrays, but the initial capture in `capture.js` passes the manifest input (a regular JSON array) directly to the function. If the function's behavior differs between `Uint8Array` and `Array` inputs, the fingerprint may not reflect real-world usage. Additionally, `JSON.stringify(new Uint8Array([1,2,3]))` produces `{"0":1,"1":2,"2":3}` which is not a valid array representation.
+**Cause:** Node.js 22+ (and especially Node.js 24+) enforces import attributes for JSON modules. When a TypeScript source file imports `package.json` (e.g., `import pkg from '../package.json'`), the compiled JS output does not include the required `with { type: 'json' }` import attribute that Node.js demands. This causes the dynamic import in capture.js to fail when loading the module.
 
 **Solution:**
-1. Use regular arrays in the manifest `inputs` field — JSON doesn't support `Uint8Array`.
-2. Ensure the target function works correctly with regular `Array` inputs (most do, since methods like `reduce`, `map`, `for...of`, and indexed access work identically on both).
-3. For functions that **require** `Uint8Array` input (e.g., they check `instanceof Uint8Array`), you need to wrap the entry function. Create a thin wrapper module that converts the array to `Uint8Array` before calling the real function, and point the manifest to the wrapper.
-4. Regrets' `deepClone`, `stableStringify`, and `capture.js` all handle TypedArray **outputs** correctly — they automatically convert `Uint8Array` outputs to regular arrays for serialization and fingerprinting.
-5. See `references/binary-encoding.md` for a complete case study using `qntm/braille-encode`.
+1. **Point manifest `file` to sub-modules instead of the main index.** If the main `index.ts` imports `package.json`, use individual sub-modules that do not have this import issue. For example, instead of `"file": "dist/index.js"`, use `"file": "dist/batur.js"` or `"file": "dist/silpin.js"` where the functions are actually defined.
+2. **Use `resolveJsonModule` in `tsconfig.json`.** Ensure `"resolveJsonModule": true` is set, though this alone does not fix the Node.js attribute requirement.
+3. **Avoid importing `package.json` in library code.** Extract version information to a separate constant file (e.g., `version.ts` that exports the version string directly) instead of importing from `package.json`.
+4. **Use the `--manifest` flag** to explicitly specify the manifest location if path resolution is affected.
+5. For Node.js 24+, consider adding `--experimental-json-modules` flag, though this is not a long-term solution.
 
 ---
 
-## Binary encoding library: encode/decode roundtrip mismatch
+## Async functions returning Promises
 
-**Problem:** After refactoring a binary encoding library (e.g., base64, hex, Braille encoding), the Regrets validation passes but the encode→decode roundtrip is broken.
+**Problem:** Capture or validate on async functions that return `Promise<T>` appears to hang, or the fingerprint is incorrect.
 
-**Cause:** Regrets fingerprints encode and decode as separate clusters. If the refactoring changes the encoding mapping slightly but consistently (both encode and decode change in the same way), the fingerprints would still match. However, this would break roundtrip consistency with data encoded before the refactoring.
+**Cause:** The Ghost Proxy in `ghost.js` handles promises transparently — it awaits resolution before recording the result. However, if the async function never resolves (e.g., a missing `resolve()` call in a manually-constructed Promise), the capture will hang indefinitely. Also, if the function throws inside a Promise constructor without proper rejection, the error may be silently swallowed.
 
 **Solution:**
-1. Always create **separate clusters** for encode and decode functions — do not combine them.
-2. Include roundtrip test inputs: encode a known array, then decode the result, and verify the decoded output matches the original input.
-3. Use the `inputs` field to cover boundary values: byte 0, byte 255, and multi-byte sequences.
-4. After refactoring, run a manual roundtrip check outside of Regrets to verify cross-consistency.
-5. Document the expected mapping in the cluster description (e.g., "byte 0 maps to Braille U+2800, byte 255 maps to Braille U+28FF").
+1. Ensure all async entry functions properly resolve or reject. Avoid the `new Promise((resolve, reject) => { ... })` anti-pattern when `async/await` can be used instead.
+2. The ghost proxy correctly handles `Promise` return values — no special manifest configuration is needed for async functions.
+3. If capture hangs, add a timeout: `timeout 30s node scripts/capture.js` to identify which cluster is stuck.
+4. For functions that wrap synchronous logic in unnecessary Promises (common in older codebases), consider refactoring to use `async/await` instead of `new Promise()` — this makes the code easier to test and debug.
+5. The fingerprint is computed on the **resolved** value, not the Promise object itself. The ghost proxy awaits the Promise before recording.
 
 ---
 
-## Function uses Math.random() — drift on every run
+## Clustering functions from the same file
 
-**Problem:** `npm run regret:drift` reports drift on a cluster that calls `Math.random()`, `crypto.randomUUID()`, or any other non-deterministic API internally. The output changes every run even though the code hasn't changed.
+**Problem:** Multiple clusters reference the same `file` (e.g., several functions exported from `utils.js`), and capture/validate works for some but not others.
 
-**Cause:** The function produces different output values on each invocation due to internal randomness. Value-mode fingerprinting hashes the exact output, so different outputs produce different hashes. This is NOT a bug in the code — it's inherent non-determinism.
+**Cause:** This is fully supported — each cluster independently imports the module and creates its own ghost proxy. However, if functions in the same file share mutable state (global variables, module-level caches), running them sequentially during capture may cause cross-contamination where one cluster's execution affects another's output.
 
 **Solution:**
-1. Use `"fingerprintMode": "schema"` in the manifest for this cluster. Schema mode fingerprints the *structure* of the output (e.g., "string", "number", "object") rather than the exact values. For a function that always returns a string, the schema fingerprint will be stable across runs even if the string content varies.
-2. If some values matter and some don't, use `"fingerprintMode": "mixed"` with `"valuePaths"` to specify which output fields must match exactly and which can vary.
-3. For functions where you need exact value matching but the randomness is internal, consider extracting the pure logic into a separate function that accepts a deterministic random source as a parameter, then fingerprint the pure version.
-4. Re-capture after switching fingerprint modes: `npm run regret:capture -- --cluster <id>`.
-
-**Example:** A Zalgo text generator uses `Math.random()` to select combining characters. In value mode, each run produces different Zalgo text and drift is detected. Switching to schema mode fingerprints "this function returns a string" which is stable.
+1. This pattern is fine for pure functions — each cluster gets its own recorder and its own ghost proxy instance.
+2. If functions share mutable state, consider using `"fingerprintLevel": "entry"` to only hash the final output, not the internal call sequence.
+3. Run drift detection (`--runs 5`) after capture to catch any instability from shared state.
+4. If drift is detected, isolate the problematic cluster by running `--cluster <id>` individually and comparing results.
+5. For modules with many exports, consider splitting into smaller files with single responsibilities — this also makes refactoring easier.
 
 ---
 
-## Unicode combining characters in fingerprints
+## Working with TypeScript sub-modules (compiled output)
 
-**Problem:** Functions that return strings containing Unicode combining characters (e.g., Zalgo text, diacritical marks, emoji with skin tone modifiers) produce fingerprints that look complex or have long serialized forms.
+**Problem:** The main `index.ts` barrel file re-exports from sub-modules, but importing it in the manifest fails due to complex dependency chains or package.json imports. You want to test functions defined in sub-modules directly.
 
-**Cause:** Unicode combining characters (U+0300-U+036F range) are separate code points that visually combine with base characters. `stableStringify` serializes them correctly as their code point representations. The fingerprint is deterministic and consistent as long as the same combining characters are produced.
-
-**Solution:**
-1. This is not a bug — the fingerprint correctly captures the Unicode output. If the same function produces the same combining characters consistently, value mode works perfectly.
-2. If the combining characters are selected randomly (e.g., Zalgo generators), use schema mode instead — it will fingerprint "string" regardless of which combining characters are used.
-3. For roundtrip testing (e.g., encode then decode), use value mode on the decode function which strips the combining characters deterministically.
-4. Be aware that Unicode normalization (NFC vs NFD) can cause the same visual text to have different byte representations. If your runtime normalizes differently across versions, consider adding a normalization rule.
-
----
-
-## CommonJS module with multi-argument entry functions
-
-**Problem:** A CommonJS module exports a function that takes multiple arguments (e.g., `zalgoGeneration(text, upCount, midCount, downCount)`), and capture fails or produces incorrect fingerprints.
-
-**Cause:** By default, Regrets passes each input as a single argument to the entry function. For multi-argument functions, you must set `"multiArgs": true` in the manifest and provide each input as an array that will be spread as separate arguments.
+**Cause:** TypeScript projects often use barrel files (`index.ts`) that re-export everything from sub-modules. When the barrel file has problematic imports (like `package.json`), the entire module becomes unloadable. However, the individual sub-modules (`batur.js`, `silpin.js`, etc.) may work perfectly fine on their own.
 
 **Solution:**
-1. Add `"multiArgs": true` to the cluster definition in `manifest.json`.
-2. Provide inputs as arrays: `"inputs": [["hello", 1, 1, 1], ["world", 2, 0, 3]]`.
-3. Each array is spread as separate arguments: `entryFn("hello", 1, 1, 1)`.
-4. Without `multiArgs`, the entire array would be passed as the first argument, causing incorrect behavior or errors.
-5. CommonJS modules work fine with Regrets' dynamic `import()` — the exports are accessible the same way as ES module named exports.
+1. Point the manifest `file` field directly to the compiled sub-module: `"file": "dist/silpin.js"` instead of `"file": "dist/index.js"`.
+2. Use the function's exact export name from the sub-module as the `entry` field.
+3. When the same function is re-exported from the barrel file with an alias (e.g., `export { cariKurupTaun as cariKurupTahunJawa }`), use the **original** name from the sub-module, not the alias.
+4. This approach actually provides better isolation — each cluster only loads what it needs, avoiding side effects from unrelated module initialization.
+5. After refactoring, if you extract new functions into their own modules, add new clusters pointing to those modules directly.

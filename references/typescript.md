@@ -150,6 +150,78 @@ For best results with Regrets, ensure the TypeScript project has:
 
 The `declaration` flag isn't required by Regrets, but it ensures the compiled output matches the source types.
 
+## CJS Bridge Wrapper Pattern
+
+Many TypeScript projects compile to both ESM and CJS:
+
+```json
+{
+  "main": "./lib/cjs/index.js",
+  "module": "./lib/esm/index.js"
+}
+```
+
+The ESM output often lacks `.js` import extensions, causing `ERR_MODULE_NOT_FOUND` when Regrets' `capture.js` tries `await import()`. This is a known TypeScript limitation — TS source uses extensionless imports (`import { x } from './utils'`) that compile to the same extensionless form in ESM, which Node.js cannot resolve.
+
+### Solution: CJS Bridge Wrappers
+
+Create thin `.mjs` wrapper files that use `createRequire()` to import from the CJS build:
+
+```js
+// regrets/wrappers/us-ssn.mjs
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const ssn = require('../../lib/cjs/us/ssn.js');
+export const validate = ssn.validate;
+export const format = ssn.format;
+export const compact = ssn.compact;
+```
+
+### Why This Works
+
+1. `capture.js` uses `await import()` which works with `.mjs` files
+2. `createRequire()` bridges from ESM to CJS seamlessly
+3. The CJS build has all dependencies bundled with proper `require()` resolution
+4. No modifications to the target project's build system needed
+
+### Manifest Configuration
+
+Point the `file` field to the wrapper:
+
+```json
+{
+  "id": "us-ssn-validate",
+  "entry": "validate",
+  "watches": ["validate"],
+  "file": "regrets/wrappers/us-ssn.mjs",
+  "stack": "js",
+  "fingerprintLevel": "entry",
+  "inputs": ["123-45-6789", "078-05-1120"]
+}
+```
+
+### Directory Structure
+
+```
+target-project/
+  regrets/
+    manifest.json
+    us-ssn-validate.regret
+    wrappers/
+      us-ssn.mjs          ← CJS bridge wrapper
+      id-npwp.mjs
+      br-cpf.mjs
+      util-checksum.mjs
+```
+
+### Important Notes
+
+The wrapper files are created specifically for Regrets testing. They should be committed alongside the `regrets/` directory but are NOT part of the target project's production code.
+
+Only update wrappers if new exported functions are added, the module's export structure changes, or a new module needs to be tested. The wrapper pattern is stable — it simply re-exports what the CJS build provides.
+
+---
+
 ## Rebuilding After Refactor
 
 **CRITICAL**: Always rebuild before validating. Regrets reads the compiled `.js` files, not the `.ts` source. If you refactor TypeScript but forget to rebuild, Regrets will validate against the OLD compiled code.
@@ -163,4 +235,11 @@ node scripts/validate.js  # ← tests OLD compiled code!
 vim src/sequence/conversion.ts
 npx tsc
 node scripts/validate.js  # ← tests NEW compiled code
+```
+
+For dual-build projects, rebuild both ESM and CJS:
+
+```bash
+npx tsc && npx tsc -p tsconfig-cjs.json
+node /path/to/Regrets/scripts/validate.js
 ```
