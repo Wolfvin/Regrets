@@ -183,6 +183,12 @@ def create_ghost(module, watch_list, recorder):
                         'error': str(err),
                     })
                     raise
+            # Ensure wrapper has a meaningful name (not '<lambda>')
+            # This is critical for lambda-assigned functions (e.g., in PyJHora's house.py)
+            # where the variable name is the true identifier, not __name__
+            if getattr(wrapper, '__name__', '') == '<lambda>':
+                wrapper.__name__ = name
+                wrapper.__qualname__ = name
             return wrapper
 
         setattr(ghost, fn_name, make_ghost(original, fn_name, recorder))

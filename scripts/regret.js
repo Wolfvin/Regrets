@@ -356,7 +356,7 @@ Usage:
   node scripts/regret.js list                       List all clusters with status
   node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
-  node scripts/regret.js truth                         Save dual truth baselines
+  node scripts/regret.js truth                         Save dual truth baselines (JS + Python)
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
@@ -365,7 +365,7 @@ Usage:
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js
-  python  → capture.py / validate.py
+  python  → capture.py / validate.py / truth.py
   php     → capture_php.php / validate_php.php
   react   → capture_react.mjs / validate.js
   rust    → capture_rust.sh
