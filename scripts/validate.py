@@ -155,6 +155,20 @@ def parse_regret(content):
             meta['trackMutation'] = val.lower() == 'true'
         elif key == 'mutationFingerprint':
             meta['mutationFingerprint'] = val.strip()
+        elif key == 'classMethod':
+            meta['classMethod'] = val
+        elif key == 'constructor':
+            meta['constructor'] = val
+        elif key == 'constructorArgs':
+            try:
+                meta['constructorArgs'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['constructorArgs'] = []
+        elif key == 'setup':
+            try:
+                meta['setup'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['setup'] = []
         else:
             meta[key] = val
 
@@ -382,6 +396,11 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
+            # classMethod support for Python
+            class_method = regret.get('classMethod', cluster_def.get('classMethod', None))
+            constructor_name = regret.get('constructor', cluster_def.get('constructor', None))
+            constructor_args = regret.get('constructorArgs', cluster_def.get('constructorArgs', []))
+            setup_steps = regret.get('setup', cluster_def.get('setup', []))
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -408,13 +427,20 @@ def main():
                 recorder = []
                 ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
 
-                entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
-                    raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
-
                 # Determine fingerprint mode: .regret file takes precedence over manifest
                 effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
                 effective_value_paths = regret.get('valuePaths') or value_paths or []
+
+                # Resolve the callable (function or class method)
+                if class_method:
+                    # classMethod mode: construct instance, run setup, then call method
+                    Cls = getattr(mod, constructor_name or entry_name, None)
+                    if Cls is None or not callable(Cls):
+                        raise TypeError(f"Constructor \"{constructor_name or entry_name}\" not found in {module_path}")
+                else:
+                    entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                    if entry_fn is None or not callable(entry_fn):
+                        raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
 
                 for current_input in inputs_to_validate:
                     # Deep-clone input before calling to prevent mutation from corrupting fingerprint
@@ -426,7 +452,32 @@ def main():
                     if track_mutation:
                         input_snapshot_before = snapshot_state(input_for_args)
 
-                    if multi_args and isinstance(input_for_args, list):
+                    if class_method:
+                        # Construct instance and call method
+                        c_args = deep_clone(constructor_args) if constructor_args else []
+                        if kwargs_mode and isinstance(c_args, dict):
+                            instance = Cls(**c_args)
+                        elif isinstance(c_args, list):
+                            instance = Cls(*c_args)
+                        else:
+                            instance = Cls(c_args)
+                        # Run setup
+                        for step in (setup_steps or []):
+                            method_name = step.get('method', '')
+                            method_args = step.get('args', [])
+                            getattr(instance, method_name)(*deep_clone(method_args))
+                        # Call target method
+                        target_method = getattr(instance, class_method)
+                        if multi_args and isinstance(input_for_args, list):
+                            raw_output = target_method(*input_for_args)
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            raw_output = target_method(**input_for_args)
+                        elif input_for_args is not None:
+                            raw_output = target_method(input_for_args)
+                        else:
+                            raw_output = target_method()
+                        fp_input = input_for_fp
+                    elif multi_args and isinstance(input_for_args, list):
                         raw_output = entry_fn(*input_for_args)
                         fp_input = input_for_fp
                     elif kwargs_mode and isinstance(input_for_args, dict):

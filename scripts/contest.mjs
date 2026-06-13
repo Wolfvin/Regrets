@@ -117,6 +117,10 @@ class ContestRunner {
       input: step.input,
       normalize: cluster.normalize || [],
       ignore_fields: cluster.ignoreFields || [],
+      class_method: cluster.classMethod || null,
+      constructor: cluster.constructor || null,
+      constructor_args: cluster.constructorArgs || [],
+      setup: cluster.setup || [],
     })
     try {
       const result = execFileSync('python3', [scriptPath, payload], {
