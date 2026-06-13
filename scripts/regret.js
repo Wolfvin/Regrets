@@ -313,6 +313,11 @@ switch (command) {
     break
   }
 
+  case 'branch-map': {
+    success = run('node', [`${SCRIPTS_DIR}/branch-map.js`, ...passThroughArgs])
+    break
+  }
+
   case 'audit': {
     success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
     break
@@ -359,6 +364,7 @@ Usage:
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
+  node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation

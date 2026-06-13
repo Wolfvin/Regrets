@@ -685,6 +685,58 @@ Use with `"fingerprintMode": "render"` and `normalize: ["visualOutput"]` in the 
 
 ---
 
+## Branch Map — Auto-Generate Coverage Guidance
+
+The `regret branch-map` command analyzes source code and generates `regrets/branch-map.md`,
+which maps every branch in watched functions and suggests inputs to cover each branch.
+
+```bash
+node scripts/regret.js branch-map             # Generate from compiled JS
+node scripts/regret.js branch-map --ts        # TypeScript mode — resolve .ts source files
+node scripts/regret.js branch-map --cluster my-cluster  # Single cluster
+```
+
+**Why this matters:** The `regret coverage` command reports coverage percentages, but it doesn't tell you *which* branches are uncovered or *what inputs* to add. The branch-map fills this gap by enumerating every branch with a suggested input that would exercise it.
+
+**TypeScript projects:** Always use `--ts` flag. Without it, the tool analyzes minified JS output, which has no readable branches. With `--ts`, it resolves the TypeScript source files from the manifest's JS paths and generates accurate branch analysis.
+
+Read `references/branch-coverage.md` for the Branch Map Pattern and `references/typescript-projects.md` for the full TypeScript workflow.
+
+---
+
+## TypeScript Projects — Special Considerations
+
+TypeScript projects require a compilation step before Regrets can fingerprint. This creates three gaps that agents must address:
+
+1. **`preBuild` is mandatory** — Without it, Regrets fingerprints stale compiled output
+2. **Source vs. compiled paths differ** — The manifest `file` points to `.js`, but analysis must read `.ts`
+3. **Minified output is unanalyzable** — Branch coverage and branch-map must use TypeScript source
+
+```json
+{
+  "preBuild": "npx tsc -p tsconfig.json",
+  "clusters": [
+    {
+      "id": "format-date",
+      "entry": "formatDate",
+      "file": "js/shared/date-utils.js",
+      "stack": "js",
+      ...
+    }
+  ]
+}
+```
+
+Key workflow:
+- Read `.ts` source to understand code → write manifest pointing to `.js` output
+- Use `regret branch-map --ts` for branch analysis from TypeScript source
+- Use `regret coverage` for quick coverage scoring from compiled JS
+- `preBuild` runs before every `capture`, `validate`, `drift`, `chain`, `ci`, `guard`
+
+Read `references/typescript-projects.md` for the complete guide including path mapping patterns and common pitfalls.
+
+---
+
 ## Quick Start — `regret:init`
 
 Scaffold a new regrets/ directory in your project:
@@ -731,6 +783,7 @@ regression-testing/
 │   ├── diff.js                 ← output diff — shows what changed when RED
 │   ├── diff.py                 ← output diff for Python clusters
 │   ├── coverage.js             ← branch coverage analysis (detect under-covered clusters)
+│   ├── branch-map.js           ← auto-generate regrets/branch-map.md with input suggestions
 │   ├── scan.js                 ← project scanner (suggest clusters from source)
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
 │   └── test.mjs                ← integration test suite (209 tests)
@@ -755,6 +808,7 @@ regression-testing/
     ├── python-pipeline.md       ← Python pipeline pattern (OCR, NLP, data processing)
     ├── ocr-parsing-pipeline.md ← OCR & parsing pipeline pattern (pure logic extraction + float precision)
     ├── branch-coverage.md     ← branch coverage analysis and branch-map pattern
+    ├── typescript-projects.md  ← TypeScript workflow guide (preBuild, source mapping, --ts flag)
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
     ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
     ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
