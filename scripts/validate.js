@@ -132,7 +132,10 @@ async function runReactCluster(clusterDef, regret) {
   if (!Component) throw new Error(`Component "${entry}" not found in ${file}`)
 
   const hashes = []
+  const goldenHashes = []
+  const allInputHashes = {}
   let lastOutput = null
+  let perInputDrift = false
 
   for (let i = 0; i < runs; i++) {
     const goldenInput = regret.input
@@ -161,10 +164,15 @@ async function runReactCluster(clusterDef, regret) {
     }
 
     hashes.push(fp)
+    goldenHashes.push(fp)
+    const inputKey = JSON.stringify(goldenInput)
+    if (!allInputHashes[inputKey]) allInputHashes[inputKey] = []
+    allInputHashes[inputKey].push(fp)
     lastOutput = html
   }
 
-  return { hashes, lastOutput }
+  perInputDrift = Object.values(allInputHashes).some(iHashes => new Set(iHashes).size > 1)
+  return { hashes, goldenHashes, allInputHashes, perInputDrift, lastOutput }
 }
 
 // ─── Run cluster N times ──────────────────────────────────────────────────────
@@ -193,7 +201,9 @@ async function runCluster(clusterDef, regret) {
   }
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
-  const hashes = []
+  const hashes = []          // flat list of all hashes (backward compat)
+  const goldenHashes = []    // hashes from golden input only (for drift detection)
+  const allInputHashes = {}  // per-input hash groups: { inputKey: [hash, hash, ...] }
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
@@ -245,9 +255,26 @@ async function runCluster(clusterDef, regret) {
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
       hashes.push(fp)
+
+      // Track per-input hashes for accurate drift detection
+      const inputKey = JSON.stringify(currentInput)
+      if (!allInputHashes[inputKey]) allInputHashes[inputKey] = []
+      allInputHashes[inputKey].push(fp)
+
+      // Track golden input hashes separately
+      const isGoldenInput = JSON.stringify(currentInput) === JSON.stringify(regret.input)
+      if (isGoldenInput) goldenHashes.push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+
+  // Drift detection: check per-input consistency, NOT across different inputs
+  // Different inputs SHOULD produce different hashes — that's expected.
+  // Drift = same input producing different hashes across runs.
+  const perInputDrift = Object.entries(allInputHashes).some(([key, inputHashes]) => {
+    return new Set(inputHashes).size > 1
+  })
+
+  return { hashes, goldenHashes, allInputHashes, perInputDrift, lastOutput }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +333,10 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, goldenHashes, allInputHashes, perInputDrift, lastOutput, skipped } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
 
     if (updateMode) {
       if (isMatch) {
@@ -322,12 +348,20 @@ for (const file of regretFiles) {
         results.push({ id, pass: true, updated: true })
       }
     } else if (driftMode) {
-      if (isDrift) {
-        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+      // Use per-input drift detection: same input should produce same hash across all runs
+      // Different inputs SHOULD produce different hashes — that's expected, not drift
+      if (perInputDrift) {
+        // Show which input(s) drifted
+        const driftedInputs = Object.entries(allInputHashes)
+          .filter(([_, iHashes]) => new Set(iHashes).size > 1)
+          .map(([key, iHashes]) => `${key.slice(0, 40)} → [${iHashes.join(' / ')}]`)
+        console.log(`  ❌ ${id.padEnd(35)} DRIFT  ${driftedInputs.join('; ')}`)
         results.push({ id, pass: false, drift: true })
       } else {
         const icon = isMatch ? '✅' : '❌'
-        console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
+        // Show golden hash + run count
+        const displayHash = goldenHashes.length > 0 ? goldenHashes[0] : liveHash
+        console.log(`  ${icon} ${id.padEnd(35)} ${displayHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
         results.push({ id, pass: isMatch })
       }
     } else {
