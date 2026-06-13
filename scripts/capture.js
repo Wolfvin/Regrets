@@ -55,7 +55,7 @@ let failed = 0
 
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
-          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs } = cluster
+          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs, kwargs = false } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -124,7 +124,16 @@ for (const cluster of clusters) {
       // (immutable record), one for the args (may be mutated by the function)
       const inputForRecord = deepClone(input)
       const inputForArgs = deepClone(input)
-      const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+      let args_
+      if (cluster.multiArgs && Array.isArray(inputForArgs)) {
+        args_ = [...inputForArgs]
+      } else if (kwargs && typeof inputForArgs === 'object' && inputForArgs !== null) {
+        // kwargs mode: input object is spread as named options
+        // JS doesn't have true kwargs, but adapter functions can accept a single object
+        args_ = [inputForArgs]
+      } else {
+        args_ = [inputForArgs]
+      }
       const rawOutput = await entryFn(...args_)
       // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
       // from the same serializable data that will be stored in the .regret file.
@@ -200,6 +209,7 @@ for (const cluster of clusters) {
       valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+      kwargs ? `kwargs: ${kwargs}` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,

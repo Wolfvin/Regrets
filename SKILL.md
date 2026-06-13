@@ -173,6 +173,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)
 | `multiArgs` | ❌ | `true` → each input is spread as separate arguments |
+| `kwargs` | ❌ | `true` → input dict is unpacked as keyword arguments (Python) or passed as single object (JS) |
 | `normalize` | ❌ | Array of normalization rules for non-deterministic values |
 | `ignoreFields` | ❌ | Fields to strip before hashing |
 | `fingerprintMode` | ❌ | `value` (default), `schema`, or `mixed` — see Fingerprint Modes |
@@ -427,6 +428,33 @@ For functions that take multiple arguments, add `"multiArgs": true` to the clust
 ```
 
 This calls `filenameFromHint("FPK-", "202505", "OUTPUT_TAX")` etc.
+
+## Keyword Arguments Support (Python `kwargs`)
+
+For Python functions that accept keyword arguments, add `"kwargs": true` to the cluster definition. Each input dict is then unpacked as keyword arguments:
+
+```json
+{
+  "id": "hand-value",
+  "entry": "estimate_hand_value_serialized",
+  "module": "regret_adapters",
+  "stack": "python",
+  "kwargs": true,
+  "inputs": [
+    {"tiles": [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 52], "win_tile": 52}
+  ]
+}
+```
+
+This calls `estimate_hand_value_serialized(tiles=[1,2,3,...], win_tile=52)`.
+
+When `kwargs` is true and the input is a dict, the dict is unpacked using `**kwargs` syntax (Python) or passed as a single object argument (JS). This is especially useful for:
+
+- **Class-based APIs** where the adapter function constructs objects and passes them as kwargs
+- **Config-heavy functions** with many optional parameters
+- **Adapter pattern wrappers** that bridge class-based libraries to Regrets
+
+See `references/class-adapter.md` and `references/case-study-mahjong.md` for complete examples.
 
 ## Pure Logic Extraction (Chrome Extensions)
 
