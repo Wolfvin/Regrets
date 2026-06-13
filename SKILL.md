@@ -448,6 +448,43 @@ The coverage tool counts decision points (`if/else`, ternary, switch/case, early
 - Coverage 50-79% → PARTIAL
 - Coverage ≥ 80% → WELL-COVERED
 
+### Suggest Inputs
+
+The `--suggest-inputs` flag goes beyond "you need more inputs" — it analyzes each branch condition and generates **concrete input suggestions** that would exercise uncovered branches:
+
+```bash
+node scripts/coverage.js --suggest-inputs
+node scripts/coverage.js --suggest-inputs --cluster validate-age
+```
+
+Output:
+
+```
+SUGGESTED INPUTS — Concrete inputs to cover uncovered branches
+══════════════════════════════════════════════════════════════════
+
+📦 validate-age (entry: validateAge)
+   4 branch(es) detected in validateAge:
+
+   Branch 1 (line 12): if (age < 0) return "invalid: negative"
+     → returns: "invalid: negative"
+     🆕 Suggested input: {"age": -1}
+   Branch 2 (line 13): if (age === 0) return "invalid: zero"
+     → returns: "invalid: zero"
+     🆕 Suggested input: {"age": 0}
+   Branch 3 (line 14): if (age < 18) return "minor"
+     → returns: "minor"
+     🆕 Suggested input: {"age": 10}
+   Branch 4 (line 15): if (age >= 65) return "senior"
+     → returns: "senior"
+     🆕 Suggested input: {"age": 70}
+
+   ── Manifest inputs snippet ──
+   "inputs": [{"age": -1}, {"age": 0}, {"age": 10}, {"age": 70}]
+```
+
+This directly addresses the critical gap: **"clusters only fingerprint one execution path; branching functions need inputs covering ALL branches."** Instead of guessing what inputs to add, the tool tells you exactly what values would exercise each branch.
+
 ### Scan Command
 
 For new projects, use `regret scan` to discover candidate functions:
@@ -459,7 +496,7 @@ node scripts/scan.js --stack python               # filter by stack
 node scripts/scan.js --format manifest            # output as manifest.json snippet
 ```
 
-The scan identifies exported functions, estimates cyclomatic complexity, and suggests clusters prioritized by complexity.
+The scan identifies exported functions, estimates cyclomatic complexity, and suggests clusters prioritized by complexity. It also detects **Zustand store actions** — pure logic buried inside `create()` closures — and suggests extracting them to `*-logic.ts` files before fingerprinting (see `references/zustand-store.md`).
 
 Read `references/branch-coverage.md` for the full specification and branch-map pattern.
 
@@ -565,6 +602,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
 | Next.js | Adapter modules (pure logic extraction) | Value (default) | See `references/nextjs.md` |
 | Tauri apps | esbuild transpile + adapter modules | Value (default) | See `references/tauri-apps.md` |
+| Zustand stores | Pure logic extraction + adapter | Value (default) | See `references/zustand-store.md` — extract pure logic from `create()` closures |
 | Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
 | Python pipeline | Pure logic extraction + adapter | Value / Schema / Mixed | See `references/python-pipeline.md` — OCR, NLP, and data processing pipelines |
 | OCR/Parsing pipeline | Pure logic extraction + fixtures | Value (default) | See `references/ocr-parsing-pipeline.md` — handles OCR I/O boundary + float precision |
@@ -801,6 +839,7 @@ regression-testing/
     ├── esoteric-language.md     ← Esoteric language interpreter testing pattern
     ├── nextjs.md                ← Next.js integration — adapter modules for noEmit projects
     ├── tauri-apps.md            ← Tauri app integration — esbuild transpile + adapter modules
+    ├── zustand-store.md          ← Zustand store — extract pure logic from create() closures
     ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
     ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
     ├── contest.md              ← Chain testing — multi-step flow validation
@@ -886,6 +925,8 @@ What stack is the target project?
     └── Extract pure logic into adapter modules → then use JS scripts (see references/nextjs.md)
 └── Tauri App
     └── esbuild transpile + adapter modules → then use JS scripts (see references/tauri-apps.md)
+└── Zustand Store
+    └── Extract pure logic to *-logic.ts → then use JS scripts (see references/zustand-store.md)
 └── Color Science Library
     └── Adapter module + dist/index.js import → handles circular ESM deps (see references/colorimetry.md)
 ```
