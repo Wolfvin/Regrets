@@ -57,7 +57,7 @@ for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
-          instanceMethods = {}, kwargs = false } = cluster
+          instanceMethods = {}, kwargs = false, outputTransform = null } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -184,7 +184,49 @@ for (const cluster of clusters) {
         const inputForArgs = deepClone(input)
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await instance[classMethod](...args_)
-        const output = deepClone(rawOutput)
+
+        // Consume generators/iterators into arrays for fingerprinting.
+        let consumedOutput = rawOutput
+        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+          consumedOutput = [...rawOutput]
+        }
+
+        // Apply outputTransform if specified in manifest
+        let transformedOutput = consumedOutput
+        if (outputTransform) {
+          if (outputTransform === 'str') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => String(item))
+            } else {
+              transformedOutput = String(consumedOutput)
+            }
+          } else if (outputTransform === 'json') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+            } else {
+              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
+            }
+          } else if (outputTransform === 'keys') {
+            if (consumedOutput && typeof consumedOutput === 'object') {
+              transformedOutput = Object.keys(consumedOutput)
+            }
+          } else if (outputTransform.includes('.')) {
+            // Custom: "module.function" — dynamic import
+            const lastDot = outputTransform.lastIndexOf('.')
+            const modPath = outputTransform.slice(0, lastDot)
+            const fnName = outputTransform.slice(lastDot + 1)
+            try {
+              const customMod = await import(resolve(process.cwd(), modPath))
+              transformedOutput = customMod[fnName](consumedOutput)
+            } catch (e) {
+              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
+            }
+          }
+        }
+
+        const output = deepClone(transformedOutput)
 
         const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
@@ -226,7 +268,51 @@ for (const cluster of clusters) {
         // always passed as a single object argument regardless of the kwargs flag.
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
-        const output = deepClone(rawOutput)
+
+        // Consume generators/iterators into arrays for fingerprinting.
+        // Entry functions that return generators (e.g., function*) would otherwise
+        // result in the generator object being recorded, not the values it yields.
+        let consumedOutput = rawOutput
+        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+          consumedOutput = [...rawOutput]
+        }
+
+        // Apply outputTransform if specified in manifest
+        let transformedOutput = consumedOutput
+        if (outputTransform) {
+          if (outputTransform === 'str') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => String(item))
+            } else {
+              transformedOutput = String(consumedOutput)
+            }
+          } else if (outputTransform === 'json') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+            } else {
+              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
+            }
+          } else if (outputTransform === 'keys') {
+            if (consumedOutput && typeof consumedOutput === 'object') {
+              transformedOutput = Object.keys(consumedOutput)
+            }
+          } else if (outputTransform.includes('.')) {
+            // Custom: "module.function" — dynamic import
+            const lastDot = outputTransform.lastIndexOf('.')
+            const modPath = outputTransform.slice(0, lastDot)
+            const fnName = outputTransform.slice(lastDot + 1)
+            try {
+              const customMod = await import(resolve(process.cwd(), modPath))
+              transformedOutput = customMod[fnName](consumedOutput)
+            } catch (e) {
+              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
+            }
+          }
+        }
+
+        const output = deepClone(transformedOutput)
 
         const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
@@ -305,6 +391,7 @@ for (const cluster of clusters) {
       valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+      outputTransform ? `outputTransform: ${outputTransform}` : null,
       constructorArgs?.length ? `constructorArgs: ${JSON.stringify(constructorArgs)}` : null,
       setup?.length ? `setup: ${JSON.stringify(setup)}` : null,
       Object.keys(instanceMethods).length ? `instanceMethods: ${JSON.stringify(instanceMethods)}` : null,

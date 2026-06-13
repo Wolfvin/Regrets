@@ -60,6 +60,7 @@ function parseRegret(content) {
     else if (key === 'ignoreFields') meta.ignoreFields = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
+    else if (key === 'outputTransform') meta.outputTransform = val
     else if (key === 'kwargs') meta.kwargs = val === 'true'
     else if (key === 'version') meta.version = Number(val)
     else if (key === 'constructorArgs' || key === 'setup') meta[key] = JSON.parse(val)
@@ -191,7 +192,7 @@ async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
           classMethod, constructor: constructorName, constructorArgs, setup,
-          instanceMethods = {} } = clusterDef
+          instanceMethods = {}, outputTransform: manifestOutputTransform = null } = clusterDef
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
@@ -294,7 +295,50 @@ async function runCluster(clusterDef, regret) {
         const inputForArgs = deepClone(currentInput)
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await instance[classMethod](...args_)
-        output = deepClone(rawOutput)
+
+        // Consume generators/iterators into arrays for fingerprinting
+        let consumedOutput = rawOutput
+        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+          consumedOutput = [...rawOutput]
+        }
+
+        // Apply outputTransform if specified (from .regret or manifest)
+        const outputTransform = regret.outputTransform || manifestOutputTransform || null
+        let transformedOutput = consumedOutput
+        if (outputTransform) {
+          if (outputTransform === 'str') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => String(item))
+            } else {
+              transformedOutput = String(consumedOutput)
+            }
+          } else if (outputTransform === 'json') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+            } else {
+              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
+            }
+          } else if (outputTransform === 'keys') {
+            if (consumedOutput && typeof consumedOutput === 'object') {
+              transformedOutput = Object.keys(consumedOutput)
+            }
+          } else if (outputTransform.includes('.')) {
+            // Custom: "module.function" — dynamic import
+            const lastDot = outputTransform.lastIndexOf('.')
+            const modPath = outputTransform.slice(0, lastDot)
+            const fnName = outputTransform.slice(lastDot + 1)
+            try {
+              const customMod = await import(resolve(process.cwd(), modPath))
+              transformedOutput = customMod[fnName](consumedOutput)
+            } catch (e) {
+              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
+            }
+          }
+        }
+
+        output = deepClone(transformedOutput)
         lastOutput = output
         fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
       } else {
@@ -306,7 +350,50 @@ async function runCluster(clusterDef, regret) {
         const inputForArgs = deepClone(currentInput)
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
-        output = deepClone(rawOutput)
+
+        // Consume generators/iterators into arrays for fingerprinting
+        let consumedOutput = rawOutput
+        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+          consumedOutput = [...rawOutput]
+        }
+
+        // Apply outputTransform if specified (from .regret or manifest)
+        const outputTransform = regret.outputTransform || manifestOutputTransform || null
+        let transformedOutput = consumedOutput
+        if (outputTransform) {
+          if (outputTransform === 'str') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => String(item))
+            } else {
+              transformedOutput = String(consumedOutput)
+            }
+          } else if (outputTransform === 'json') {
+            if (Array.isArray(consumedOutput)) {
+              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+            } else {
+              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
+            }
+          } else if (outputTransform === 'keys') {
+            if (consumedOutput && typeof consumedOutput === 'object') {
+              transformedOutput = Object.keys(consumedOutput)
+            }
+          } else if (outputTransform.includes('.')) {
+            // Custom: "module.function" — dynamic import
+            const lastDot = outputTransform.lastIndexOf('.')
+            const modPath = outputTransform.slice(0, lastDot)
+            const fnName = outputTransform.slice(lastDot + 1)
+            try {
+              const customMod = await import(resolve(process.cwd(), modPath))
+              transformedOutput = customMod[fnName](consumedOutput)
+            } catch (e) {
+              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
+            }
+          }
+        }
+
+        output = deepClone(transformedOutput)
         lastOutput = output
         fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
       }

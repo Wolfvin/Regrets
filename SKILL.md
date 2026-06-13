@@ -186,6 +186,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `goTestPkg` | ❌ | Relative path for `go test` command in Go stack (e.g., `"./pkg/name"`) |
 | `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
+| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `len`, `type`, or `"module.fn"` for custom (Python & JS) |
 
 ---
 
