@@ -66,10 +66,22 @@ function parseRegret(content) {
   const inputLine  = lines.find(l => l.startsWith('INPUT '))
   const outputLine = lines.find(l => l.startsWith('OUTPUT '))
   const hashLine   = lines.find(l => l.startsWith('HASH '))
+  // Parse INPUT/OUTPUT lines — handle undefined output gracefully
+  // (JSON.stringify(undefined) produces the literal string "undefined", not valid JSON)
+  let parsedInput = null
+  let parsedOutput = null
+  if (inputLine) {
+    const inputStr = inputLine.replace(/^INPUT\s+/, '')
+    parsedInput = inputStr === 'undefined' ? undefined : JSON.parse(inputStr)
+  }
+  if (outputLine) {
+    const outputStr = outputLine.replace(/^OUTPUT\s+/, '')
+    parsedOutput = outputStr === 'undefined' ? undefined : JSON.parse(outputStr)
+  }
   return {
     ...meta,
-    input:      inputLine  ? JSON.parse(inputLine.replace(/^INPUT\s+/, ''))   : null,
-    output:     outputLine ? JSON.parse(outputLine.replace(/^OUTPUT\s+/, '')) : null,
+    input:      parsedInput,
+    output:     parsedOutput,
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
     raw:        content
   }
