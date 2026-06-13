@@ -4,11 +4,43 @@
 import { createHash } from 'crypto'
 
 /**
+ * Normalize binary outputs (Uint8Array, Buffer, typed arrays) to a stable
+ * string representation suitable for fingerprinting.
+ * Without this, JSON.stringify on Uint8Array produces {"0":77,"1":84,...}
+ * which is brittle and changes when the array length changes.
+ *
+ * @param {*} obj - The output value to check
+ * @returns {string|*} Base64 string for binary types, or the original value
+ */
+export function normalizeBinaryOutput(obj) {
+  // Handle Uint8Array
+  if (obj instanceof Uint8Array) {
+    return Buffer.from(obj).toString('base64')
+  }
+  // Handle Node.js Buffer
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(obj)) {
+    return obj.toString('base64')
+  }
+  // Handle other typed arrays (Int8Array, Float32Array, etc.)
+  if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
+    return Buffer.from(obj.buffer, obj.byteOffset, obj.byteLength).toString('base64')
+  }
+  // Handle ArrayBuffer itself
+  if (obj instanceof ArrayBuffer) {
+    return Buffer.from(obj).toString('base64')
+  }
+  return obj
+}
+
+/**
  * Stable JSON stringify — keys sorted recursively.
  * { b:2, a:1 } and { a:1, b:2 } produce identical output.
  */
 export function stableStringify(obj) {
   if (obj === null || obj === undefined) return String(obj)
+  // Auto-normalize binary types before stringify
+  const safeObj = normalizeBinaryOutput(obj)
+  if (safeObj !== obj) return stableStringify(safeObj)
   if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']'
   if (typeof obj === 'object') {
     const keys = Object.keys(obj).sort()
@@ -115,6 +147,9 @@ export function fingerprintSequence(calls, clusterConfig = {}) {
 export function extractSchema(obj) {
   if (obj === null) return 'null'
   if (obj === undefined) return 'undefined'
+  // Auto-normalize binary types for schema extraction
+  const safeObj = normalizeBinaryOutput(obj)
+  if (safeObj !== obj) return extractSchema(safeObj)
   if (Array.isArray(obj)) {
     if (obj.length === 0) return 'array'
     // Sample up to 5 elements to detect mixed-type arrays

@@ -181,6 +181,11 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `pythonPath` | ❌ | Directory to add to `sys.path` for Python imports |
 | `renderMode` | ❌ | `static` for React (uses `renderToStaticMarkup`) |
 | `stripAttrs` | ❌ | HTML attributes to strip before fingerprinting (React) |
+| `entryType` | ❌ | `"function"` (default) or `"constructor"` — use `constructor` when entry is a class called with `new` |
+| `outputMethod` | ❌ | Method to call on the output object before fingerprinting (e.g., `"base64"` for binary outputs) |
+| `outputTransform` | ❌ | Named transformation: `"base64"`, `"hex"`, `"array"`, `"json"`, or `"string"` — for non-JSON outputs |
+| `setupSteps` | ❌ | Array of setup actions for builder/workflow patterns — see `references/builder-pattern.md` |
+| `entryTarget` | ❌ | Name of setup context object the entry method is on (used with `setupSteps`) |
 
 ---
 
@@ -447,6 +452,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
+| Builder / Binary | `setupSteps` + `outputMethod` | Transformed output | See `references/builder-pattern.md` |
 
 ---
 
@@ -558,7 +564,7 @@ regression-testing/
 │   └── regret.js               ← CLI binary (regret capture/validate/...)
 ├── scripts/
 │   ├── ghost.js               ← shared Ghost Proxy utilities (createGhost, deepClone, normalizeHtml, normalizeVisualOutput)
-│   ├── validate.js             ← compares fingerprints, reports green/red (JS/TS/React)
+│   ├── validate.js             ← compares fingerprints, reports green/red (JS/TS/React) — now with CJS + binary output support
 │   ├── health.js               ← cluster health score report (all stacks)
 │   ├── fingerprint.js          ← hashing logic (core algorithm)
 │   ├── fingerprint.py          ← hashing logic — Python shared module
@@ -582,6 +588,7 @@ regression-testing/
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant
     ├── contest.md              ← Chain testing — multi-step flow validation
+    ├── builder-pattern.md      ← Builder pattern & binary output variant (setupSteps, outputMethod, entryType)
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     └── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
 ```

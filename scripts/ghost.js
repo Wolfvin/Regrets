@@ -31,6 +31,7 @@ export function createGhost(targetModule, watchList, recorder) {
 
     const original = targetModule[fnName]
     proxied[fnName] = new Proxy(original, {
+      // Intercept regular function calls: fn(args)
       apply(target, thisArg, args) {
         let result
         try {
@@ -51,6 +52,21 @@ export function createGhost(targetModule, watchList, recorder) {
         }
         recorder.push({ fn: fnName, args: deepClone(args), result: deepClone(result) })
         return result
+      },
+
+      // Intercept constructor calls: new fn(args)
+      // The `construct` trap handles `new` expressions which the `apply` trap cannot.
+      // This is critical for OOP-style projects with class-based entry points.
+      construct(target, args, newTarget) {
+        let instance
+        try {
+          instance = Reflect.construct(target, args, newTarget)
+        } catch (err) {
+          recorder.push({ fn: fnName, args: deepClone(args), error: String(err), construct: true })
+          throw err
+        }
+        recorder.push({ fn: fnName, args: deepClone(args), result: '[instance]', construct: true })
+        return instance
       }
     })
   }

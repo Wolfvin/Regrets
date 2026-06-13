@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } 
 import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
 import { pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, normalizeBinaryOutput } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml } from './ghost.js'
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -60,6 +60,9 @@ function parseRegret(content) {
     else if (key === 'ignoreFields') meta.ignoreFields = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
+    else if (key === 'entryType') meta.entryType = val
+    else if (key === 'outputMethod') meta.outputMethod = val
+    else if (key === 'outputTransform') meta.outputTransform = val
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
@@ -68,7 +71,7 @@ function parseRegret(content) {
   const hashLine   = lines.find(l => l.startsWith('HASH '))
   return {
     ...meta,
-    input:      inputLine  ? JSON.parse(inputLine.replace(/^INPUT\s+/, ''))   : null,
+    input:      inputLine  ? (inputLine.replace(/^INPUT\s+/, '') === 'undefined' ? undefined : JSON.parse(inputLine.replace(/^INPUT\s+/, '')))   : null,
     output:     outputLine ? JSON.parse(outputLine.replace(/^OUTPUT\s+/, '')) : null,
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
     raw:        content
@@ -188,7 +191,17 @@ async function runCluster(clusterDef, regret) {
     return await runReactCluster(clusterDef, regret)
   }
 
-  const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
+  let rawMod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
+
+  // Resolve CJS/ESM module shape (CJS modules loaded via import() nest exports under .default)
+  let mod = rawMod
+  if (rawMod.default && typeof rawMod.default === 'object' && !Array.isArray(rawMod.default)) {
+    const defKeys = Object.keys(rawMod.default)
+    if (defKeys.length > 0 && !rawMod.default.__esModule) {
+      mod = { ...rawMod.default, ...rawMod }
+    }
+  }
+
   const hashes = []
   let lastOutput = null
 
@@ -204,12 +217,107 @@ async function runCluster(clusterDef, regret) {
   for (let i = 0; i < runs; i++) {
     for (const currentInput of inputsToValidate) {
       const recorder = []
-      const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
-      const entryFn  = ghost[entry] ?? mod[entry]
-      if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
+
+      // Handle setupSteps for builder/workflow patterns
+      let setupContext = {}
+      if (clusterDef.setupSteps?.length) {
+        // Resolve $ref in args
+        function resolveRefs(args) {
+          if (!Array.isArray(args)) return args
+          return args.map(arg => {
+            if (arg && typeof arg === 'object' && !Array.isArray(arg) && arg.$ref) {
+              const ref = setupContext[arg.$ref]
+              if (!ref) throw new Error(`$ref "${arg.$ref}" not found in setup context`)
+              return ref
+            }
+            return arg
+          })
+        }
+        for (const step of clusterDef.setupSteps) {
+          const resolvedArgs = resolveRefs(step.args || [])
+          if (step.action === 'new') {
+            const parts = step.target.split('.')
+            let Ctor = mod
+            for (const p of parts) Ctor = Ctor?.[p]
+            if (typeof Ctor !== 'function') throw new Error(`Constructor "${step.target}" not found`)
+            const instance = new Ctor(...resolvedArgs)
+            if (step.as) setupContext[step.as] = instance
+          } else if (step.action === 'call') {
+            const obj = setupContext[step.on] ?? mod
+            const fn = obj[step.method ?? step.target]
+            if (typeof fn !== 'function') throw new Error(`Method "${step.method ?? step.target}" not found`)
+            const result = await fn.call(obj, ...resolvedArgs)
+            if (step.as) setupContext[step.as] = result
+          }
+        }
+      }
+
+      // Resolve entry function, supporting dot-notation paths (e.g., "Utils.getTickDuration")
+      const watches = regret.watches ?? clusterDef.watches
+
+      // Build a flat module-like object for ghost wrapping that includes nested methods
+      const ghostModule = { ...mod }
+      for (const watch of watches) {
+        if (watch.includes('.')) {
+          const parts = watch.split('.')
+          let target = mod
+          for (let i = 0; i < parts.length - 1; i++) target = target?.[parts[i]]
+          const fn = target?.[parts[parts.length - 1]]
+          if (typeof fn === 'function') ghostModule[watch] = fn.bind(target)
+        }
+      }
+
+      const ghost    = createGhost(ghostModule, watches, recorder)
+
+      // Resolve entry function from ghost or module, supporting dot-notation
+      // Also handle entryTarget for builder patterns
+      let entryFn
+      if (clusterDef.entryTarget && setupContext[clusterDef.entryTarget]) {
+        entryFn = setupContext[clusterDef.entryTarget][entry]?.bind(setupContext[clusterDef.entryTarget])
+      }
+      if (!entryFn) entryFn = ghost[entry] ?? null
+      if (!entryFn) {
+        const parts = entry.split('.')
+        let target = mod
+        for (let i = 0; i < parts.length - 1; i++) target = target?.[parts[i]]
+        entryFn = target?.[parts[parts.length - 1]]
+      }
+      if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
       // multiArgs: spread input as separate arguments
       const args_ = multiArgs && Array.isArray(currentInput) ? currentInput : [currentInput]
-      const output   = await entryFn(...args_)
+      let output   = await entryFn(...args_)
+
+      // Apply output transformation (outputMethod, outputTransform, or auto-normalize binary)
+      const { outputMethod, outputTransform } = clusterDef
+      if (outputMethod && output != null) {
+        const method = output[outputMethod]
+        if (typeof method === 'function') output = method.call(output)
+      } else if (outputTransform) {
+        switch (outputTransform) {
+          case 'base64':
+            if (output instanceof Uint8Array || Buffer.isBuffer(output))
+              output = Buffer.from(output).toString('base64')
+            break
+          case 'hex':
+            if (output instanceof Uint8Array || Buffer.isBuffer(output))
+              output = Array.from(output).map(b => b.toString(16).padStart(2, '0')).join('')
+            break
+          case 'array':
+            if (ArrayBuffer.isView(output)) output = Array.from(output)
+            break
+          case 'json':
+            output = JSON.stringify(output)
+            break
+          case 'string':
+            output = String(output)
+            break
+        }
+      } else {
+        // Auto-normalize binary outputs
+        const normalized = normalizeBinaryOutput(output)
+        if (normalized !== output) output = normalized
+      }
+
       lastOutput     = output
       const fpInput  = multiArgs && Array.isArray(currentInput) ? currentInput : currentInput
 
