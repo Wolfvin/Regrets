@@ -184,7 +184,14 @@ switch (command) {
   }
 
   case 'chain': {
-    success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs])
+    const stacks = detectStacks()
+    for (const stack of stacks) {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+        success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'python') {
+        success = run('python3', [`${SCRIPTS_DIR}/contest.py`, ...passThroughArgs]) && success
+      }
+    }
     break
   }
 
@@ -233,7 +240,7 @@ Usage:
   node scripts/regret.js ci                            CI mode (fail-fast)
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
-  node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows)
+  node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js scan <path> [--manifest]      Scan source, suggest clusters
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js guard                         Pre-build gate

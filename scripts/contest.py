@@ -9,13 +9,14 @@
 import sys
 import os
 import json
+import re
 import importlib
 import hashlib
-from pathlib import Path
+from datetime import datetime, timezone
 
 # Import shared fingerprint module
 from fingerprint import (
-    stable_dumps, normalize, strip_fields, to_base36,
+    normalize, strip_fields, to_base36,
     deep_clone, fingerprint, extract_schema
 )
 
@@ -121,7 +122,7 @@ class ContestRunner:
             return {'match': False, 'reason': 'no golden file'}
         with open(golden_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        import re
+
         m = re.search(r'^chain_hash:\s+(\S+)', content, re.MULTILINE)
         if not m:
             return {'match': False, 'reason': 'malformed golden file (no chain_hash)'}
@@ -139,7 +140,7 @@ class ContestRunner:
         lines = [
             f'chain: {result["id"]}',
             f'chain_hash: {result["chain_hash"]}',
-            f'captured: {__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}',
+            f'captured: {datetime.now(timezone.utc).isoformat()}',
             'steps:'
         ]
         for i, s in enumerate(result['steps']):

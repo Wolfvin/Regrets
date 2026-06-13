@@ -623,7 +623,8 @@ regression-testing/
 │   ├── capture_react.mjs       ← React component render capture
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
 │   ├── capture_go.sh           ← Go cluster capture runner (community preview)
-│   ├── contest.mjs             ← chain testing MVP (multi-step flow validation)
+│   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
+│   ├── contest.py              ← chain testing for Python stack clusters
 │   ├── diff.js                 ← output diff — shows what changed when RED
 │   ├── diff.py                 ← output diff for Python clusters
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
