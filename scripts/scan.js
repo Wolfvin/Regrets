@@ -421,6 +421,72 @@ function stackFromExt(ext) {
   return 'js'
 }
 
+// ─── Barrel file detection ────────────────────────────────────────────────────
+// Detects files that re-export from other modules (barrel/index files).
+// These are important for factory-pattern libraries like mathjs where
+// individual source files export factory functions (not callable functions)
+// and the barrel file exports the instantiated versions.
+
+function isBarrelFile(source) {
+  const reExportPatterns = [
+    /export\s+\*\s+from\s+['"]/g,        // export * from '...'
+    /export\s+\{[^}]+\}\s+from\s+['"]/g,  // export { x } from '...'
+  ]
+  let reExportCount = 0
+  for (const pattern of reExportPatterns) {
+    const matches = source.match(pattern)
+    if (matches) reExportCount += matches.length
+  }
+  // A barrel file typically has many re-exports and little actual code
+  const lines = source.split('\n').filter(l => l.trim() && !l.trim().startsWith('//')).length
+  return reExportCount >= 5 && reExportCount / lines > 0.3
+}
+
+// ─── Factory pattern detection ────────────────────────────────────────────────
+// Detects files that use a factory pattern (e.g., mathjs, where functions
+// are created via factory(name, deps, createFn) and exported as createXxx).
+
+function detectFactoryPattern(source) {
+  const factoryPatterns = [
+    /factory\s*\(\s*['"`]\w+['"`]\s*,/,              // factory('name', deps, fn)
+    /export\s+(?:const|var|let)\s+create\w+\s*=\s*\/\*.*\*\/\s*factory\s*\(/,  // export const createX = factory(
+    /create\w+\s*\.\s*isFactory\s*=\s*true/,          // createX.isFactory = true
+  ]
+  for (const pattern of factoryPatterns) {
+    if (pattern.test(source)) return true
+  }
+  return false
+}
+
+// ─── Extract barrel exports ───────────────────────────────────────────────────
+// From a barrel file, extract the names of exported functions.
+
+function extractBarrelExports(source) {
+  const exports = []
+
+  // export { add, subtract, multiply } from '...'
+  const namedExports = source.matchAll(/export\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"]/g)
+  for (const m of namedExports) {
+    const names = m[1].split(',').map(n => n.trim().split(/\s+as\s+/).pop().trim()).filter(Boolean)
+    exports.push(...names)
+  }
+
+  // export * from '...' (can't know names without importing)
+  // We note these as wildcard exports
+  const wildcardExports = source.matchAll(/export\s+\*\s+from\s+['"]([^'"]+)['"]/g)
+  for (const m of wildcardExports) {
+    exports.push(`*from:${m[1]}`)
+  }
+
+  // export var/function/const name = ...
+  const directExports = source.matchAll(/export\s+(?:var|let|const|function)\s+(\w+)/g)
+  for (const m of directExports) {
+    exports.push(m[1])
+  }
+
+  return [...new Set(exports)]
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 console.log('\n📡 Scanning project for cluster suggestions...\n')
@@ -471,6 +537,8 @@ if (largeFiles.length > 0) {
 
 const suggestions = []
 const internalOnlyFiles = []  // Files with internal functions but no exports
+const barrelFiles = []
+const factoryFiles = []
 
 for (const filePath of files) {
   const ext = extname(filePath)
@@ -483,6 +551,17 @@ for (const filePath of files) {
   try {
     source = readFileSync(filePath, 'utf8')
   } catch { continue }
+
+  // Detect barrel files
+  if (isBarrelFile(source)) {
+    const barrelExports = extractBarrelExports(source)
+    barrelFiles.push({ file: relPath, exportCount: barrelExports.length, exports: barrelExports.slice(0, 30) })
+  }
+
+  // Detect factory pattern
+  if (detectFactoryPattern(source)) {
+    factoryFiles.push(relPath)
+  }
 
   const lines = source.split('\n').length
   const fns = extractExportedFunctions(source, ext)
@@ -531,6 +610,7 @@ for (const filePath of files) {
       complexity,
       fileSize: lines,
       isZustand: false,
+      isFactory: detectFactoryPattern(source),
     })
   }
 
@@ -543,6 +623,7 @@ for (const filePath of files) {
       complexity: action.complexity,
       fileSize: lines,
       isZustand: true,
+      isFactory: false,
       note: 'Extract pure logic to *-logic.ts before fingerprinting (see references/zustand-store.md)',
     })
   }
@@ -608,6 +689,35 @@ if (formatManifest) {
     console.log(`\n  See references/zustand-store.md for the extraction pattern.`)
   }
 
+  // Report barrel files
+  if (barrelFiles.length > 0) {
+    console.log(`\n📦 Barrel files detected (re-export aggregators):`)
+    for (const b of barrelFiles) {
+      console.log(`  ${b.file} (${b.exportCount} exports)`)
+      if (b.exports.length > 0 && b.exports.length <= 10) {
+        console.log(`    Exports: ${b.exports.join(', ')}`)
+      } else if (b.exports.length > 10) {
+        console.log(`    Exports: ${b.exports.slice(0, 10).join(', ')} ... (+${b.exportCount - 10} more)`)
+      }
+    }
+    console.log(`\n  💡 Barrel files aggregate exports from sub-modules. For factory-pattern projects,`)
+    console.log(`     use the barrel file as the 'file' in manifest.json — it exports instantiated functions.`)
+    console.log(`     Example: { "file": "lib/esm/index.js", "entry": "add", ... }`)
+  }
+
+  // Report factory pattern files
+  const factorySuggestions = suggestions.filter(s => s.isFactory)
+  if (factorySuggestions.length > 0) {
+    console.log(`\n🏭 Factory pattern detected in ${factoryFiles.length} file(s).`)
+    console.log(`   ${factorySuggestions.length} function(s) use the factory pattern (e.g., createAdd, createMultiply).`)
+    console.log(`   ⚠️  Factory exports are NOT directly callable — they need dependency injection first.`)
+    console.log(`   Use the compiled barrel file (e.g., lib/esm/index.js) as the entry point instead.`)
+    console.log(`   The barrel file exports the instantiated functions: add, multiply, sin, etc.`)
+    console.log(`   Example manifest entry:`)
+    console.log(`     { "id": "arithmetic-add", "entry": "add", "file": "lib/esm/index.js", `)
+    console.log(`       "watches": ["add", "addScalar"], "outputTransform": "pojo" }`)
+  }
+
   console.log(`\n💡 Tip: Run with --format manifest to generate a manifest.json starting point.`)
   console.log(`   Then edit the manifest to add representative inputs for each cluster.`)
   console.log(`   Run with regret coverage --suggest-inputs to get concrete input suggestions.`)
@@ -633,3 +743,4 @@ if (formatManifest) {
   }
 
   console.log()
+}
