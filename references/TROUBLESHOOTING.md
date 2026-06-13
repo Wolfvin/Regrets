@@ -236,3 +236,17 @@ fp := fingerprint(input, result)
 3. For multiple return values, ensure the wrapper struct uses consistent JSON field names and ordering.
 4. Run the cross-stack parity test: `go test -run TestCrossStackParity` in the generated test file.
 5. Compare the intermediate `combined` string (before hashing) from both stacks to isolate where serialization diverges.
+
+---
+
+## Python drift detection reports false positives with multiple inputs
+
+**Problem:** Running `python scripts/validate.py --runs 5` reports drift on every cluster that has multiple inputs, even though the functions are pure and deterministic.
+
+**Cause:** The Python validator was using `len(set(hashes)) > 1` to detect drift, which incorrectly compared fingerprints from DIFFERENT inputs against each other. With multiple inputs, each input naturally produces a different fingerprint, so `set(hashes)` always contains more than one element, falsely reporting drift. The JS validator had the same bug and was already fixed to use per-input drift detection (`hashesPerInput`).
+
+**Solution:**
+1. Ensure you are using the latest version of `validate.py` — the fix tracks hashes per input key and only reports drift when the SAME input produces different hashes across multiple runs.
+2. If you are running an older version, update the drift detection logic to use `hashes_per_input` dictionary instead of a flat `hashes` list.
+3. Verify the fix by running `python scripts/validate.py --runs 5` on a cluster with multiple pure-function inputs — all should report `PASS+STABLE`.
+4. The number of distinct hashes in drift output should equal the number of runs × number of inputs, but per-input consistency should hold (same input → same hash every run).
