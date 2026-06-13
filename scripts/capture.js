@@ -123,7 +123,13 @@ for (const cluster of clusters) {
       const inputForRecord = deepClone(input)
       const inputForArgs = deepClone(input)
       const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
-      const output = await entryFn(...args_)
+      const rawOutput = await entryFn(...args_)
+      // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
+      // from the same serializable data that will be stored in the .regret file.
+      // Without this, non-serializable properties (functions, circular refs) would be
+      // present during fingerprinting but absent in the stored OUTPUT — causing the
+      // .regret file's data to be irreproducible from its own hash.
+      const output = deepClone(rawOutput)
       
       const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
