@@ -296,3 +296,32 @@ fp := fingerprint(input, result)
 3. When the same function is re-exported from the barrel file with an alias (e.g., `export { cariKurupTaun as cariKurupTahunJawa }`), use the **original** name from the sub-module, not the alias.
 4. This approach actually provides better isolation — each cluster only loads what it needs, avoiding side effects from unrelated module initialization.
 5. After refactoring, if you extract new functions into their own modules, add new clusters pointing to those modules directly.
+
+---
+
+## Rollup-bundled library: function name collision in output
+
+**Problem:** After refactoring a library that uses rollup for bundling, validate fails with `ReferenceError: matchContextPattern is not defined` even though the function is properly imported in the source code.
+
+**Cause:** Rollup may rename imported functions when there's a naming conflict between the import and an existing identifier in the bundled output. For example, if you import `matchContextPattern` from a module and the rollup bundle already has a similar identifier, rollup renames the imported function to `matchContextPattern$1` in the output. However, if another part of the code references the original name `matchContextPattern` (not the `$1` version), a `ReferenceError` occurs at runtime.
+
+This commonly happens when:
+- The main module re-exports or wraps a function from a sub-module
+- The sub-module function name conflicts with another identifier in the bundle scope
+- The rollup config uses specific naming or deduplication settings
+
+**Solution:**
+1. **Use aliased imports** to prevent name collisions:
+   ```js
+   // Instead of:
+   import { matchContextPattern } from './context-matcher.js';
+   
+   // Use:
+   import { matchContextPattern as resolveContextPattern } from './context-matcher.js';
+   ```
+2. **Verify the bundled output** after building: search the dist file for the function name to ensure it's referenced consistently (no `$1` suffix on some references but not others).
+3. **Rebuild all dist variants** (ESM, UMD, browser) after changing imports — each build may handle naming differently.
+4. **Run Regrets validate immediately after rebuild** to catch naming issues before they propagate.
+5. This issue is specific to rollup-bundled libraries; if you import directly from source files, the Node.js runtime handles imports correctly.
+
+See `references/case-study-lindenmayer.md` for a complete real-world example of this issue and its resolution.
