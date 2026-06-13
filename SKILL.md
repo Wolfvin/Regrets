@@ -457,6 +457,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
+| Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
 
 ---
 
@@ -594,6 +595,7 @@ regression-testing/
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant
     ├── class-based.md           ← Class-based library wrapper pattern
+    ├── esoteric-language.md     ← Esoteric language interpreter testing pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
@@ -646,6 +648,8 @@ What stack is the target project?
 │   └── Health → bash scripts/capture_go.sh health
 └── Browser Extension
     └── Extract pure logic first → then use JS/TS scripts
+└── Esolang Interpreter
+    └── Extract pure logic + create adapter → then use Python/JS scripts
 ```
 
 ### Manifest Cluster: Complete Example with All Fields
