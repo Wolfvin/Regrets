@@ -24,6 +24,9 @@ import types
 from pathlib import Path
 from datetime import datetime, timezone
 
+# Import shared fingerprint module
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
@@ -134,7 +137,23 @@ def parse_regret_file(content):
             continue
         key = line[:colon_idx]
         val = line[colon_idx + 2:].strip()
-        meta[key] = val
+        if key == 'watches':
+            meta[key] = [w.strip() for w in val.strip('[]').split(',') if w.strip()]
+        elif key == 'normalize':
+            meta[key] = [n.strip() for n in val.strip('[]').split(',') if n.strip()]
+        elif key == 'ignoreFields':
+            meta[key] = [f.strip() for f in val.strip('[]').split(',') if f.strip()]
+        else:
+            meta[key] = val
+    # Parse data section
+    data_section = sections[1] if len(sections) > 1 else ''
+    for line in data_section.split('\n'):
+        if line.startswith('INPUT '):
+            meta['input'] = json.loads(line[6:])
+        elif line.startswith('OUTPUT '):
+            meta['output'] = json.loads(line[7:])
+        elif line.startswith('HASH '):
+            meta['goldenHash'] = line[5:].strip()
     return meta
 
 
