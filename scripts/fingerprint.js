@@ -9,6 +9,11 @@ import { createHash } from 'crypto'
  */
 export function stableStringify(obj) {
   if (obj === null || obj === undefined) return String(obj)
+  // Handle TypedArrays (Uint8Array, Int32Array, etc.) — convert to regular arrays
+  // so that Uint8Array [1,2,3] serializes as [1,2,3], not {"0":1,"1":2,"2":3}
+  if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
+    return '[' + Array.from(obj).map(stableStringify).join(',') + ']'
+  }
   if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']'
   if (typeof obj === 'object') {
     const keys = Object.keys(obj).sort()
@@ -47,6 +52,11 @@ export function normalize(obj, rules = []) {
     }
   }
   if (Array.isArray(obj)) return obj.map(v => normalize(v, rules))
+  // Handle TypedArrays (Uint8Array, Int32Array, etc.) — convert to regular arrays
+  // before recursing, so normalize + stableStringify produce [1,2,3] not {"0":1,"1":2,"2":3}
+  if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
+    return Array.from(obj).map(v => normalize(v, rules))
+  }
   if (obj && typeof obj === 'object') {
     return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, normalize(v, rules)]))
   }
@@ -59,6 +69,10 @@ export function normalize(obj, rules = []) {
 export function stripFields(obj, ignoreFields = []) {
   if (!ignoreFields.length) return obj
   if (Array.isArray(obj)) return obj.map(v => stripFields(v, ignoreFields))
+  // Handle TypedArrays — convert to regular arrays before stripping
+  if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
+    return Array.from(obj).map(v => stripFields(v, ignoreFields))
+  }
   if (obj && typeof obj === 'object') {
     return Object.fromEntries(
       Object.entries(obj)
@@ -115,6 +129,10 @@ export function fingerprintSequence(calls, clusterConfig = {}) {
 export function extractSchema(obj) {
   if (obj === null) return 'null'
   if (obj === undefined) return 'undefined'
+  // Handle TypedArrays — treat as arrays for schema extraction
+  if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
+    return extractSchema(Array.from(obj))
+  }
   if (Array.isArray(obj)) {
     if (obj.length === 0) return 'array'
     // Sample up to 5 elements to detect mixed-type arrays
