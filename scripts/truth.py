@@ -21,9 +21,30 @@ from datetime import datetime, timezone
 # Import shared fingerprint module
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
-    deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    materialize_output, snapshot_state, get_env_snapshot
+    deep_clone, fingerprint, fingerprint_sequence, extract_schema
 )
+
+
+# ─── Local helpers (mirrored from fingerprint.py) ────────────────────────────
+
+def materialize_output(val):
+    """Materialize generator/iterator output into a list for fingerprinting.
+
+    Returns a tuple: (materialized_value, was_materialized_bool)
+    """
+    import types as _types
+    if val is None or isinstance(val, (bool, int, float, str, bytes, dict, list, tuple, set)):
+        return val, False
+    is_generator = isinstance(val, _types.GeneratorType)
+    is_map_filter = isinstance(val, (map, filter))
+    is_range = isinstance(val, range)
+    is_iterator = hasattr(val, '__next__') and not isinstance(val, (str, bytes, dict))
+    if is_generator or is_map_filter or is_range or is_iterator:
+        try:
+            return list(val), True
+        except Exception:
+            return val, False
+    return val, False
 
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
