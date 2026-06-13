@@ -34,6 +34,67 @@ const EXTENSIONS = {
   svelte: ['.svelte'],
 }
 
+// ─── Chrome Extension detection ─────────────────────────────────────────────
+// Detects Chrome extension projects and adds appropriate warnings/suggestions.
+// Chrome extensions have content scripts that often use IIFEs with no exports,
+// making them invisible to the standard export-based scanner.
+
+const CHROME_EXTENSION_MARKERS = [
+  'manifest.json',    // Chrome extension manifest
+  'chrome.runtime',   // Chrome API usage
+  'chrome.tabs',      // Chrome tabs API
+  'chrome.scripting', // Chrome scripting API
+]
+
+function detectChromeExtension(rootDir) {
+  const markers = []
+  try {
+    // Check for manifest.json with manifest_version
+    const manifestPath = resolve(rootDir, 'manifest.json')
+    if (existsSync(manifestPath)) {
+      const content = readFileSync(manifestPath, 'utf8')
+      const manifest = JSON.parse(content)
+      if (manifest.manifest_version) {
+        markers.push({
+          type: 'chrome_extension',
+          version: manifest.manifest_version,
+          hasContentScripts: !!(manifest.content_scripts?.length),
+          hasBackground: !!(manifest.background),
+          hasSidePanel: !!(manifest.side_panel),
+        })
+      }
+    }
+  } catch { /* not a Chrome extension */ }
+
+  // Also check subdirectories for manifest.json (monorepo pattern)
+  try {
+    const entries = readdirSync(rootDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory() && !['node_modules', '.git', 'dist', 'build'].includes(entry.name)) {
+        const subManifest = resolve(rootDir, entry.name, 'manifest.json')
+        if (existsSync(subManifest)) {
+          try {
+            const content = readFileSync(subManifest, 'utf8')
+            const manifest = JSON.parse(content)
+            if (manifest.manifest_version) {
+              markers.push({
+                type: 'chrome_extension',
+                version: manifest.manifest_version,
+                hasContentScripts: !!(manifest.content_scripts?.length),
+                hasBackground: !!(manifest.background),
+                hasSidePanel: !!(manifest.side_panel),
+                subdir: entry.name,
+              })
+            }
+          } catch { /* skip invalid */ }
+        }
+      }
+    }
+  } catch { /* skip */ }
+
+  return markers
+}
+
 function discoverFiles(dir, extensions) {
   const files = []
   try {
@@ -111,6 +172,95 @@ function extractExportedFunctions(source, ext) {
   }
 
   return [...new Set(fns)]
+}
+
+// ─── Non-exported / IIFE function detection ──────────────────────────────────
+// Chrome extension content scripts and other self-contained modules often use
+// IIFEs or non-exported functions. This extractor finds those functions so
+// they don't get missed by the export-based scanner.
+//
+// Returns functions tagged as 'internal' (not exported) for the agent to
+// evaluate — they may need an adapter module to be testable by Regrets.
+
+function extractInternalFunctions(source, ext) {
+  const fns = []
+
+  if (ext === '.py' || ext === '.rs' || ext === '.go') return fns
+
+  // Non-exported function declarations: function name() / async function name()
+  const internalFn = source.matchAll(/(?:^|\n)(?:async\s+)?function\s+(\w+)\s*\(/g)
+  for (const m of internalFn) {
+    const name = m[1]
+    // Skip if already in exported list (checked by caller)
+    fns.push({ name, kind: 'function' })
+  }
+
+  // Non-exported const/let arrow functions
+  const internalArrow = source.matchAll(/(?:^|\n)(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
+  for (const m of internalArrow) {
+    fns.push({ name: m[1], kind: 'arrow' })
+  }
+
+  // Chrome extension message handlers: chrome.runtime.onMessage.addListener
+  const chromeHandlers = source.matchAll(/chrome\.\w+\.\w+\.addListener\s*\(\s*(?:async\s+)?(?:function\s+)?(\w*)/g)
+  for (const m of chromeHandlers) {
+    if (m[1]) fns.push({ name: m[1], kind: 'chrome-handler' })
+  }
+
+  // IIFE entry points: (async () => { ... })() or (function() { ... })()
+  const hasIife = /(?:\(async\s*\(\)\s*=>|\(function\s*\(\))/g.test(source)
+  if (hasIife) {
+    fns.push({ name: '(IIFE)', kind: 'iife' })
+  }
+
+  return fns
+}
+
+// ─── Large file detection ───────────────────────────────────────────────────
+// Files over 300 lines are refactor candidates even if they have no exported
+// functions. This detects God Objects and monolithic files that need splitting.
+
+function detectLargeFiles(files, projectRoot) {
+  const LARGE_THRESHOLD = 300
+  const GOD_OBJECT_THRESHOLD = 800
+  const results = []
+
+  for (const filePath of files) {
+    const ext = extname(filePath)
+    if (!['.js', '.mjs', '.cjs', '.ts', '.tsx'].includes(ext)) continue
+
+    let source
+    try {
+      source = readFileSync(filePath, 'utf8')
+    } catch { continue }
+
+    const lines = source.split('\n').length
+    if (lines < LARGE_THRESHOLD) continue
+
+    const relPath = relative(projectRoot, filePath)
+    const isGodObject = lines >= GOD_OBJECT_THRESHOLD
+
+    // Count function declarations for context
+    const fnCount = (source.match(/(?:function\s+\w+|const\s+\w+\s*=\s*(?:async\s*)?\()/g) || []).length
+
+    // Count imports for coupling analysis
+    const importCount = (source.match(/(?:import\s|from\s+['"])/g) || []).length
+
+    // Count mutable module-level variables
+    const mutableVars = (source.match(/^(?:let|var)\s+/gm) || []).length
+
+    results.push({
+      file: relPath,
+      lines,
+      functions: fnCount,
+      imports: importCount,
+      mutableVars,
+      isGodObject,
+      severity: isGodObject ? 'CRITICAL' : 'WARNING',
+    })
+  }
+
+  return results.sort((a, b) => b.lines - a.lines)
 }
 
 // ─── Complexity estimation ────────────────────────────────────────────────────
@@ -194,7 +344,44 @@ if (!files.length) {
   process.exit(0)
 }
 
+// ─── Chrome Extension detection ──────────────────────────────────────────────
+
+const chromeExtensions = detectChromeExtension(projectRoot)
+if (chromeExtensions.length > 0) {
+  console.log('🔧 Chrome Extension detected!\n')
+  for (const ext of chromeExtensions) {
+    const dir = ext.subdir ? ` (${ext.subdir}/)` : ''
+    console.log(`   Manifest V${ext.version}${dir}`)
+    if (ext.hasContentScripts) console.log('   ⚠️  Content scripts found — may use IIFEs with no exports')
+    if (ext.hasBackground) console.log('   ⚠️  Background service worker — uses message passing')
+    if (ext.hasSidePanel) console.log('   ⚠️  Side panel — uses chrome.runtime messaging')
+    console.log()
+  }
+  console.log('   💡 Chrome extension content scripts often use IIFEs and have no exports.')
+  console.log('      Consider creating adapter modules that wrap internal functions for Regrets.')
+  console.log('      See references/chrome-extension.md for patterns.\n')
+}
+
+// ─── Large file / God Object detection ───────────────────────────────────────
+
+const largeFiles = detectLargeFiles(files, projectRoot)
+if (largeFiles.length > 0) {
+  console.log('📏 Large file / God Object detection\n')
+  console.log('  ' + 'file'.padEnd(50) + 'lines'.padEnd(8) + 'fns'.padEnd(5) + 'imports'.padEnd(8) + 'vars'.padEnd(6) + 'severity')
+  console.log('  ' + '─'.repeat(85))
+  for (const lf of largeFiles.slice(0, 20)) {
+    const icon = lf.isGodObject ? '🔴' : '🟡'
+    console.log(`  ${icon} ${lf.file.padEnd(48)}${String(lf.lines).padEnd(8)}${String(lf.functions).padEnd(5)}${String(lf.imports).padEnd(8)}${String(lf.mutableVars).padEnd(6)}${lf.severity}`)
+  }
+  console.log()
+  if (largeFiles.some(f => f.isGodObject)) {
+    console.log('  🔴 God Objects (>800 lines) — split before refactoring')
+  }
+  console.log('  🟡 Large files (300-800 lines) — consider splitting\n')
+}
+
 const suggestions = []
+const internalOnlyFiles = []  // Files with internal functions but no exports
 
 for (const filePath of files) {
   const ext = extname(filePath)
@@ -210,6 +397,24 @@ for (const filePath of files) {
 
   const lines = source.split('\n').length
   const fns = extractExportedFunctions(source, ext)
+
+  // Also scan for internal/non-exported functions
+  const internalFns = extractInternalFunctions(source, ext)
+
+  // Track files with only internal functions (no exports)
+  if (fns.length === 0 && internalFns.length > 0) {
+    const exportedNames = new Set(fns)
+    const pureInternal = internalFns.filter(f => f.kind !== 'iife' && !exportedNames.has(f.name))
+    if (pureInternal.length > 0) {
+      internalOnlyFiles.push({
+        file: relPath,
+        stack,
+        lines,
+        internalFunctions: pureInternal,
+        hasIife: internalFns.some(f => f.kind === 'iife'),
+      })
+    }
+  }
 
   // Only suggest files with exported functions
   if (fns.length === 0) continue
@@ -292,5 +497,26 @@ if (formatManifest) {
 
   console.log(`\n💡 Tip: Run with --format manifest to generate a manifest.json starting point.`)
   console.log(`   Then edit the manifest to add representative inputs for each cluster.`)
+
+  // Report files with only internal functions (not exported, potentially missed)
+  if (internalOnlyFiles.length > 0) {
+    console.log(`\n🔒 Files with internal-only functions (no exports detected):`)
+    console.log(`   These files contain functions that Regrets cannot directly test.`)
+    console.log(`   You may need to create adapter modules to expose them.\n`)
+    for (const f of internalOnlyFiles.slice(0, 15)) {
+      const iifeTag = f.hasIife ? ' [IIFE]' : ''
+      console.log(`   ${f.file} (${f.lines} lines, ${f.internalFunctions.length} internal fns${iifeTag})`)
+      for (const fn of f.internalFunctions.slice(0, 5)) {
+        console.log(`     • ${fn.name} (${fn.kind})`)
+      }
+      if (f.internalFunctions.length > 5) {
+        console.log(`     ... and ${f.internalFunctions.length - 5} more`)
+      }
+    }
+    if (internalOnlyFiles.length > 15) {
+      console.log(`   ... and ${internalOnlyFiles.length - 15} more files`)
+    }
+  }
+
   console.log()
 }
