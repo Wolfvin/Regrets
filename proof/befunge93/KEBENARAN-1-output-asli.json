@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-06-13T14:05:41.877Z",
+  "description": "KEBENARAN 1 — Output Asli dari semua entry function dijalankan langsung",
+  "source": "amicloud/befunge93",
+  "results": {
+    "runProgram:arithmetic-52*3*": {
+      "function": "runProgram",
+      "input": "52*3*.@",
+      "output": "30 ",
+      "type": "string"
+    },
+    "runProgram:countdown-9to1": {
+      "function": "runProgram",
+      "input": "1234v\n>9 #5>:#._@\n^876<",
+      "output": "9 8 7 6 5 4 3 2 1 ",
+      "type": "string"
+    },
+    "validateProgram:valid-program": {
+      "function": "validateProgram",
+      "input": "52*3*.@",
+      "output": {
+        "valid": true,
+        "error": null
+      },
+      "type": "object"
+    },
+    "validateProgram:invalid-width": {
+      "function": "validateProgram",
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "output": {
+        "valid": false,
+        "error": "Program width exceeds 80 characters"
+      },
+      "type": "object"
+    }
+  }
+}

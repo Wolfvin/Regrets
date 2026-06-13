@@ -1,0 +1,12 @@
+cluster: validate-befunge-program
+version: 1
+fingerprint: 110nl6t
+captured: 2026-06-13T14:03:09.669Z
+watches: [validateProgram]
+entry: validateProgram
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "52*3*.@"
+OUTPUT {"valid":true,"error":null}
+HASH   110nl6t

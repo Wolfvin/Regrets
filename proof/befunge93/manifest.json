@@ -1,0 +1,30 @@
+{
+  "clusters": [
+    {
+      "id": "run-befunge-program",
+      "entry": "runProgram",
+      "watches": ["runProgram"],
+      "file": "lib/befunge-runner.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Run a deterministic Befunge-93 program and return its output string",
+      "inputs": [
+        "52*3*.@",
+        "1234v\n>9 #5>:#._@\n^876<"
+      ]
+    },
+    {
+      "id": "validate-befunge-program",
+      "entry": "validateProgram",
+      "watches": ["validateProgram"],
+      "file": "lib/befunge-runner.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Validate a Befunge-93 program without executing it — returns valid/error object",
+      "inputs": [
+        "52*3*.@",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+cluster: run-befunge-program
+version: 1
+fingerprint: qwzp80x
+captured: 2026-06-13T14:03:09.667Z
+watches: [runProgram]
+entry: runProgram
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "52*3*.@"
+OUTPUT "30 "
+HASH   qwzp80x
