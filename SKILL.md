@@ -455,7 +455,8 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
-| Class-based libraries | Wrapper module pattern | Value / Schema / Mixed | See `references/class-based.md` |
+| TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
+| Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
 
 ---
 
