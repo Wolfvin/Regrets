@@ -296,6 +296,7 @@ def main():
 
             hashes = []
             last_output = None
+            input_count = 0
 
             for _ in range(cli['runs']):
                 recorder = []
@@ -315,6 +316,8 @@ def main():
                 for inp in all_inputs:
                     if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
                         inputs_to_validate.append(inp)
+
+                input_count = len(inputs_to_validate)
 
                 for current_input in inputs_to_validate:
                     if multi_args and isinstance(current_input, list):
@@ -353,7 +356,21 @@ def main():
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+            # Per-input drift detection: each input's fingerprints must be stable across runs.
+            # When multiple inputs exist, different inputs naturally produce different fingerprints,
+            # so checking len(set(hashes)) > 1 would be a false positive.
+            # Instead, check that each input produces the same fingerprint in every run.
+            is_drift = False
+            if drift_mode and input_count > 0:
+                for inp_idx in range(input_count):
+                    per_input_hashes = []
+                    for run_idx in range(cli['runs']):
+                        hash_idx = run_idx * input_count + inp_idx
+                        if hash_idx < len(hashes):
+                            per_input_hashes.append(hashes[hash_idx])
+                    if len(set(per_input_hashes)) > 1:
+                        is_drift = True
+                        break
 
             if update_mode:
                 if is_match:

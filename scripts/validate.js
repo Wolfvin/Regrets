@@ -164,7 +164,7 @@ async function runReactCluster(clusterDef, regret) {
     lastOutput = html
   }
 
-  return { hashes, lastOutput }
+  return { hashes, lastOutput, inputCount: 1 }
 }
 
 // ─── Run cluster N times ──────────────────────────────────────────────────────
@@ -247,7 +247,7 @@ async function runCluster(clusterDef, regret) {
       hashes.push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+  return { hashes, lastOutput, inputCount: inputsToValidate.length }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +306,25 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, lastOutput, skipped, inputCount } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Per-input drift detection: each input's fingerprints must be stable across runs.
+    // When multiple inputs exist, different inputs naturally produce different fingerprints,
+    // so checking Set(hashes).size > 1 would be a false positive.
+    // Instead, check that each input produces the same fingerprint in every run.
+    let isDrift = false
+    if (driftMode && inputCount > 0) {
+      for (let inpIdx = 0; inpIdx < inputCount; inpIdx++) {
+        const perInputHashes = []
+        for (let runIdx = 0; runIdx < runs; runIdx++) {
+          const hashIdx = runIdx * inputCount + inpIdx
+          if (hashIdx < hashes.length) perInputHashes.push(hashes[hashIdx])
+        }
+        if (new Set(perInputHashes).size > 1) { isDrift = true; break }
+      }
+    }
 
     if (updateMode) {
       if (isMatch) {
