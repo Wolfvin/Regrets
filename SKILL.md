@@ -215,9 +215,11 @@ Non-deterministic values are normalized before hashing:
 | `dynamicDates` | Embedded MMYYYY/YYYY in strings | `<MMYYYY>`/`<YYYY>` |
 | `floatTolerance` | Floats rounded to 2dp before hashing | `round(n * 100) / 100` |
 | `floatTolerance:N` | Floats rounded to N decimal places | `round(n * 10^N) / 10^N` |
+| `floatPrecision` | Whole-value floats → integers, decimal floats → 2dp, string floats stripped | `1500000.0` → `1500000` |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
 Use `floatTolerance` for financial/scientific computing where tiny floating-point differences (e.g., `123456.0` vs `123456.00000001`) should not trigger false negatives. `floatTolerance:0` rounds to integers — ideal for IDR amounts.
+Use `floatPrecision` for OCR/parsing pipelines where the same value may appear as `1500000` or `1500000.0` depending on the parsing path — common in financial OCR where integer amounts are sometimes stored as floats. Both rules can coexist: `floatTolerance` handles representation differences, `floatPrecision` handles type equivalence and string normalization.
 
 Read `references/fingerprint-spec.md` for edge cases (timestamps, random IDs, etc).
 
@@ -467,6 +469,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Tauri apps | esbuild transpile + adapter modules | Value (default) | See `references/tauri-apps.md` |
 | Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
 | Python pipeline | Pure logic extraction + adapter | Value / Schema / Mixed | See `references/python-pipeline.md` — OCR, NLP, and data processing pipelines |
+| OCR/Parsing pipeline | Pure logic extraction + fixtures | Value (default) | See `references/ocr-parsing-pipeline.md` — handles OCR I/O boundary + float precision |
 
 ---
 
@@ -648,6 +651,7 @@ regression-testing/
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
     ├── python-pipeline.md       ← Python pipeline pattern (OCR, NLP, data processing)
+    ├── ocr-parsing-pipeline.md ← OCR & parsing pipeline pattern (pure logic extraction + float precision)
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
     ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
     ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor

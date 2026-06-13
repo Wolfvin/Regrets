@@ -54,6 +54,9 @@ def normalize(obj, rules=None):
     - absPaths: Absolute file paths -> <ROOT>/...
     - dynamicDates: Embedded MMYYYY/YYYY in strings -> <MMYYYY>/<YYYY>
     - epochs: Unix epoch numbers (1B-10T) -> <EPOCH>
+    - floatTolerance: Round floats to N decimal places (default 2)
+    - floatPrecision: Normalize whole-value floats to int, decimal floats to 2dp,
+      strip trailing ".0" from string-encoded floats (OCR/parsing pipelines)
 
     Handles numpy arrays by converting to list before normalizing.
     """
@@ -86,6 +89,11 @@ def normalize(obj, rules=None):
             result = re.sub(r'(0[1-9]|1[0-2])\d{4}', '<MMYYYY>', obj)
             result = re.sub(r'(?<!\d)(20\d{2}|19\d{2})(?!\d)', '<YYYY>', result)
             return result
+        # floatPrecision: normalize float-like strings that differ only in trailing zeros
+        # Common in OCR output where "1500000.0" and "1500000" should be equivalent.
+        # Strips trailing ".0" from number-like strings (including negative).
+        if 'floatPrecision' in rules:
+            return re.sub(r'^-?(\d+)\.0+$', r'\1', obj)
         return obj
 
     if isinstance(obj, (int, float)):
@@ -100,6 +108,13 @@ def normalize(obj, rules=None):
             decimals = int(ft_rule.split(':')[1]) if ':' in ft_rule else 2
             factor = 10 ** decimals
             return round(obj * factor) / factor
+        # floatPrecision: normalize numbers that are whole but stored as float
+        # e.g., 1500000.0 → 1500000 (common in OCR/parsing pipelines)
+        if 'floatPrecision' in rules and isinstance(obj, float) and obj == int(obj):
+            return int(obj)
+        if 'floatPrecision' in rules and isinstance(obj, float) and obj != int(obj):
+            # Round to 2 decimal places to normalize precision differences
+            return round(obj, 2)
         return obj
 
     if isinstance(obj, list):

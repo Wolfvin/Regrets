@@ -88,6 +88,31 @@ global.fetch = createMockFetch(fixtureMap)
 
 Fixture maps live in `regrets/fixtures/` — one JSON file per endpoint.
 
+### Floating-Point Precision (OCR/Financial)
+
+Problem: OCR and parsing pipelines may produce the same logical value as `1500000` or `1500000.0` depending on the parsing path. In financial applications, amounts are semantically identical regardless of float representation.
+
+Solution: Normalize float values before hashing.
+
+```json
+{ "normalize": ["floatPrecision"] }
+```
+
+This applies three rules:
+1. **Whole-value floats → integers**: `1500000.0` → `1500000` (both JS and Python)
+2. **Decimal floats → rounded to 2dp**: `3.14159` → `3.14` (normalizes precision differences)
+3. **String-encoded floats**: `"1500000.0"` → `"1500000"` (common in OCR text output)
+
+Example where this matters:
+```python
+# OCR path A produces: {"amount": 1500000.0}
+# OCR path B produces: {"amount": 1500000}
+# Without floatPrecision, these produce DIFFERENT fingerprints
+# With floatPrecision, both normalize to 1500000 → same fingerprint
+```
+
+**Relationship to `floatTolerance`:** Both normalization rules can coexist. `floatTolerance` handles floating-point representation differences (e.g., `123456.0` vs `123456.00000001`), while `floatPrecision` handles OCR string cases and integer-float type equivalence. When both are specified, `floatTolerance` is applied first, then `floatPrecision`.
+
 ### File System Paths
 
 Problem: `/home/user/project/...` vs `/home/ci/project/...`

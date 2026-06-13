@@ -62,6 +62,12 @@ export function normalize(obj, rules = []) {
         .replace(/(0[1-9]|1[0-2])\d{4}/g, '<MMYYYY>')   // MMYYYY with valid month (01-12)
         .replace(/(?<![0-9])(20\d{2}|19\d{2})(?![0-9])/g, '<YYYY>')  // 4-digit year
     }
+    // floatPrecision: normalize float-like strings that differ only in trailing zeros
+    // Common in OCR output where "1500000.0" and "1500000" should be equivalent.
+    // Strips trailing ".0" from number-like strings (including negative).
+    if (rules.includes('floatPrecision')) {
+      return obj.replace(/^-?(\d+)\.0+$/, '$1')
+    }
   }
   if (typeof obj === 'number') {
     if (rules.includes('epochs') && obj > 1_000_000_000 && obj < 9_999_999_999_999) {
@@ -76,6 +82,15 @@ export function normalize(obj, rules = []) {
       const decimals = rule.includes(':') ? parseInt(rule.split(':')[1], 10) : 2
       const factor = Math.pow(10, decimals)
       return Math.round(obj * factor) / factor
+    }
+    // floatPrecision: normalize numbers that are whole but stored as float
+    // e.g., 1500000.0 → 1500000 (common in OCR/parsing pipelines)
+    if (rules.includes('floatPrecision') && Number.isInteger(obj)) {
+      return obj  // already an integer, no change needed
+    }
+    if (rules.includes('floatPrecision') && !Number.isInteger(obj) && Number.isFinite(obj)) {
+      // Round to 2 decimal places to normalize precision differences
+      return Math.round(obj * 100) / 100
     }
   }
   if (Array.isArray(obj)) return obj.map(v => normalize(v, rules))
