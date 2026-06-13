@@ -285,6 +285,61 @@ fp := fingerprint(input, result)
 
 ---
 
+## Single-file Python module: import fails despite correct module name
+
+**Problem:** Running capture or validate with a single-file Python module (e.g., `puz.py` at the project root) fails with `ModuleNotFoundError`, even though the `module` field in the manifest matches the filename.
+
+**Cause:** Single-file Python modules are not packages — they don't have an `__init__.py`. The `importlib.import_module('puz')` call only works if the directory containing `puz.py` is on `sys.path`. Without `pythonPath`, the module cannot be found because the project root is not in the default Python search path.
+
+**Solution:**
+1. Add `"pythonPath": "."` to each cluster in the manifest. This adds the project root directory to `sys.path` before the import.
+2. For projects where the module is in a subdirectory, use `"pythonPath": "src/"` or the appropriate relative path.
+3. This is particularly common for small utility libraries (e.g., crossword parsers, encoding libraries, esoteric language interpreters) that consist of a single `.py` file.
+4. See `references/single-file-python.md` for a complete integration pattern with examples from the `puzpy` proof.
+
+---
+
+## Python function with bytes input: cannot fingerprint directly
+
+**Problem:** A Python function that requires `bytes` as input (e.g., `data_cksum(data: bytes, cksum: int)`) cannot be fingerprinted because JSON doesn't support `bytes` serialization. The manifest `inputs` are JSON values.
+
+**Cause:** Regrets stores inputs as JSON in `.regret` files, and JSON has no `bytes` type. When you specify `"inputs": ["hello"]`, it's a string, not bytes. If the target function requires `bytes`, calling it with a string argument will fail or produce incorrect results.
+
+**Solution:**
+1. Create a thin wrapper function that converts the string input to bytes before calling the target function:
+   ```python
+   def data_cksum_wrapper(text, cksum=0):
+       return data_cksum(text.encode('ISO-8859-1'), cksum)
+   ```
+2. Point the manifest `entry` to the wrapper function instead of the original.
+3. Alternatively, test only functions that accept JSON-serializable inputs (strings, numbers, lists, dicts).
+4. Future improvement: Add `"inputTransform": "bytes"` to the manifest spec to handle this automatically.
+
+---
+
+## restore() raises StopIteration during capture
+
+**Problem:** The `restore()` function (or similar generator-consuming functions) raises `RuntimeError: generator raised StopIteration` during capture, even though the inputs look correct.
+
+**Cause:** The `restore()` function uses `next(t)` on a generator inside a generator expression. If the replacement string has fewer characters than the number of non-blacksquare characters in the source, `next()` raises `StopIteration` inside the generator expression, which Python 3.7+ converts to `RuntimeError`.
+
+**Solution:**
+1. Ensure the replacement iterable has exactly as many characters as the number of non-blacksquare positions in the source string.
+2. If refactoring `restore()`, replace the unsafe generator-with-next pattern with an explicit `iter()` and loop:
+   ```python
+   repl_iter = iter(replacement)
+   result_chars = []
+   for char in source:
+       if is_blacksquare(char):
+           result_chars.append(char)
+       else:
+           result_chars.append(next(repl_iter))
+   return ''.join(result_chars)
+   ```
+3. The explicit loop pattern is clearer and avoids the `StopIteration`-inside-generator pitfall.
+
+---
+
 ## Unicode combining characters in fingerprints
 
 **Problem:** Functions that return strings containing Unicode combining characters (e.g., Zalgo text, diacritical marks, emoji with skin tone modifiers) produce fingerprints that look complex or have long serialized forms.

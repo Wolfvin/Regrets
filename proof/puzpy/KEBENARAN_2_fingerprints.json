@@ -1,0 +1,111 @@
+{
+  "dict-to-string": {
+    "fingerprint": "r3xq9k6",
+    "hash": "r3xq9k6",
+    "input_sample": {
+      "0": "HEART",
+      "1": "DIAMOND"
+    },
+    "output_sample": " 0:HEART; 1:DIAMOND;"
+  },
+  "is-blacksquare": {
+    "fingerprint": "2j8acjo",
+    "hash": "2j8acjo",
+    "input_sample": ".",
+    "output_sample": true
+  },
+  "key-digits": {
+    "fingerprint": "5igr350",
+    "hash": "5igr350",
+    "input_sample": 1234,
+    "output_sample": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "parse-dict": {
+    "fingerprint": "54j2z2i",
+    "hash": "54j2z2i",
+    "input_sample": "0:HEART;1:DIAMOND;17:CLUB;",
+    "output_sample": {
+      "0": "HEART",
+      "1": "DIAMOND",
+      "17": "CLUB"
+    }
+  },
+  "replace-chars": {
+    "fingerprint": "2dcht4i",
+    "hash": "2dcht4i",
+    "input_sample": [
+      "A.B.C",
+      ".",
+      ""
+    ],
+    "output_sample": "ABC"
+  },
+  "restore-chars": {
+    "fingerprint": "1i6y90k",
+    "hash": "1i6y90k",
+    "input_sample": [
+      "A.B.C",
+      "XYZ"
+    ],
+    "output_sample": "X.Y.Z"
+  },
+  "scramble-string": {
+    "fingerprint": "2klhzf5",
+    "hash": "2klhzf5",
+    "input_sample": [
+      "CATAR",
+      1234
+    ],
+    "output_sample": "GJAGJ"
+  },
+  "shift-chars": {
+    "fingerprint": "4l85po4",
+    "hash": "4l85po4",
+    "input_sample": [
+      "ABC",
+      [
+        1,
+        2,
+        3,
+        4
+      ]
+    ],
+    "output_sample": "BDF"
+  },
+  "shuffle-string": {
+    "fingerprint": "57m2jhs",
+    "hash": "57m2jhs",
+    "input_sample": "ABCDEF",
+    "output_sample": "DAEBFC"
+  },
+  "square-transform": {
+    "fingerprint": "22un0dx",
+    "hash": "22un0dx",
+    "input_sample": [
+      "ABCDEFGHI",
+      3,
+      3
+    ],
+    "output_sample": "ADGBEHCFI"
+  },
+  "unscramble-string": {
+    "fingerprint": "5uo65ye",
+    "hash": "5uo65ye",
+    "input_sample": [
+      "GJAGJ",
+      1234
+    ],
+    "output_sample": "CATAR"
+  },
+  "unshuffle-string": {
+    "fingerprint": "2iaj9or",
+    "hash": "2iaj9or",
+    "input_sample": "DAEBFC",
+    "output_sample": "ABCDEF"
+  }
+}
