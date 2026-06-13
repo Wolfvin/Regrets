@@ -1,0 +1,24 @@
+{
+  "name": "regret-testing",
+  "version": "1.0.0",
+  "description": "Output-based regression testing for AI-driven refactoring — test the contract, not the implementation",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "regret": "./bin/regret.js"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./fingerprint": "./scripts/fingerprint.js",
+    "./ghost": "./scripts/ghost.js"
+  },
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "regret": "node scripts/regret.js"
+  },
+  "keywords": ["regression-testing", "snapshot-testing", "refactoring", "fingerprint", "ghost-proxy"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
