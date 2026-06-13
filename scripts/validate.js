@@ -192,14 +192,23 @@ async function runCluster(clusterDef, regret) {
   const hashes = []
   let lastOutput = null
 
-  // Determine which inputs to validate: golden from .regret + all from manifest
+  // Determine which inputs to validate.
+  // In drift mode: only validate the golden input across N runs.
+  // Different inputs naturally produce different fingerprints — mixing them
+  // in the same hashes array would trigger false positive drift detection.
+  // In normal mode: validate golden input first, then all other inputs.
   const allInputs = clusterDef.inputs ?? [regret.input]
-  const inputsToValidate = [regret.input]  // Always validate golden first
-  for (const inp of allInputs) {
-    if (JSON.stringify(inp) !== JSON.stringify(regret.input)) {
-      inputsToValidate.push(inp)
-    }
-  }
+  const inputsToValidate = driftMode
+    ? [regret.input]  // Drift mode: only golden input, repeated across runs
+    : (() => {
+        const result = [regret.input]  // Always validate golden first
+        for (const inp of allInputs) {
+          if (JSON.stringify(inp) !== JSON.stringify(regret.input)) {
+            result.push(inp)
+          }
+        }
+        return result
+      })()
 
   for (let i = 0; i < runs; i++) {
     for (const currentInput of inputsToValidate) {
