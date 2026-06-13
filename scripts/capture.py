@@ -386,9 +386,23 @@ def main():
                     called_fns.add(call['fn'])
             uncalled_watches = [w for w in watches if w not in called_fns]
             if uncalled_watches:
-                print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(uncalled_watches)}")
-                print(f"      The fingerprint may be based on incomplete data.")
-                print(f"      Consider splitting into separate clusters or adjusting the entry function.")
+                # Self-watching is common for simple pure functions where entry == watch.
+                # In this case, the entry function IS the watch — it's called directly,
+                # not through the ghost proxy, so the recorder never sees it.
+                # This is expected behavior, not a real issue.
+                self_watches = [w for w in uncalled_watches if w == entry]
+                other_uncalled = [w for w in uncalled_watches if w != entry]
+                
+                if self_watches:
+                    print(f"   ℹ️  Self-watching: entry '{entry}' is also in watches — ghost cannot intercept self-calls")
+                    print(f"      This is expected for simple pure functions. Fingerprint is based on entry output only.")
+                
+                if other_uncalled:
+                    print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(other_uncalled)}")
+                    print(f"      The fingerprint may be based on incomplete data.")
+                    if fingerprint_level == 'full':
+                        print(f"      ⚠️  fingerprintLevel is 'full' but internal calls bypass the ghost proxy.")
+                        print(f"      Consider using fingerprintLevel 'entry' instead, or split into separate clusters.")
 
             # Use first result as golden
             golden = results[0]

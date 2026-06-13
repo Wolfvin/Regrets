@@ -124,6 +124,47 @@ def check_coverage():
     return True, "Coverage check skipped (non-Python clusters)"
 
 
+def check_truth():
+    """Check if dual truth baselines (KEBENARAN 1 and KEBENARAN 2) have been captured."""
+    proof_dir = os.path.join(os.getcwd(), 'proof')
+    
+    # Find project-specific subdirectory
+    manifest_path = os.path.join(os.getcwd(), 'regrets', 'manifest.json')
+    project_name = os.getcwd().split('/')[-1]  # default to cwd name
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, 'r') as f:
+                manifest = json.load(f)
+            project_name = manifest.get('projectName', project_name)
+        except (json.JSONDecodeError, IOError):
+            pass
+    
+    project_proof_dir = os.path.join(proof_dir, project_name)
+    k1_path = os.path.join(project_proof_dir, 'KEBENARAN_1_raw_output.json')
+    k2_path = os.path.join(project_proof_dir, 'KEBENARAN_2_fingerprints.json')
+    
+    if not os.path.exists(k1_path) or not os.path.exists(k2_path):
+        return False, "KEBENARAN baselines not captured — run 'regret truth' first"
+    
+    try:
+        with open(k1_path, 'r') as f:
+            k1 = json.load(f)
+        with open(k2_path, 'r') as f:
+            k2 = json.load(f)
+        
+        k1_count = len(k1)
+        k2_count = len(k2.get('fingerprints', {}))
+        k2_chains = len(k2.get('chains', {}))
+        
+        if k1_count != k2_count:
+            return False, f"K1 has {k1_count} clusters, K2 has {k2_count} fingerprints — MISMATCH"
+        
+        chain_info = f", {k2_chains} chains" if k2_chains > 0 else ""
+        return True, f"Both truths captured: {k1_count} clusters{chain_info}"
+    except (json.JSONDecodeError, IOError) as e:
+        return False, f"Error reading truth files: {e}"
+
+
 def main():
     strict = '--strict' in sys.argv
 
@@ -139,6 +180,7 @@ def main():
         ("Drift Detection", check_drift),
         ("Cluster Health", check_health),
         ("Branch Coverage", check_coverage),
+        ("Dual Truth", check_truth),
     ]
 
     all_pass = True
