@@ -375,7 +375,7 @@ Usage:
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js structure [--dir src/]        Structural analysis (God Objects, pure/impure, refactor priority)
-  node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
+  node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate

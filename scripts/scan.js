@@ -320,6 +320,95 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// ─── Zustand store detection ──────────────────────────────────────────────────
+// Detects Zustand create() patterns and extracts action names with complexity.
+// Zustand stores contain pure logic hidden inside closures — these are prime
+// candidates for extraction (see references/zustand-store.md).
+
+function extractZustandActions(source, ext) {
+  const actions = []
+
+  // Only scan JS/TS files for Zustand patterns
+  if (!['.js', '.mjs', '.ts', '.tsx'].includes(ext)) return actions
+
+  // Check if file imports from 'zustand'
+  if (!source.includes('zustand') && !source.includes('create<')) return actions
+
+  // Pattern: actionName: (args) => set((s) => { ... })
+  // Pattern: actionName: (args) => { ... set({ ... }) ... }
+  const actionPattern = /(\w+):\s*\([^)]*\)\s*=>\s*(?:set\(|\{)/g
+  let match
+  while ((match = actionPattern.exec(source)) !== null) {
+    const actionName = match[1]
+    // Skip common non-action properties
+    if (['set', 'get', 'create', 'use'].includes(actionName)) continue
+    // Skip state fields (lowercase, no parens after)
+    const afterMatch = source.slice(match.index + match[0].length, match.index + match[0].length + 50)
+    // Check that this is inside a create() block
+    const beforeMatch = source.slice(Math.max(0, match.index - 500), match.index)
+    if (!beforeMatch.includes('create<') && !beforeMatch.includes('create(')) continue
+
+    // Estimate complexity of the action
+    const actionBody = extractZustandActionBody(source, match.index)
+    const complexity = actionBody ? estimateZustandComplexity(actionBody) : 1
+
+    // Only suggest actions with meaningful logic (not just simple setters)
+    if (complexity >= 2) {
+      actions.push({ name: actionName, complexity })
+    }
+  }
+
+  return actions
+}
+
+function extractZustandActionBody(source, startIndex) {
+  // Find the end of the arrow function body
+  let depth = 0
+  let braceStart = -1
+  let i = startIndex
+
+  // Find the first opening brace
+  while (i < source.length && source[i] !== '{') i++
+  if (i >= source.length) return null
+  braceStart = i
+
+  // Match braces to find the end
+  for (; i < source.length; i++) {
+    if (source[i] === '{') depth++
+    else if (source[i] === '}') {
+      depth--
+      if (depth === 0) break
+    }
+  }
+
+  return source.slice(braceStart + 1, i)
+}
+
+function estimateZustandComplexity(body) {
+  let complexity = 1
+  const patterns = [
+    /\bif\b/g,
+    /\belse\b/g,
+    /\bfor\b/g,
+    /\bwhile\b/g,
+    /\bcase\b/g,
+    /&&/g,
+    /\|\|/g,
+    /\?\s*[^:]+\s*:/g,
+    /\.forEach\(/g,
+    /\.map\(/g,
+    /\.filter\(/g,
+    /\.reduce\(/g,
+    /new Set/g,
+    /Math\./g,
+  ]
+  for (const p of patterns) {
+    const matches = body.match(p)
+    if (matches) complexity += matches.length
+  }
+  return complexity
+}
+
 // ─── Determine stack from file extension ──────────────────────────────────────
 
 function stackFromExt(ext) {
@@ -401,6 +490,9 @@ for (const filePath of files) {
   // Also scan for internal/non-exported functions
   const internalFns = extractInternalFunctions(source, ext)
 
+  // Also detect Zustand store actions (functions inside create() blocks)
+  const zustandActions = extractZustandActions(source, ext)
+
   // Track files with only internal functions (no exports)
   if (fns.length === 0 && internalFns.length > 0) {
     const exportedNames = new Set(fns)
@@ -416,8 +508,8 @@ for (const filePath of files) {
     }
   }
 
-  // Only suggest files with exported functions
-  if (fns.length === 0) continue
+  // Only suggest files with exported functions or Zustand actions
+  if (fns.length === 0 && zustandActions.length === 0) continue
 
   // Filter out obvious non-pure functions (heuristic)
   const pureFns = fns.filter(fn => {
@@ -429,18 +521,29 @@ for (const filePath of files) {
     return true
   })
 
-  if (pureFns.length === 0) continue
-
   for (const fn of pureFns) {
     const complexity = estimateComplexity(source, fn)
 
-    // Only suggest functions with some complexity (pure getters are boring)
     suggestions.push({
       function: fn,
       file: relPath,
       stack,
       complexity,
       fileSize: lines,
+      isZustand: false,
+    })
+  }
+
+  // Add Zustand action suggestions with extraction note
+  for (const action of zustandActions) {
+    suggestions.push({
+      function: action.name,
+      file: relPath,
+      stack,
+      complexity: action.complexity,
+      fileSize: lines,
+      isZustand: true,
+      note: 'Extract pure logic to *-logic.ts before fingerprinting (see references/zustand-store.md)',
     })
   }
 }
@@ -495,8 +598,19 @@ if (formatManifest) {
     }
   }
 
+  const zustandActions = suggestions.filter(s => s.isZustand)
+  if (zustandActions.length > 0) {
+    console.log(`\n🏪 Zustand store actions detected (need extraction before fingerprinting):`)
+    for (const s of zustandActions) {
+      console.log(`  ${s.function} in ${s.file} (complexity: ${s.complexity})`)
+      if (s.note) console.log(`     → ${s.note}`)
+    }
+    console.log(`\n  See references/zustand-store.md for the extraction pattern.`)
+  }
+
   console.log(`\n💡 Tip: Run with --format manifest to generate a manifest.json starting point.`)
   console.log(`   Then edit the manifest to add representative inputs for each cluster.`)
+  console.log(`   Run with regret coverage --suggest-inputs to get concrete input suggestions.`)
 
   // Report files with only internal functions (not exported, potentially missed)
   if (internalOnlyFiles.length > 0) {
@@ -519,4 +633,3 @@ if (formatManifest) {
   }
 
   console.log()
-}
