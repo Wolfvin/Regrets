@@ -224,6 +224,56 @@ fp := fingerprint(input, result)
 
 ---
 
+## Default export not found in CommonJS module
+
+**Problem:** Capture fails with `Entry "default" not found or not a function in dist/module.js` even though the module has a `exports.default = someFunction` line.
+
+**Cause:** When TypeScript compiles to CommonJS (`module: "commonjs"` in tsconfig.json), the default export becomes `exports.default`. However, dynamic `import()` in Node.js wraps CommonJS modules in a namespace object where `default` is the entire `exports` object, not `exports.default`. The Ghost Proxy then tries to find `module.default` which may be the entire module namespace instead of the function.
+
+**Solution:**
+1. Use the **named export** instead of `default` in your manifest. For example, if the compiled file has `exports.transform = transform; exports.default = exports.transform;`, use `"entry": "transform"` instead of `"entry": "default"`.
+2. Check the compiled `.js` file for named exports: look for `exports.someName = ...` lines.
+3. If the function only has a default export, add a named export in the TypeScript source: `export const myFunc = ...; export default myFunc;` then use `"entry": "myFunc"`.
+4. For TypeScript projects, prefer named exports over default exports for functions you want to fingerprint.
+
+---
+
+## Function requires Map or non-JSON-serializable arguments
+
+**Problem:** Capture fails with errors like `dictionary.has is not a function` when a function takes a `Map`, `Set`, `Date`, or other non-JSON-serializable type as an argument.
+
+**Cause:** The Regrets manifest stores inputs as JSON, and `JSON.parse()` converts all objects to plain objects. `Map` becomes `{}`, `Set` becomes `{}`, and `Date` becomes a string. When the entry function is called with these deserialized values, methods like `Map.has()`, `Map.get()`, or `Set.has()` are unavailable.
+
+**Solution:**
+1. **Do not directly fingerprint functions that require `Map`, `Set`, or `Date` arguments.** Instead, fingerprint the higher-level functions that construct these objects internally.
+2. If the function you want to test takes a `Map` as input, fingerprint the function that *calls* it (which constructs the `Map` internally). For example, instead of fingerprinting `transform(content, mapping)`, fingerprint `lettersToRunes(content)` which creates the mapping internally.
+3. If you must fingerprint a function with non-JSON arguments, create a thin wrapper module that accepts JSON-compatible inputs and converts them to the required types:
+```js
+// wrapper.js
+export function transformWithObject(content, mappingObj) {
+  const dictionary = new Map(Object.entries(mappingObj));
+  return transform(content, dictionary);
+}
+```
+4. This is a known limitation of JSON-based input serialization — Regrets works best with functions that accept primitive types, plain objects, and arrays.
+
+---
+
+## TypeScript compiled output: entry name mismatch
+
+**Problem:** Capture fails because the `entry` name in the manifest doesn't match the compiled JavaScript export name, even though it matches the TypeScript source.
+
+**Cause:** TypeScript compilation can transform export names depending on the `module` setting in `tsconfig.json`. With `module: "commonjs"`, named exports become `exports.name = ...` and default exports become `exports.default = ...`. With `module: "ESNext"`, exports are preserved as-is. The `file` field in the manifest must point to the compiled `.js` output, and the `entry` name must match the exact export name in that compiled file.
+
+**Solution:**
+1. Always verify export names in the **compiled `.js` file**, not the `.ts` source.
+2. After running `npm run regret:build`, inspect the output: `grep "exports\." dist/your-module.js`.
+3. For CommonJS output (`module: "commonjs"`), named exports appear as `exports.functionName = functionName;` — use `"entry": "functionName"`.
+4. For ESModule output (`module: "ESNext"`), exports appear as `export function functionName()` or `export { functionName }` — use the same name.
+5. If you change `tsconfig.json` module settings, rebuild and re-capture.
+
+---
+
 ## Cross-stack hash mismatch between JS and Go
 
 **Problem:** The same function fingerprinted in both JS and Go produces different hashes for identical input/output data.
