@@ -21,7 +21,7 @@ from pathlib import Path
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    _numpy_to_native
+    _numpy_to_native, snapshot_output, get_env_snapshot
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -81,6 +81,13 @@ def parse_regret(content):
             meta['fingerprintMode'] = val
         elif key == 'valuePaths':
             meta['valuePaths'] = [p.strip() for p in val.strip('[]').split(',') if p.strip()]
+        elif key == 'outputTransform':
+            meta['outputTransform'] = val
+        elif key == 'env':
+            try:
+                meta['env'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['env'] = val
         else:
             meta[key] = val
 
@@ -292,6 +299,21 @@ def main():
             fp_mode = cluster_def.get('fingerprintMode', 'value')
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
+            # outputTransform: .regret file takes precedence over manifest
+            output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
+
+            # Check environment snapshot if present in .regret file
+            regret_env = regret.get('env')
+            if regret_env and isinstance(regret_env, dict):
+                current_env = get_env_snapshot()
+                env_diff = {}
+                for k, v in regret_env.items():
+                    if current_env.get(k) != v:
+                        env_diff[k] = {'captured': v, 'current': current_env.get(k)}
+                if env_diff:
+                    print(f"  ⚠️  {cluster_id}: environment changed since capture:")
+                    for k, diff in env_diff.items():
+                        print(f"      {k}: {diff['captured']} → {diff['current']}")
 
             mod = importlib.import_module(module_path)
 
@@ -329,18 +351,20 @@ def main():
                         output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                         fp_input = input_for_fp
 
-                    last_output = output
+                    # Apply output transform if specified
+                    output_for_fp = snapshot_output(output, output_transform) if output_transform else deep_clone(output)
+                    last_output = output_for_fp
 
                     if effective_fp_mode == 'schema':
-                        schema = extract_schema(output)
+                        schema = extract_schema(output_for_fp)
                         fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
                     elif effective_fp_mode == 'mixed':
-                        schema = extract_schema(output)
+                        schema = extract_schema(output_for_fp)
                         selected_values = {}
                         for path in effective_value_paths:
                             key = path.replace('$.', '')
                             parts = key.split('.')
-                            val = output
+                            val = output_for_fp
                             for p in parts:
                                 val = val.get(p) if isinstance(val, dict) else None
                                 if val is None:
@@ -350,7 +374,7 @@ def main():
                         combined = {'schema': schema, 'values': selected_values}
                         fp = fingerprint(fp_input, combined, norm_rules, ign_fields)
                     elif fp_level == 'entry':
-                        fp = fingerprint(fp_input, output, norm_rules, ign_fields)
+                        fp = fingerprint(fp_input, output_for_fp, norm_rules, ign_fields)
                     else:
                         fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 

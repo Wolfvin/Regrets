@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } 
 import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
 import { pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, snapshotOutput, getEnvSnapshot } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml } from './ghost.js'
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -60,6 +60,10 @@ function parseRegret(content) {
     else if (key === 'ignoreFields') meta.ignoreFields = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
+    else if (key === 'outputTransform') meta.outputTransform = val
+    else if (key === 'env') {
+      try { meta.env = JSON.parse(val) } catch { meta.env = val }
+    }
     else if (key === 'version') meta.version = Number(val)
     else meta[key] = val
   }
@@ -185,6 +189,18 @@ async function runReactCluster(clusterDef, regret) {
 async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack } = clusterDef
+  // outputTransform: .regret file takes precedence over manifest
+  const outputTransform = regret.outputTransform || clusterDef.outputTransform || null
+
+  // Check environment snapshot if present in .regret file
+  if (regret.env && typeof regret.env === 'object') {
+    const currentEnv = getEnvSnapshot()
+    for (const [k, v] of Object.entries(regret.env)) {
+      if (currentEnv[k] !== v) {
+        console.warn(`  ⚠️  ${clusterDef.id}: environment changed: ${k} was ${v}, now ${currentEnv[k]}`)
+      }
+    }
+  }
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
@@ -248,9 +264,11 @@ async function runCluster(clusterDef, regret) {
       const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const rawOutput = await entryFn(...args_)
       // Deep-clone output BEFORE fingerprinting to match capture.js behavior.
-      // Ensures fingerprints are computed from serializable data only, making
-      // .regret file data reproducible from its own hash.
-      const output   = deepClone(rawOutput)
+      // If outputTransform is specified, use snapshotOutput to convert non-serializable
+      // types to JSON-safe values.
+      const output = outputTransform
+        ? snapshotOutput(rawOutput, outputTransform)
+        : deepClone(rawOutput)
       lastOutput     = output
       const fpInput  = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
 

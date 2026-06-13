@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, snapshotOutput, getEnvSnapshot } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -55,12 +55,14 @@ let failed = 0
 
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
-          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs } = cluster
+          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
+          outputTransform } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
   console.log(`   Entry:   ${entry}`)
   console.log(`   Watches: ${watches.join(', ')}`)
+  if (outputTransform) console.log(`   OutputTransform: ${outputTransform}`)
 
   if (stack && stack !== 'js' && stack !== 'ts') {
     const stackScripts = {
@@ -128,10 +130,11 @@ for (const cluster of clusters) {
       const rawOutput = await entryFn(...args_)
       // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
       // from the same serializable data that will be stored in the .regret file.
-      // Without this, non-serializable properties (functions, circular refs) would be
-      // present during fingerprinting but absent in the stored OUTPUT — causing the
-      // .regret file's data to be irreproducible from its own hash.
-      const output = deepClone(rawOutput)
+      // If outputTransform is specified, use snapshotOutput to convert non-serializable
+      // types (e.g. class instances with getValD(), Buffer, etc.) to JSON-safe values.
+      const output = outputTransform
+        ? snapshotOutput(rawOutput, outputTransform)
+        : deepClone(rawOutput)
 
       const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
@@ -187,6 +190,7 @@ for (const cluster of clusters) {
     const timestamp  = new Date().toISOString()
 
     // Output is already deepClone'd (serializable), no further conversion needed
+    const envSnapshot = getEnvSnapshot()
     const content = [
       `cluster: ${id}`,
       `version: 1`,
@@ -200,6 +204,8 @@ for (const cluster of clusters) {
       valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+      outputTransform ? `outputTransform: ${outputTransform}` : null,
+      `env: ${JSON.stringify(envSnapshot)}`,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,

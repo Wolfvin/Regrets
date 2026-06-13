@@ -19,7 +19,8 @@ from functools import wraps
 # Import shared fingerprint module (same directory)
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
-    deep_clone, fingerprint, fingerprint_sequence, extract_schema
+    deep_clone, fingerprint, fingerprint_sequence, extract_schema,
+    snapshot_output, get_env_snapshot
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -164,11 +165,14 @@ def main():
         value_paths = cluster.get('valuePaths', [])
         multi_args = cluster.get('multiArgs', False)
         inputs = cluster.get('inputs', [None])
+        output_transform = cluster.get('outputTransform', None)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
         print(f"   Entry:   {entry}")
         print(f"   Watches: {', '.join(watches)}")
+        if output_transform:
+            print(f"   OutputTransform: {output_transform}")
 
         try:
             # Dynamic import of target module
@@ -182,6 +186,9 @@ def main():
             entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
             if entry_fn is None or not callable(entry_fn):
                 raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
+
+            # Capture environment snapshot
+            env_snapshot = get_env_snapshot()
 
             # Run with provided inputs
             results = []
@@ -202,16 +209,19 @@ def main():
                     output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                     fp_input = input_for_record
 
+                # Apply output transform if specified
+                output_for_fp = snapshot_output(output, output_transform) if output_transform else deep_clone(output)
+
                 if fingerprint_mode == 'schema':
-                    schema = extract_schema(output)
+                    schema = extract_schema(output_for_fp)
                     fp = fingerprint(fp_input, schema, normalize_rules, ignore_fields)
                 elif fingerprint_mode == 'mixed':
-                    schema = extract_schema(output)
+                    schema = extract_schema(output_for_fp)
                     selected_values = {}
                     for path in value_paths:
                         key = path.replace('$.', '')
                         parts = key.split('.')
-                        val = output
+                        val = output_for_fp
                         for p in parts:
                             val = val.get(p) if isinstance(val, dict) else None
                             if val is None:
@@ -221,11 +231,11 @@ def main():
                     combined = {'schema': schema, 'values': selected_values}
                     fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
                 elif fingerprint_level == 'entry':
-                    fp = fingerprint(fp_input, output, normalize_rules, ignore_fields)
+                    fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
                 else:
                     fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
 
-                results.append({'input': input_val, 'output': output, 'fp': fp, 'calls': list(recorder_local)})
+                results.append({'input': input_val, 'output': output_for_fp, 'fp': fp, 'calls': list(recorder_local)})
 
             # Use first result as golden
             golden = results[0]
@@ -257,6 +267,12 @@ def main():
                 lines.append(f"multiArgs: {multi_args}")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
+            if output_transform:
+                lines.append(f"outputTransform: {output_transform}")
+
+            # Environment snapshot
+            env_str = json.dumps(env_snapshot, sort_keys=True)
+            lines.append(f"env: {env_str}")
 
             lines.append("---")
             lines.append(f"INPUT  {json_serialize(golden['input'])}")
