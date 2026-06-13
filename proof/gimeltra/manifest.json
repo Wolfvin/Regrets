@@ -1,0 +1,121 @@
+{
+  "clusters": [
+    {
+      "id": "hebrew-to-latin",
+      "entry": "tr_hebr_latn",
+      "watches": ["tr_hebr_latn"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Transliterate Hebrew text to Latin script",
+      "inputs": [
+        "שלום",
+        "שלום עולם",
+        "אבגדהוזחטיכלמנסעפצקרשת",
+        "בראשית"
+      ]
+    },
+    {
+      "id": "arabic-to-latin",
+      "entry": "tr_arab_latn",
+      "watches": ["tr_arab_latn"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Transliterate Arabic text to Latin script",
+      "inputs": [
+        "مرحبا",
+        "بسم الله",
+        "السلام عليكم"
+      ]
+    },
+    {
+      "id": "syriac-to-latin",
+      "entry": "tr_syrc_latn",
+      "watches": ["tr_syrc_latn"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Transliterate Syriac text to Latin script",
+      "inputs": [
+        "ܫܠܡܐ",
+        "ܒܪܝܟܐ"
+      ]
+    },
+    {
+      "id": "phoenician-to-latin",
+      "entry": "tr_phnx_latn",
+      "watches": ["tr_phnx_latn"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Transliterate Phoenician text to Latin script — ancient Semitic alphabet",
+      "inputs": [
+        "𐤁𐤄𐤋",
+        "𐤀𐤋𐤁"
+      ]
+    },
+    {
+      "id": "ugaritic-to-latin",
+      "entry": "tr_ugar_latn",
+      "watches": ["tr_ugar_latn"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Transliterate Ugaritic cuneiform to Latin script — the oldest alphabet",
+      "inputs": [
+        "𐎀𐎍𐎚",
+        "𐎍𐎐"
+      ]
+    },
+    {
+      "id": "latin-to-hebrew",
+      "entry": "tr_latn_hebr",
+      "watches": ["tr_latn_hebr"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Transliterate Latin text to Hebrew script",
+      "inputs": [
+        "shalom",
+        "bereshit"
+      ]
+    },
+    {
+      "id": "latin-to-arabic",
+      "entry": "tr_latn_arab",
+      "watches": ["tr_latn_arab"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Transliterate Latin text to Arabic script",
+      "inputs": [
+        "salam",
+        "kitab"
+      ]
+    },
+    {
+      "id": "auto-script-detect",
+      "entry": "auto_script_detect",
+      "watches": ["auto_script_detect"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Auto-detect the script of input text and return the ISO 15924 code",
+      "inputs": [
+        "שלום",
+        "مرحبا",
+        "hello",
+        "ܫܠܡܐ"
+      ]
+    }
+  ]
+}

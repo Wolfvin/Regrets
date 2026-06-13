@@ -657,6 +657,7 @@ regression-testing/
     ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
     ├── case-study-pyenigma.md  ← Case study: pyEnigma (stateful class-based API + roundtrip)
     ├── case-study-lindenmayer.md ← Case study: lindenmayer (L-System, rollup naming collision)
+    ├── case-study-gimeltra.md  ← Case study: gimeltra (Semitic script transliteration, 25 scripts)
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
     ├── braille-encode.md       ← Case study: qntm/braille-encode (binary↔Braille)

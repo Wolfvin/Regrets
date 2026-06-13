@@ -1,0 +1,126 @@
+{
+  "hebrew-to-latin": {
+    "entry": "tr_hebr_latn",
+    "outputs": [
+      {
+        "input": "שלום",
+        "output": "šlwm"
+      },
+      {
+        "input": "שלום עולם",
+        "output": "šlwm ʿwlm"
+      },
+      {
+        "input": "אבגדהוזחטיכלמנסעפצקרשת",
+        "output": "ʾvgdhwzḥṭyklmnsʿpṣqršt"
+      },
+      {
+        "input": "בראשית",
+        "output": "vrʾšyt"
+      }
+    ]
+  },
+  "arabic-to-latin": {
+    "entry": "tr_arab_latn",
+    "outputs": [
+      {
+        "input": "مرحبا",
+        "output": "mrḥbʾ"
+      },
+      {
+        "input": "بسم الله",
+        "output": "bsm ʾllh"
+      },
+      {
+        "input": "السلام عليكم",
+        "output": "ʾlslʾm ʿlykm"
+      }
+    ]
+  },
+  "syriac-to-latin": {
+    "entry": "tr_syrc_latn",
+    "outputs": [
+      {
+        "input": "ܫܠܡܐ",
+        "output": "šlmʾ"
+      },
+      {
+        "input": "ܒܪܝܟܐ",
+        "output": "brykʾ"
+      }
+    ]
+  },
+  "phoenician-to-latin": {
+    "entry": "tr_phnx_latn",
+    "outputs": [
+      {
+        "input": "𐤁𐤄𐤋",
+        "output": "bhl"
+      },
+      {
+        "input": "𐤀𐤋𐤁",
+        "output": "ʾlb"
+      }
+    ]
+  },
+  "ugaritic-to-latin": {
+    "entry": "tr_ugar_latn",
+    "outputs": [
+      {
+        "input": "𐎀𐎍𐎚",
+        "output": "ʾlt"
+      },
+      {
+        "input": "𐎍𐎐",
+        "output": "ln"
+      }
+    ]
+  },
+  "latin-to-hebrew": {
+    "entry": "tr_latn_hebr",
+    "outputs": [
+      {
+        "input": "shalom",
+        "output": "סהaלoם"
+      },
+      {
+        "input": "bereshit",
+        "output": "בּeרeסהiת"
+      }
+    ]
+  },
+  "latin-to-arabic": {
+    "entry": "tr_latn_arab",
+    "outputs": [
+      {
+        "input": "salam",
+        "output": "سaلaم"
+      },
+      {
+        "input": "kitab",
+        "output": "كiتaب"
+      }
+    ]
+  },
+  "auto-script-detect": {
+    "entry": "auto_script_detect",
+    "outputs": [
+      {
+        "input": "שלום",
+        "output": "Hebr"
+      },
+      {
+        "input": "مرحبا",
+        "output": "Arab"
+      },
+      {
+        "input": "hello",
+        "output": "Latn"
+      },
+      {
+        "input": "ܫܠܡܐ",
+        "output": "Syrc"
+      }
+    ]
+  }
+}
