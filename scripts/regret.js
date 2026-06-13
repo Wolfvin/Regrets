@@ -76,6 +76,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
+      } else if (stack === 'go') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
       }
     }
     break
@@ -90,6 +92,8 @@ switch (command) {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'go') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
     }
     break
@@ -113,6 +117,8 @@ switch (command) {
 
     if (targetStack === 'python') {
       success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs])
+    } else if (targetStack === 'go') {
+      success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs])
     } else {
       success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs])
     }
@@ -126,6 +132,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--runs', '5', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--runs', '5', ...passThroughArgs]) && success
+      } else if (stack === 'go') {
+        console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
       }
     }
     break
@@ -138,6 +146,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'go') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
     }
     break
@@ -170,6 +180,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'go') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
     }
     if (success) {
@@ -201,6 +213,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   python  → capture.py / validate.py
   react   → capture_react.mjs / validate.js
   rust    → capture_rust.sh
+  go      → capture_go.sh (Community Preview)
 `)
     break
 }

@@ -181,6 +181,10 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `pythonPath` | ❌ | Directory to add to `sys.path` for Python imports |
 | `renderMode` | ❌ | `static` for React (uses `renderToStaticMarkup`) |
 | `stripAttrs` | ❌ | HTML attributes to strip before fingerprinting (React) |
+| `goPackage` | ❌ | Full Go module import path for Go stack (e.g., `"github.com/user/repo/pkg"`) |
+| `goTestPkg` | ❌ | Relative path for `go test` command in Go stack (e.g., `"./pkg/name"`) |
+| `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
+| `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
 
 ---
 
@@ -292,6 +296,9 @@ If you prefer calling individual scripts directly (per-stack):
   "regret:validate:py": "python ../../The-skill/regresion-testing/scripts/validate.py",
   "regret:capture:react": "node ../../The-skill/regresion-testing/scripts/capture_react.mjs",
   "regret:capture:rust": "bash ../../The-skill/regresion-testing/scripts/capture_rust.sh capture",
+  "regret:capture:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh capture",
+  "regret:validate:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh validate",
+  "regret:health:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh health",
   "regret:health": "node ../../The-skill/regresion-testing/scripts/health.js",
   "regret:drift": "node ../../The-skill/regresion-testing/scripts/validate.js --runs 5",
   "regret:drift:py": "python ../../The-skill/regresion-testing/scripts/validate.py --runs 5",
@@ -447,6 +454,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
+| Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
 
 ---
 
@@ -569,6 +577,7 @@ regression-testing/
 │   ├── health.py               ← cluster health report (Python)
 │   ├── capture_react.mjs       ← React component render capture
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
+│   ├── capture_go.sh           ← Go cluster capture runner (community preview)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation)
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
 │   └── test.mjs                ← integration test suite (209 tests)
@@ -578,6 +587,7 @@ regression-testing/
     ├── update-protocol.md      ← safe update + audit trail rules (with hash chain)
     ├── python.md               ← Python stack — full implementation
     ├── rust.md                 ← Rust stack — trait wrapping + cargo test
+    ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant
@@ -602,6 +612,7 @@ regression-testing/
    - Rust → `references/rust.md`
    - React → `references/react.md`
    - Extension → `references/extension.md`
+   - Go → `references/go.md`
 
 ### Decision Tree: Which Script to Use?
 
@@ -623,6 +634,10 @@ What stack is the target project?
 │   ├── Capture → bash scripts/capture_rust.sh capture
 │   ├── Validate → bash scripts/capture_rust.sh validate
 │   └── Health → bash scripts/capture_rust.sh health
+├── Go
+│   ├── Capture → bash scripts/capture_go.sh capture
+│   ├── Validate → bash scripts/capture_go.sh validate
+│   └── Health → bash scripts/capture_go.sh health
 └── Browser Extension
     └── Extract pure logic first → then use JS/TS scripts
 ```
@@ -686,6 +701,17 @@ What stack is the target project?
       "renderMode": "static",
       "stripAttrs": ["data-testid", "aria-label"],
       "inputs": [{"amount": 1000000, "status": "PAID"}]
+    },
+    {
+      "id": "to-valid-bf",
+      "entry": "ToValidBF",
+      "watches": ["ToValidBF"],
+      "file": "lang/readcode/read.go",
+      "stack": "go",
+      "goPackage": "github.com/example/bfgo/lang/readcode",
+      "goTestPkg": "./lang/readcode",
+      "description": "Strip non-BF characters from source code string",
+      "inputs": ["+++-<>.,[]comment", "hello world"]
     }
   ]
 }
