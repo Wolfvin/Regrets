@@ -74,6 +74,8 @@ switch (command) {
         success = run('python3', [`${SCRIPTS_DIR}/capture.py`, ...passThroughArgs]) && success
       } else if (stack === 'react') {
         success = run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'php') {
+        success = run('php', [`${SCRIPTS_DIR}/capture_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
@@ -90,6 +92,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
+      } else if (stack === 'php') {
+        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
@@ -117,6 +121,8 @@ switch (command) {
 
     if (targetStack === 'python') {
       success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs])
+    } else if (targetStack === 'php') {
+      success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs])
     } else if (targetStack === 'go') {
       success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs])
     } else {
@@ -132,6 +138,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--runs', '5', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--runs', '5', ...passThroughArgs]) && success
+      } else if (stack === 'php') {
+        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--runs', '5', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
       }
@@ -146,6 +154,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'php') {
+        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
@@ -190,6 +200,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'php') {
+        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
@@ -223,6 +235,7 @@ Usage:
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js
   python  → capture.py / validate.py
+  php     → capture_php.php / validate_php.php
   react   → capture_react.mjs / validate.js
   rust    → capture_rust.sh
   go      → capture_go.sh (Community Preview)
