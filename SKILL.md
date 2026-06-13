@@ -600,6 +600,7 @@ regression-testing/
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
     ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
+    ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
     ├── braille-encode.md       ← Case study: qntm/braille-encode (binary↔Braille)
