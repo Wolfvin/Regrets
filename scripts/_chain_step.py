@@ -27,6 +27,10 @@ def main():
     input_data = payload['input']
     norm_rules = payload.get('normalize', [])
     ign_fields = payload.get('ignore_fields', [])
+    class_method = payload.get('class_method', None)
+    constructor_name = payload.get('constructor', entry_name)
+    constructor_args = payload.get('constructor_args', [])
+    setup_steps = payload.get('setup', [])
 
     # Add pythonPath to sys.path
     if python_path:
@@ -36,17 +40,50 @@ def main():
 
     # Dynamic import
     mod = importlib.import_module(module_path)
-    entry_fn = getattr(mod, entry_name, None)
-    if entry_fn is None or not callable(entry_fn):
-        print(f"❌ Entry '{entry_name}' not found in {module_path}", file=sys.stderr)
-        sys.exit(1)
 
-    # Run entry function
-    input_for_args = deep_clone(input_data)
-    if multi_args and isinstance(input_for_args, list):
-        output = entry_fn(*input_for_args)
+    if class_method:
+        # ── classMethod mode: fresh instance ─────────────────────────────
+        Cls = getattr(mod, constructor_name, None)
+        if Cls is None or not isinstance(Cls, type):
+            print(f"❌ Constructor '{constructor_name}' not found or not a class in {module_path}", file=sys.stderr)
+            sys.exit(1)
+
+        c_args = deep_clone(constructor_args) if constructor_args else []
+        instance = Cls(*c_args)
+
+        # Run setup methods
+        for step in setup_steps:
+            setup_method = getattr(instance, step.get('method', ''), None)
+            if setup_method is not None and callable(setup_method):
+                setup_args = step.get('args', [])
+                if isinstance(setup_args, list):
+                    setup_method(*setup_args)
+                elif isinstance(setup_args, dict):
+                    setup_method(**setup_args)
+
+        target_method = getattr(instance, class_method, None)
+        if target_method is None or not callable(target_method):
+            print(f"❌ Method '{class_method}' not found on instance", file=sys.stderr)
+            sys.exit(1)
+
+        input_for_args = deep_clone(input_data)
+        if multi_args and isinstance(input_for_args, list):
+            output = target_method(*input_for_args)
+        else:
+            output = target_method(input_for_args) if input_for_args is not None else target_method()
     else:
-        output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+        # ── Function-based entry ─────────────────────────────────────────
+        entry_fn = getattr(mod, entry_name, None)
+        if entry_fn is None or not callable(entry_fn):
+            print(f"❌ Entry '{entry_name}' not found in {module_path}", file=sys.stderr)
+            sys.exit(1)
+
+        # Run entry function
+        input_for_args = deep_clone(input_data)
+        if multi_args and isinstance(input_for_args, list):
+            output = entry_fn(*input_for_args)
+        else:
+            output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
 
     # Compute fingerprint
     output = _numpy_to_native(output)

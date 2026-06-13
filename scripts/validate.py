@@ -155,6 +155,20 @@ def parse_regret(content):
             meta['trackMutation'] = val.lower() == 'true'
         elif key == 'mutationFingerprint':
             meta['mutationFingerprint'] = val.strip()
+        elif key == 'classMethod':
+            meta['classMethod'] = val
+        elif key == 'constructor':
+            meta['constructor'] = val
+        elif key == 'constructorArgs':
+            try:
+                meta['constructorArgs'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['constructorArgs'] = val
+        elif key == 'setup':
+            try:
+                meta['setup'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['setup'] = val
         else:
             meta[key] = val
 
@@ -393,6 +407,12 @@ def main():
 
             mod = importlib.import_module(module_path)
 
+            # Check for classMethod mode (stateful class testing)
+            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
+            constructor_name = regret.get('constructor') or cluster_def.get('constructor', entry_name)
+            constructor_args = cluster_def.get('constructorArgs', [])
+            setup_steps = cluster_def.get('setup', [])
+
             hashes = []           # flat list of all hashes (for backward compat)
             hashes_per_input = {}  # { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
             last_output = None
@@ -406,97 +426,193 @@ def main():
 
             for _ in range(cli['runs']):
                 recorder = []
-                ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
-
-                entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
-                    raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+                watches_list = regret.get('watches', cluster_def.get('watches', []))
 
                 # Determine fingerprint mode: .regret file takes precedence over manifest
                 effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
                 effective_value_paths = regret.get('valuePaths') or value_paths or []
 
-                for current_input in inputs_to_validate:
-                    # Deep-clone input before calling to prevent mutation from corrupting fingerprint
-                    input_for_fp = deep_clone(current_input)
-                    input_for_args = deep_clone(current_input)
+                if class_method:
+                    # ── classMethod mode: fresh instance per input ──────────
+                    Cls = getattr(mod, constructor_name, None)
+                    if Cls is None or not isinstance(Cls, type):
+                        raise TypeError(f"Constructor \"{constructor_name}\" not found or not a class in {module_path}")
 
-                    # Snapshot input state BEFORE call (for mutation tracking)
-                    input_snapshot_before = None
-                    if track_mutation:
-                        input_snapshot_before = snapshot_state(input_for_args)
+                    for current_input in inputs_to_validate:
+                        input_for_fp = deep_clone(current_input)
+                        input_for_args = deep_clone(current_input)
 
-                    if multi_args and isinstance(input_for_args, list):
-                        raw_output = entry_fn(*input_for_args)
-                        fp_input = input_for_fp
-                    elif kwargs_mode and isinstance(input_for_args, dict):
-                        # kwargs mode: input dict is unpacked as keyword arguments
-                        raw_output = entry_fn(**input_for_args)
-                        fp_input = input_for_fp
-                    elif kwargs_mode and not isinstance(input_for_args, dict):
-                        raise TypeError(
-                            f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
-                            f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
-                        )
-                    else:
-                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
-                        fp_input = input_for_fp
+                        # Create fresh instance for each input
+                        c_args = deep_clone(constructor_args) if constructor_args else []
+                        instance = Cls(*c_args)
 
-                    # Materialize generator/iterator output if configured
-                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                        # Apply ghost proxy to instance methods for watch recording
+                        for watch_fn in watches_list:
+                            orig_method = getattr(instance, watch_fn, None)
+                            if orig_method is not None and callable(orig_method):
+                                def make_instance_ghost(orig, name, rec):
+                                    @wraps(orig)
+                                    def wrapper(*a, **kw):
+                                        try:
+                                            result = orig(*a, **kw)
+                                            rec.append({'fn': name, 'args': deep_clone(a), 'result': deep_clone(result)})
+                                            return result
+                                        except Exception as err:
+                                            rec.append({'fn': name, 'args': deep_clone(a), 'error': str(err)})
+                                            raise
+                                    return wrapper
+                                setattr(instance, watch_fn, make_instance_ghost(orig_method, watch_fn, recorder))
 
-                    # Consume generators/iterators into lists for fingerprinting (always-on fallback)
-                    if not materialize_output_flag:
-                        output = consume_generator(output)
+                        # Run setup methods
+                        for step in setup_steps:
+                            setup_method = getattr(instance, step.get('method', ''), None)
+                            if setup_method is None or not callable(setup_method):
+                                raise TypeError(f"Setup method \"{step.get('method')}\" not found on instance")
+                            setup_args = deep_clone(step.get('args', []))
+                            if isinstance(setup_args, list):
+                                setup_method(*setup_args)
+                            elif isinstance(setup_args, dict):
+                                setup_method(**setup_args)
+                            else:
+                                setup_method(setup_args)
 
-                    # Apply output transform if specified
-                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                        # Call the target method
+                        target_method = getattr(instance, class_method, None)
+                        if target_method is None or not callable(target_method):
+                            raise TypeError(f"Method \"{class_method}\" not found on instance")
 
-                    # Snapshot input state AFTER call (for mutation tracking)
-                    mutation_match = True
-                    if track_mutation:
-                        input_snapshot_after = snapshot_state(input_for_args)
-                        # Check mutation fingerprint matches the golden
-                        golden_mutation_fp = regret.get('mutationFingerprint')
-                        live_mutation_fp = fingerprint(
-                            input_snapshot_before, input_snapshot_after,
-                            norm_rules, ign_fields
-                        )
-                        if golden_mutation_fp and live_mutation_fp != golden_mutation_fp:
-                            mutation_match = False
+                        if multi_args and isinstance(input_for_args, list):
+                            raw_output = target_method(*input_for_args)
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            raw_output = target_method(**input_for_args)
+                        else:
+                            raw_output = target_method(input_for_args) if input_for_args is not None else target_method()
 
-                    last_output = output_for_fp
+                        # Materialize and transform output
+                        output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                        if not materialize_output_flag:
+                            output = consume_generator(output)
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
-                    if effective_fp_mode == 'schema':
-                        schema = extract_schema(output_for_fp)
-                        fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
-                    elif effective_fp_mode == 'mixed':
-                        schema = extract_schema(output_for_fp)
-                        selected_values = {}
-                        for path in effective_value_paths:
-                            key = path.replace('$.', '')
-                            parts = key.split('.')
-                            val = output_for_fp
-                            for p in parts:
-                                val = val.get(p) if isinstance(val, dict) else None
-                                if val is None:
-                                    break
-                            if val is not None:
-                                selected_values[path] = val
-                        combined = {'schema': schema, 'values': selected_values}
-                        fp = fingerprint(fp_input, combined, norm_rules, ign_fields)
-                    elif fp_level == 'entry':
-                        fp = fingerprint(fp_input, output_for_fp, norm_rules, ign_fields)
-                    else:
-                        fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
+                        last_output = output_for_fp
 
-                    hashes.append(fp)
+                        if effective_fp_mode == 'schema':
+                            schema = extract_schema(output_for_fp)
+                            fp = fingerprint(input_for_fp, schema, norm_rules, ign_fields)
+                        elif effective_fp_mode == 'mixed':
+                            schema = extract_schema(output_for_fp)
+                            selected_values = {}
+                            for path in effective_value_paths:
+                                key = path.replace('$.', '')
+                                parts = key.split('.')
+                                val = output_for_fp
+                                for p in parts:
+                                    val = val.get(p) if isinstance(val, dict) else None
+                                    if val is None:
+                                        break
+                                if val is not None:
+                                    selected_values[path] = val
+                            combined = {'schema': schema, 'values': selected_values}
+                            fp = fingerprint(input_for_fp, combined, norm_rules, ign_fields)
+                        elif fp_level == 'entry':
+                            fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                        else:
+                            fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
-                    # Track per-input hashes for drift detection
-                    input_key = json.dumps(current_input, sort_keys=True)
-                    if input_key not in hashes_per_input:
-                        hashes_per_input[input_key] = []
-                    hashes_per_input[input_key].append(fp)
+                        hashes.append(fp)
+                        input_key = json.dumps(current_input, sort_keys=True)
+                        if input_key not in hashes_per_input:
+                            hashes_per_input[input_key] = []
+                        hashes_per_input[input_key].append(fp)
+                else:
+                    # ── Function-based entry (original behavior) ────────────
+                    ghost = create_ghost(mod, watches_list, recorder)
+
+                    entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                    if entry_fn is None or not callable(entry_fn):
+                        raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+
+                    for current_input in inputs_to_validate:
+                        # Deep-clone input before calling to prevent mutation from corrupting fingerprint
+                        input_for_fp = deep_clone(current_input)
+                        input_for_args = deep_clone(current_input)
+
+                        # Snapshot input state BEFORE call (for mutation tracking)
+                        input_snapshot_before = None
+                        if track_mutation:
+                            input_snapshot_before = snapshot_state(input_for_args)
+
+                        if multi_args and isinstance(input_for_args, list):
+                            raw_output = entry_fn(*input_for_args)
+                            fp_input = input_for_fp
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            # kwargs mode: input dict is unpacked as keyword arguments
+                            raw_output = entry_fn(**input_for_args)
+                            fp_input = input_for_fp
+                        elif kwargs_mode and not isinstance(input_for_args, dict):
+                            raise TypeError(
+                                f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                                f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                            )
+                        else:
+                            raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                            fp_input = input_for_fp
+
+                        # Materialize generator/iterator output if configured
+                        output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+
+                        # Consume generators/iterators into lists for fingerprinting (always-on fallback)
+                        if not materialize_output_flag:
+                            output = consume_generator(output)
+
+                        # Apply output transform if specified
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+                        # Snapshot input state AFTER call (for mutation tracking)
+                        mutation_match = True
+                        if track_mutation:
+                            input_snapshot_after = snapshot_state(input_for_args)
+                            # Check mutation fingerprint matches the golden
+                            golden_mutation_fp = regret.get('mutationFingerprint')
+                            live_mutation_fp = fingerprint(
+                                input_snapshot_before, input_snapshot_after,
+                                norm_rules, ign_fields
+                            )
+                            if golden_mutation_fp and live_mutation_fp != golden_mutation_fp:
+                                mutation_match = False
+
+                        last_output = output_for_fp
+
+                        if effective_fp_mode == 'schema':
+                            schema = extract_schema(output_for_fp)
+                            fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
+                        elif effective_fp_mode == 'mixed':
+                            schema = extract_schema(output_for_fp)
+                            selected_values = {}
+                            for path in effective_value_paths:
+                                key = path.replace('$.', '')
+                                parts = key.split('.')
+                                val = output_for_fp
+                                for p in parts:
+                                    val = val.get(p) if isinstance(val, dict) else None
+                                    if val is None:
+                                        break
+                                if val is not None:
+                                    selected_values[path] = val
+                            combined = {'schema': schema, 'values': selected_values}
+                            fp = fingerprint(fp_input, combined, norm_rules, ign_fields)
+                        elif fp_level == 'entry':
+                            fp = fingerprint(fp_input, output_for_fp, norm_rules, ign_fields)
+                        else:
+                            fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
+
+                        hashes.append(fp)
+
+                        # Track per-input hashes for drift detection
+                        input_key = json.dumps(current_input, sort_keys=True)
+                        if input_key not in hashes_per_input:
+                            hashes_per_input[input_key] = []
+                        hashes_per_input[input_key].append(fp)
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
