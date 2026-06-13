@@ -1,0 +1,89 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+// Our mapping of alphabetical characters to ogham
+var ogham_symbols_1 = require("./ogham-symbols");
+// Inputs can only contain alphabetical characters and spaces (no /g flag — stateless)
+var VALID_INPUT_PATTERN = /^[a-z ]+$/;
+// Characters not natively supported by the Ogham alphabet
+var UNSUPPORTED_CHARS = ['j', 'k', 'v', 'w', 'x', 'y'];
+// Phonetics mapping: unsupported Latin letters → closest Ogham-supported equivalents
+var PHONETIC_MAP = {
+    j: 'g',
+    k: 'q',
+    v: 'f',
+    w: 'uu',
+    x: 'z',
+    y: 'i'
+};
+/**
+ * Default options for the convert function
+ */
+var DEFAULT_OPTIONS = {
+    addBoundary: true,
+    useForfeda: false,
+    usePhonetics: false
+};
+/**
+ * Given an input of latin characters and spaces, this will return a string
+ * containing the corresponding ogham characters, e.g "eire" => "᚛ᚓᚔᚏᚓ᚜"
+ * @param input - The Latin text to convert
+ * @param opts  - Optional conversion settings
+ */
+function convert(input, opts) {
+    var options = Object.assign({}, DEFAULT_OPTIONS, opts);
+    var text = input.toLowerCase();
+    validateInput(text, !!options.usePhonetics);
+    var withForfeda = options.useForfeda
+        ? transliterate(text, ogham_symbols_1.default.combination)
+        : text;
+    var withPhonetics = options.usePhonetics
+        ? applyPhoneticReplacements(withForfeda)
+        : withForfeda;
+    var withBoundary = options.addBoundary
+        ? "" + ogham_symbols_1.default.head.char + withPhonetics + ogham_symbols_1.default.tail.char
+        : withPhonetics;
+    return transliterate(withBoundary, ogham_symbols_1.default.individual);
+}
+exports.convert = convert;
+/**
+ * Validates that input contains only supported characters.
+ * @throws Error if input contains non-alphabetic characters
+ * @throws Error if input contains unsupported letters without usePhonetics
+ */
+function validateInput(text, usePhonetics) {
+    if (text.length !== 0 && !VALID_INPUT_PATTERN.test(text)) {
+        throw new Error('input can only contain alphabetic characters');
+    }
+    if (!usePhonetics && hasUnsupportedChars(text)) {
+        throw new Error("input cannot contain " + UNSUPPORTED_CHARS.join(', ') + " unless \"usePhonetics\" option is passed");
+    }
+}
+/**
+ * Determines if the given input contains letters that are missing from ogham
+ * or the irish alphabet
+ */
+function hasUnsupportedChars(text) {
+    return UNSUPPORTED_CHARS.some(function (ch) { return text.includes(ch); });
+}
+/**
+ * Replaces occurrences of unsupported characters with phonetic equivalents.
+ * Uses reduce for a cleaner functional approach without mutation.
+ */
+function applyPhoneticReplacements(text) {
+    return UNSUPPORTED_CHARS.reduce(function (result, ch) {
+        return result.replace(new RegExp(ch, 'gi'), PHONETIC_MAP[ch]);
+    }, text);
+}
+/**
+ * Transliterates characters in the text using the provided pattern mapping.
+ * Each key in the patterns object is replaced with its corresponding Ogham character.
+ * @param text     - The text to transliterate
+ * @param patterns - A mapping of Latin patterns to Ogham character info
+ */
+function transliterate(text, patterns) {
+    return Object.keys(patterns).reduce(function (result, pattern) {
+        var charInfo = patterns[pattern];
+        return result.replace(new RegExp(pattern, 'ig'), charInfo.char);
+    }, text);
+}
+//# sourceMappingURL=ogham.js.map
