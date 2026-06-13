@@ -55,7 +55,8 @@ let failed = 0
 
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
-          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs } = cluster
+          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
+          materializeOutput = false } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -126,12 +127,28 @@ for (const cluster of clusters) {
       const inputForArgs = deepClone(input)
       const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const rawOutput = await entryFn(...args_)
-      // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
-      // from the same serializable data that will be stored in the .regret file.
-      // Without this, non-serializable properties (functions, circular refs) would be
-      // present during fingerprinting but absent in the stored OUTPUT — causing the
-      // .regret file's data to be irreproducible from its own hash.
-      const output = deepClone(rawOutput)
+      // Materialize generator/iterator output if configured
+      // JS generators have .next() method; Iterables have Symbol.iterator
+      let output
+      if (materializeOutput && rawOutput && typeof rawOutput === 'object') {
+        const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
+                           typeof rawOutput[Symbol.iterator] === 'function'
+        if (isIterable && !Array.isArray(rawOutput)) {
+          output = []
+          if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
+            for await (const item of rawOutput) output.push(deepClone(item))
+          } else {
+            for (const item of rawOutput) output.push(deepClone(item))
+          }
+          console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${output.length} items)`)
+        } else {
+          output = deepClone(rawOutput)
+        }
+      } else {
+        // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
+        // from the same serializable data that will be stored in the .regret file.
+        output = deepClone(rawOutput)
+      }
 
       const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
@@ -200,6 +217,7 @@ for (const cluster of clusters) {
       valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+      materializeOutput ? `materializeOutput: true` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,

@@ -21,7 +21,7 @@ from pathlib import Path
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    _numpy_to_native
+    _numpy_to_native, materialize_output, snapshot_state
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -81,6 +81,12 @@ def parse_regret(content):
             meta['fingerprintMode'] = val
         elif key == 'valuePaths':
             meta['valuePaths'] = [p.strip() for p in val.strip('[]').split(',') if p.strip()]
+        elif key == 'materializeOutput':
+            meta['materializeOutput'] = val.lower() == 'true'
+        elif key == 'trackMutation':
+            meta['trackMutation'] = val.lower() == 'true'
+        elif key == 'mutationFingerprint':
+            meta['mutationFingerprint'] = val.strip()
         else:
             meta[key] = val
 
@@ -92,6 +98,10 @@ def parse_regret(content):
             meta['output'] = json.loads(line[7:])
         elif line.startswith('HASH '):
             meta['goldenHash'] = line[5:].strip()
+        elif line.startswith('MUTATION_BEFORE '):
+            meta['mutationBefore'] = json.loads(line[16:])
+        elif line.startswith('MUTATION_AFTER '):
+            meta['mutationAfter'] = json.loads(line[15:])
 
     meta['raw'] = content
     return meta
@@ -292,6 +302,8 @@ def main():
             fp_mode = cluster_def.get('fingerprintMode', 'value')
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
+            materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
+            track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
 
             mod = importlib.import_module(module_path)
 
@@ -322,12 +334,34 @@ def main():
                     # Deep-clone input before calling to prevent mutation from corrupting fingerprint
                     input_for_fp = deep_clone(current_input)
                     input_for_args = deep_clone(current_input)
+
+                    # Snapshot input state BEFORE call (for mutation tracking)
+                    input_snapshot_before = None
+                    if track_mutation:
+                        input_snapshot_before = snapshot_state(input_for_args)
+
                     if multi_args and isinstance(input_for_args, list):
-                        output = entry_fn(*input_for_args)
+                        raw_output = entry_fn(*input_for_args)
                         fp_input = input_for_fp
                     else:
-                        output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                         fp_input = input_for_fp
+
+                    # Materialize generator/iterator output if configured
+                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+
+                    # Snapshot input state AFTER call (for mutation tracking)
+                    mutation_match = True
+                    if track_mutation:
+                        input_snapshot_after = snapshot_state(input_for_args)
+                        # Check mutation fingerprint matches the golden
+                        golden_mutation_fp = regret.get('mutationFingerprint')
+                        live_mutation_fp = fingerprint(
+                            input_snapshot_before, input_snapshot_after,
+                            norm_rules, ign_fields
+                        )
+                        if golden_mutation_fp and live_mutation_fp != golden_mutation_fp:
+                            mutation_match = False
 
                     last_output = output
 
@@ -371,6 +405,12 @@ def main():
                 len(set(input_hashes)) > 1
                 for input_hashes in hashes_per_input.values()
             )
+
+            # Mutation mismatch is a separate failure condition
+            if track_mutation and not mutation_match:
+                print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
+                results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
+                continue
 
             if update_mode:
                 if is_match:

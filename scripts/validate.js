@@ -60,6 +60,9 @@ function parseRegret(content) {
     else if (key === 'ignoreFields') meta.ignoreFields = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
+    else if (key === 'materializeOutput') meta.materializeOutput = val === 'true'
+    else if (key === 'trackMutation') meta.trackMutation = val === 'true'
+    else if (key === 'mutationFingerprint') meta.mutationFingerprint = val
     else if (key === 'version') meta.version = Number(val)
     else meta[key] = val
   }
@@ -185,6 +188,7 @@ async function runReactCluster(clusterDef, regret) {
 async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack } = clusterDef
+  const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
@@ -247,10 +251,25 @@ async function runCluster(clusterDef, regret) {
       // multiArgs: spread input as separate arguments (use separate clone for args)
       const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const rawOutput = await entryFn(...args_)
-      // Deep-clone output BEFORE fingerprinting to match capture.js behavior.
-      // Ensures fingerprints are computed from serializable data only, making
-      // .regret file data reproducible from its own hash.
-      const output   = deepClone(rawOutput)
+      // Materialize generator/iterator output if configured
+      let output
+      if (materializeOutputFlag && rawOutput && typeof rawOutput === 'object') {
+        const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
+                           typeof rawOutput[Symbol.iterator] === 'function'
+        if (isIterable && !Array.isArray(rawOutput)) {
+          output = []
+          if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
+            for await (const item of rawOutput) output.push(deepClone(item))
+          } else {
+            for (const item of rawOutput) output.push(deepClone(item))
+          }
+        } else {
+          output = deepClone(rawOutput)
+        }
+      } else {
+        // Deep-clone output BEFORE fingerprinting to match capture.js behavior.
+        output = deepClone(rawOutput)
+      }
       lastOutput     = output
       const fpInput  = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
 

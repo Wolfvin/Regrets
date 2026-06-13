@@ -185,6 +185,8 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `goTestPkg` | ❌ | Relative path for `go test` command in Go stack (e.g., `"./pkg/name"`) |
 | `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
+| `materializeOutput` | ❌ | `true` → auto-consume generators/iterators into lists before fingerprinting |
+| `trackMutation` | ❌ | `true` → snapshot input state before/after call, detect mutations |
 
 ---
 

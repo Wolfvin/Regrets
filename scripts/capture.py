@@ -19,7 +19,8 @@ from functools import wraps
 # Import shared fingerprint module (same directory)
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
-    deep_clone, fingerprint, fingerprint_sequence, extract_schema
+    deep_clone, fingerprint, fingerprint_sequence, extract_schema,
+    materialize_output, snapshot_state
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -164,6 +165,8 @@ def main():
         value_paths = cluster.get('valuePaths', [])
         multi_args = cluster.get('multiArgs', False)
         inputs = cluster.get('inputs', [None])
+        materialize_output_flag = cluster.get('materializeOutput', False)
+        track_mutation = cluster.get('trackMutation', False)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -195,12 +198,35 @@ def main():
                 input_for_record = deep_clone(input_val)
                 input_for_args = deep_clone(input_val)
 
+                # Snapshot input state BEFORE call (for mutation tracking)
+                input_snapshot_before = None
+                if track_mutation:
+                    input_snapshot_before = snapshot_state(input_for_args)
+
                 if multi_args and isinstance(input_for_args, list):
-                    output = entry_fn(*input_for_args)
+                    raw_output = entry_fn(*input_for_args)
                     fp_input = input_for_record
                 else:
-                    output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                    raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                     fp_input = input_for_record
+
+                # Materialize generator/iterator output if configured
+                output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                if was_materialized:
+                    print(f"   🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)")
+
+                # Snapshot input state AFTER call (for mutation tracking)
+                input_snapshot_after = None
+                input_mutation_fingerprint = None
+                if track_mutation:
+                    input_snapshot_after = snapshot_state(input_for_args)
+                    # Compute mutation fingerprint — if input changed, this hash will differ
+                    input_mutation_fingerprint = fingerprint(
+                        input_snapshot_before, input_snapshot_after,
+                        normalize_rules, ignore_fields
+                    )
+                    if input_snapshot_before != input_snapshot_after:
+                        print(f"   ⚠️  Input mutation detected! Fingerprint: {input_mutation_fingerprint}")
 
                 if fingerprint_mode == 'schema':
                     schema = extract_schema(output)
@@ -225,7 +251,16 @@ def main():
                 else:
                     fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
 
-                results.append({'input': input_val, 'output': output, 'fp': fp, 'calls': list(recorder_local)})
+                results.append({
+                    'input': input_val,
+                    'output': output,
+                    'fp': fp,
+                    'calls': list(recorder_local),
+                    'input_snapshot_before': input_snapshot_before,
+                    'input_snapshot_after': input_snapshot_after,
+                    'input_mutation_fingerprint': input_mutation_fingerprint,
+                    'was_materialized': was_materialized,
+                })
 
             # Use first result as golden
             golden = results[0]
@@ -257,11 +292,20 @@ def main():
                 lines.append(f"multiArgs: {multi_args}")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
+            if materialize_output_flag:
+                lines.append("materializeOutput: true")
+            if track_mutation:
+                lines.append("trackMutation: true")
+                if golden.get('input_mutation_fingerprint'):
+                    lines.append(f"mutationFingerprint: {golden['input_mutation_fingerprint']}")
 
             lines.append("---")
             lines.append(f"INPUT  {json_serialize(golden['input'])}")
             lines.append(f"OUTPUT {json_serialize(golden['output'])}")
             lines.append(f"HASH   {fp}")
+            if track_mutation and golden.get('input_snapshot_before') is not None:
+                lines.append(f"MUTATION_BEFORE {json_serialize(golden['input_snapshot_before'])}")
+                lines.append(f"MUTATION_AFTER  {json_serialize(golden['input_snapshot_after'])}")
 
             with open(regret_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
