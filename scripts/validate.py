@@ -295,6 +295,8 @@ def main():
             mod = importlib.import_module(module_path)
 
             hashes = []
+            # Per-input hash tracking for drift detection with multiple inputs
+            per_input_hashes = {}  # key=JSON(input), value=[fp1, fp2, ...]
             last_output = None
 
             for _ in range(cli['runs']):
@@ -351,9 +353,21 @@ def main():
 
                     hashes.append(fp)
 
+                    # Track per-input hashes for drift detection
+                    input_key = json.dumps(current_input, sort_keys=True)
+                    if input_key not in per_input_hashes:
+                        per_input_hashes[input_key] = []
+                    per_input_hashes[input_key].append(fp)
+
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+            # Drift detection: check stability per-input, not across inputs
+            # Different inputs naturally produce different fingerprints — that's not drift.
+            # Drift = same input producing different fingerprints across runs.
+            if drift_mode and per_input_hashes:
+                is_drift = any(len(set(v)) > 1 for v in per_input_hashes.values())
+            else:
+                is_drift = drift_mode and len(set(hashes)) > 1
 
             if update_mode:
                 if is_match:
@@ -368,11 +382,19 @@ def main():
 
             elif drift_mode:
                 if is_drift:
-                    print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(hashes)}]")
+                    # Show per-input drift detail for better debugging
+                    drift_details = []
+                    for input_key, input_hashes in per_input_hashes.items():
+                        if len(set(input_hashes)) > 1:
+                            drift_details.append(f"input={input_key[:30]} [{' / '.join(input_hashes)}]")
+                    detail_str = '; '.join(drift_details) if drift_details else ' / '.join(hashes)
+                    print(f"  ❌ {cluster_id:<35} DRIFT  {detail_str}")
                     results.append({'id': cluster_id, 'pass': False, 'drift': True})
                 else:
                     icon = '✅' if is_match else '❌'
-                    print(f"  {icon} {cluster_id:<35} {live_hash}  × {cli['runs']}  {'PASS+STABLE' if is_match else 'FAIL'}")
+                    input_count = len(per_input_hashes) if per_input_hashes else 1
+                    suffix = f' ({input_count} inputs, all stable)' if input_count > 1 else ''
+                    print(f"  {icon} {cluster_id:<35} {live_hash}  × {cli['runs']}{suffix}  {'PASS+STABLE' if is_match else 'FAIL'}")
                     results.append({'id': cluster_id, 'pass': is_match})
 
             else:
