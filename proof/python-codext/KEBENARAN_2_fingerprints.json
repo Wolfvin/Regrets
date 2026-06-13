@@ -1,0 +1,245 @@
+{
+  "affine-decode": {
+    "fingerprint": "6a8ehg3",
+    "captured": "2026-06-13T16:52:48.193148+00:00",
+    "entry": "affine_decode",
+    "stack": "python",
+    "goldenHash": "6a8ehg3",
+    "input": " \"jgnnq\"",
+    "output": "\"hello\""
+  },
+  "affine-encode": {
+    "fingerprint": "48diins",
+    "captured": "2026-06-13T16:52:48.192443+00:00",
+    "entry": "affine_encode",
+    "stack": "python",
+    "goldenHash": "48diins",
+    "input": " \"hello\"",
+    "output": "\"jgnnq\""
+  },
+  "atbash-decode": {
+    "fingerprint": "20hrly5",
+    "captured": "2026-06-13T16:52:48.205364+00:00",
+    "entry": "atbash_decode",
+    "stack": "python",
+    "goldenHash": "20hrly5",
+    "input": " \"svool\"",
+    "output": "\"hello\""
+  },
+  "atbash-encode": {
+    "fingerprint": "2h5m3ud",
+    "captured": "2026-06-13T16:52:48.195104+00:00",
+    "entry": "atbash_encode",
+    "stack": "python",
+    "goldenHash": "2h5m3ud",
+    "input": " \"hello\"",
+    "output": "\"svool\""
+  },
+  "bacon-encode": {
+    "fingerprint": "frhmb35",
+    "captured": "2026-06-13T16:52:48.202211+00:00",
+    "entry": "bacon_encode",
+    "stack": "python",
+    "goldenHash": "frhmb35",
+    "input": " \"hello\"",
+    "output": "\"aabbbaabaaababaababaabbab\""
+  },
+  "barbie-encode": {
+    "fingerprint": "514ainm",
+    "captured": "2026-06-13T16:52:48.203397+00:00",
+    "entry": "barbie_encode",
+    "stack": "python",
+    "goldenHash": "514ainm",
+    "input": " \"hello\"",
+    "output": "\"sabbr\""
+  },
+  "base32-decode": {
+    "fingerprint": "3jb2xz9",
+    "captured": "2026-06-13T16:52:48.204868+00:00",
+    "entry": "base32_decode",
+    "stack": "python",
+    "goldenHash": "3jb2xz9",
+    "input": " \"NBSWY3DP\"",
+    "output": "\"hello\""
+  },
+  "base32-encode": {
+    "fingerprint": "5lh76dn",
+    "captured": "2026-06-13T16:52:48.204493+00:00",
+    "entry": "base32_encode",
+    "stack": "python",
+    "goldenHash": "5lh76dn",
+    "input": " \"hello\"",
+    "output": "\"NBSWY3DP\""
+  },
+  "baudot-encode": {
+    "fingerprint": "416k5l7",
+    "captured": "2026-06-13T16:52:48.206333+00:00",
+    "entry": "baudot_encode",
+    "stack": "python",
+    "goldenHash": "416k5l7",
+    "input": " \"hello\"",
+    "output": "\"0101100010110111101100111\""
+  },
+  "braille-decode": {
+    "fingerprint": "4mcbm7s",
+    "captured": "2026-06-13T16:52:48.207334+00:00",
+    "entry": "braille_decode",
+    "stack": "python",
+    "goldenHash": "4mcbm7s",
+    "input": " \"hello\"",
+    "output": "\"hello\""
+  },
+  "braille-encode": {
+    "fingerprint": "355oehc",
+    "captured": "2026-06-13T16:52:48.188325+00:00",
+    "entry": "braille_encode",
+    "stack": "python",
+    "goldenHash": "355oehc",
+    "input": " \"hello\"",
+    "output": "\"⠓⠑⠇⠇⠕\""
+  },
+  "dna-decode": {
+    "fingerprint": "1rpgq7m",
+    "captured": "2026-06-13T16:52:48.201176+00:00",
+    "entry": "dna_decode",
+    "stack": "python",
+    "goldenHash": "1rpgq7m",
+    "input": " \"GTGAGCGGGTATGTGA\"",
+    "output": "\"test\""
+  },
+  "dna-encode": {
+    "fingerprint": "5bqcevf",
+    "captured": "2026-06-13T16:52:48.200596+00:00",
+    "entry": "dna_encode",
+    "stack": "python",
+    "goldenHash": "5bqcevf",
+    "input": " \"test\"",
+    "output": "\"GTGAGCGGGTATGTGA\""
+  },
+  "galactic-encode": {
+    "fingerprint": "4dw1zpm",
+    "captured": "2026-06-13T16:52:48.189145+00:00",
+    "entry": "galactic_encode",
+    "stack": "python",
+    "goldenHash": "4dw1zpm",
+    "input": " \"hello\"",
+    "output": "\"₸ᒷꖎꖎ⁊\""
+  },
+  "hexagram-decode": {
+    "fingerprint": "4mcbm7s",
+    "captured": "2026-06-13T16:52:48.198384+00:00",
+    "entry": "hexagram_decode",
+    "stack": "python",
+    "goldenHash": "4mcbm7s",
+    "input": " \"hello\"",
+    "output": "\"hello\""
+  },
+  "hexagram-encode": {
+    "fingerprint": "5he8u70",
+    "captured": "2026-06-13T16:52:48.196626+00:00",
+    "entry": "hexagram_encode",
+    "stack": "python",
+    "goldenHash": "5he8u70",
+    "input": " \"hello\"",
+    "output": "\"䷮䷭䷾䷷䷹䷭䷠☯\""
+  },
+  "kenny-decode": {
+    "fingerprint": "32dfoeh",
+    "captured": "2026-06-13T16:52:48.190561+00:00",
+    "entry": "kenny_decode",
+    "stack": "python",
+    "goldenHash": "32dfoeh",
+    "input": " \"mfpmff\"",
+    "output": "\"hi\""
+  },
+  "kenny-encode": {
+    "fingerprint": "56198x4",
+    "captured": "2026-06-13T16:52:48.189982+00:00",
+    "entry": "kenny_encode",
+    "stack": "python",
+    "goldenHash": "56198x4",
+    "input": " \"hello\"",
+    "output": "\"mfpmpppmfpmfppf\""
+  },
+  "morse-decode": {
+    "fingerprint": "53c173c",
+    "captured": "2026-06-13T16:52:48.187270+00:00",
+    "entry": "morse_decode",
+    "stack": "python",
+    "goldenHash": "53c173c",
+    "input": " \".... . .-.. .-.. ---\"",
+    "output": "\"hello\""
+  },
+  "morse-encode": {
+    "fingerprint": "4i796jm",
+    "captured": "2026-06-13T16:52:48.185644+00:00",
+    "entry": "morse_encode",
+    "stack": "python",
+    "goldenHash": "4i796jm",
+    "input": " \"hello world\"",
+    "output": "\".... . .-.. .-.. --- / .-- --- .-. .-.. -..\""
+  },
+  "navajo-encode": {
+    "fingerprint": "agyl696",
+    "captured": "2026-06-13T16:52:48.203969+00:00",
+    "entry": "navajo_encode",
+    "stack": "python",
+    "goldenHash": "agyl696",
+    "input": " \"hello\"",
+    "output": "\"tse-gah ah-jah dibeh-yazzie dibeh-yazzie a-kha\""
+  },
+  "rick-decode": {
+    "fingerprint": "51zeh4f",
+    "captured": "2026-06-13T16:52:48.199842+00:00",
+    "entry": "rick_decode",
+    "stack": "python",
+    "goldenHash": "51zeh4f",
+    "input": " \"LET UP GOnna GOnna AND\"",
+    "output": "\"hello\""
+  },
+  "rick-encode": {
+    "fingerprint": "3axqlrx",
+    "captured": "2026-06-13T16:52:48.199242+00:00",
+    "entry": "rick_encode",
+    "stack": "python",
+    "goldenHash": "3axqlrx",
+    "input": " \"HELLO\"",
+    "output": "\"LET UP GOnna GOnna AND\""
+  },
+  "rot13-decode": {
+    "fingerprint": "3csehn4",
+    "captured": "2026-06-13T16:52:48.205768+00:00",
+    "entry": "rot13_decode",
+    "stack": "python",
+    "goldenHash": "3csehn4",
+    "input": " \"uryyb\"",
+    "output": "\"hello\""
+  },
+  "rot13-encode": {
+    "fingerprint": "4qjk4rj",
+    "captured": "2026-06-13T16:52:48.195724+00:00",
+    "entry": "rot13_encode",
+    "stack": "python",
+    "goldenHash": "4qjk4rj",
+    "input": " \"hello\"",
+    "output": "\"uryyb\""
+  },
+  "vigenere-decode": {
+    "fingerprint": "9en7s08",
+    "captured": "2026-06-13T16:52:48.194219+00:00",
+    "entry": "vigenere_decode",
+    "stack": "python",
+    "goldenHash": "9en7s08",
+    "input": " \"rijvs\"",
+    "output": "\"hello\""
+  },
+  "vigenere-encode": {
+    "fingerprint": "4pqy2zl",
+    "captured": "2026-06-13T16:52:48.193763+00:00",
+    "entry": "vigenere_encode",
+    "stack": "python",
+    "goldenHash": "4pqy2zl",
+    "input": " \"hello\"",
+    "output": "\"rijvs\""
+  }
+}
