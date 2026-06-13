@@ -59,7 +59,7 @@ for (const cluster of clusters) {
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, kwargs = false, outputTransform = null,
-          materializeOutput = false } = cluster
+          materializeOutput = false, outputEncoding } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -366,7 +366,7 @@ for (const cluster of clusters) {
       if (totalCalls === 0) {
         console.error(`   ❌ fingerprintLevel is "${fingerprintLevel}" but NO watched functions were called!`)
         console.error(`      This means the fingerprint is based on an empty call sequence — it tests NOTHING.`)
-        console.error(`      For class-based APIs, use 'instanceMethods' in manifest to watch constructor + methods.`)
+        console.error(`      For class-based APIs, use 'classMethod' in manifest or add 'instanceMethods' config.`)
         console.error(`      Example: { "instanceMethods": { "Track": ["addEvent", "buildData"] } }`)
       }
     }
@@ -379,6 +379,15 @@ for (const cluster of clusters) {
     const timestamp  = new Date().toISOString()
 
     // Output is already deepClone'd (serializable), no further conversion needed
+    // When outputEncoding is 'base64', encode Uint8Array output as base64 for readability
+    let outputForFile = output
+    if (outputEncoding === 'base64' && Array.isArray(output) && output.every(v => typeof v === 'number' && v >= 0 && v <= 255)) {
+      // This looks like a byte array from a Uint8Array — encode as base64
+      try {
+        outputForFile = Buffer.from(output).toString('base64')
+      } catch { /* keep as array */ }
+    }
+
     const content = [
       `cluster: ${id}`,
       `version: 1`,
@@ -399,9 +408,10 @@ for (const cluster of clusters) {
       Object.keys(instanceMethods).length ? `instanceMethods: ${JSON.stringify(instanceMethods)}` : null,
       kwargs ? `kwargs: ${kwargs}` : null,
       materializeOutput ? `materializeOutput: true` : null,
+      outputEncoding ? `outputEncoding: ${outputEncoding}` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
-      `OUTPUT ${JSON.stringify(output ?? null)}`,
+      `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,
       `HASH   ${fp}`,
     ].filter(Boolean).join('\n')
 
