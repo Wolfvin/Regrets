@@ -1,0 +1,49 @@
+{
+  "captured": "2026-06-13T14:10:00Z",
+  "description": "KEBENARAN 1 — Output asli dari semua entry function, dijalankan langsung tanpa Regrets. Ground truth yang tidak boleh berubah.",
+  "clusters": {
+    "rockstar-parse": {
+      "entry": "parse",
+      "file": "rockstar.js",
+      "results": [
+        {
+          "input": "Tommy is a rockstar\n",
+          "output": {"list":[{"assign":{"variable":"TOMMY","expression":{"number":18}}}]}
+        },
+        {
+          "input": "Shout Tommy\n",
+          "output": {"list":[{"output":{"lookup":{"variable":"TOMMY"}}}]}
+        },
+        {
+          "input": "My world is nothing\n",
+          "output": {"list":[{"assign":{"variable":"my_world","expression":{"constant":null}}}]}
+        },
+        {
+          "input": "X is 5\nY is 3\nShout X plus Y\n",
+          "output": {"list":[{"assign":{"variable":"X","expression":{"number":5}}},{"assign":{"variable":"Y","expression":{"number":3}}},{"output":{"binary":{"op":"+","left":{"lookup":{"variable":"X"}},"right":{"lookup":{"variable":"Y"}}}}}]}
+        }
+      ]
+    },
+    "rockstar-equality": {
+      "entry": "eq",
+      "file": "environment.js",
+      "results": [
+        {"input": [1,1], "output": true},
+        {"input": [true,true], "output": true},
+        {"input": [0,false], "output": true},
+        {"input": ["hello","hello"], "output": true},
+        {"input": [null,false], "output": true},
+        {"input": [5,"5"], "output": true}
+      ]
+    },
+    "rockstar-env-run": {
+      "entry": "runRockstarProgram",
+      "file": "regrets/test-harness.mjs",
+      "results": [
+        {"input": "Tommy is 5\nShout Tommy\n", "output": [5]},
+        {"input": "X is 10\nY is 3\nShout X plus Y\n", "output": [13]},
+        {"input": "My world is nothing\nShout my world\n", "output": [null]}
+      ]
+    }
+  }
+}

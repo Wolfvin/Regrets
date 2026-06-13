@@ -1,0 +1,12 @@
+cluster: rockstar-parse
+version: 1
+fingerprint: 3b4whb2
+captured: 2026-06-13T14:07:07.734Z
+watches: [parse]
+entry: parse
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "Tommy is a rockstar\n"
+OUTPUT {"list":[{"assign":{"variable":"TOMMY","expression":{"number":18}}}]}
+HASH   3b4whb2

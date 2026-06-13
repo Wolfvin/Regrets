@@ -1,0 +1,12 @@
+cluster: rockstar-equality
+version: 1
+fingerprint: 28tmu3r
+captured: 2026-06-13T14:07:07.735Z
+watches: [eq]
+entry: eq
+stack: js
+fingerprintLevel: entry
+---
+INPUT  [1,1]
+OUTPUT true
+HASH   28tmu3r

@@ -1,0 +1,21 @@
+{
+  "captured": "2026-06-13T14:10:00Z",
+  "description": "KEBENARAN 2 — Regrets fingerprint yang sudah GREEN dan STABLE dari Phase 1. Ini adalah kontrak yang tidak boleh berubah.",
+  "clusters": {
+    "rockstar-parse": {
+      "fingerprint": "3b4whb2",
+      "golden_input": "Tommy is a rockstar\n",
+      "golden_output": {"list":[{"assign":{"variable":"TOMMY","expression":{"number":18}}}]}
+    },
+    "rockstar-equality": {
+      "fingerprint": "28tmu3r",
+      "golden_input": [1,1],
+      "golden_output": true
+    },
+    "rockstar-env-run": {
+      "fingerprint": "3egsenr",
+      "golden_input": "Tommy is 5\nShout Tommy\n",
+      "golden_output": [5]
+    }
+  }
+}

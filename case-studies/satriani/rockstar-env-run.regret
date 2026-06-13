@@ -1,0 +1,12 @@
+cluster: rockstar-env-run
+version: 1
+fingerprint: 3egsenr
+captured: 2026-06-13T14:07:07.742Z
+watches: [runRockstarProgram]
+entry: runRockstarProgram
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "Tommy is 5\nShout Tommy\n"
+OUTPUT [5]
+HASH   3egsenr

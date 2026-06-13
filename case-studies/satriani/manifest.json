@@ -1,0 +1,51 @@
+{
+  "clusters": [
+    {
+      "id": "rockstar-parse",
+      "entry": "parse",
+      "watches": ["parse"],
+      "file": "rockstar.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Parse Rockstar source code into AST using PEG.js parser",
+      "inputs": [
+        "Tommy is a rockstar\n",
+        "Shout Tommy\n",
+        "My world is nothing\n",
+        "X is 5\nY is 3\nShout X plus Y\n"
+      ]
+    },
+    {
+      "id": "rockstar-equality",
+      "entry": "eq",
+      "watches": ["eq"],
+      "file": "equality.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Rockstar equality comparison - handles mysterious types, booleans, numbers",
+      "inputs": [
+        [1, 1],
+        [true, true],
+        [0, false],
+        ["hello", "hello"],
+        [null, false],
+        [5, "5"]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "rockstar-env-run",
+      "entry": "runRockstarProgram",
+      "watches": ["runRockstarProgram"],
+      "file": "regrets/test-harness.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "End-to-end: parse and execute Rockstar program, capture output",
+      "inputs": [
+        "Tommy is 5\nShout Tommy\n",
+        "X is 10\nY is 3\nShout X plus Y\n",
+        "My world is nothing\nShout my world\n"
+      ]
+    }
+  ]
+}
