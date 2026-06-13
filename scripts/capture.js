@@ -56,7 +56,8 @@ let failed = 0
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
-          classMethod, constructor: constructorName, constructorArgs, setup } = cluster
+          classMethod, constructor: constructorName, constructorArgs, setup,
+          instanceMethods = {} } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -114,7 +115,11 @@ for (const cluster of clusters) {
     }
 
     const recorder = []
-    const ghostModule = createGhost(rawModule, watches, recorder)
+    const ghostModule = createGhost(rawModule, watches, recorder, instanceMethods)
+
+    if (Object.keys(instanceMethods).length > 0) {
+      console.log(`   Instance methods: ${Object.entries(instanceMethods).map(([k,v]) => `${k}.${v.join('/')}`).join(', ')}`)
+    }
 
     // ─── classMethod mode ─────────────────────────────────────────────────
     // For class-based APIs: construct an instance, optionally call setup
@@ -262,6 +267,20 @@ for (const cluster of clusters) {
       console.warn(`      Consider splitting into separate clusters or adjusting the entry function.`)
     }
 
+    // Warn when fingerprintLevel is 'watched' or 'full' but no calls were recorded.
+    // This commonly happens with class-based APIs where constructors are called
+    // with `new` but the Ghost Proxy lacks a `construct` trap, or where
+    // instance methods are not proxied.
+    if (fingerprintLevel === 'watched' || fingerprintLevel === 'full') {
+      const totalCalls = results.reduce((sum, r) => sum + r.calls.length, 0)
+      if (totalCalls === 0) {
+        console.error(`   ❌ fingerprintLevel is "${fingerprintLevel}" but NO watched functions were called!`)
+        console.error(`      This means the fingerprint is based on an empty call sequence — it tests NOTHING.`)
+        console.error(`      For class-based APIs, use 'instanceMethods' in manifest to watch constructor + methods.`)
+        console.error(`      Example: { "instanceMethods": { "Track": ["addEvent", "buildData"] } }`)
+      }
+    }
+
     // Use first run as the golden (representative) for the .regret file
     const { input, output, fp } = results[0]
 
@@ -286,6 +305,7 @@ for (const cluster of clusters) {
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
       constructorArgs?.length ? `constructorArgs: ${JSON.stringify(constructorArgs)}` : null,
       setup?.length ? `setup: ${JSON.stringify(setup)}` : null,
+      Object.keys(instanceMethods).length ? `instanceMethods: ${JSON.stringify(instanceMethods)}` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,

@@ -62,6 +62,9 @@ function parseRegret(content) {
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'version') meta.version = Number(val)
     else if (key === 'constructorArgs' || key === 'setup') meta[key] = JSON.parse(val)
+    else if (key === 'instanceMethods') {
+      try { meta.instanceMethods = JSON.parse(val) } catch { meta.instanceMethods = {} }
+    }
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
@@ -186,7 +189,8 @@ async function runReactCluster(clusterDef, regret) {
 async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
-          classMethod, constructor: constructorName, constructorArgs, setup } = clusterDef
+          classMethod, constructor: constructorName, constructorArgs, setup,
+          instanceMethods = {} } = clusterDef
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
@@ -294,7 +298,7 @@ async function runCluster(clusterDef, regret) {
         fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
       } else {
         // ── Function-based entry (original behavior) ──────────────────────
-        const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
+        const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder, regret.instanceMethods || instanceMethods)
         const entryFn  = ghost[entry] ?? mod[entry] ?? mod.default?.[entry]
         if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
         const inputForFp = deepClone(currentInput)

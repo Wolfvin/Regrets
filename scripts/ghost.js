@@ -71,16 +71,41 @@ export function deepClone(val) {
 }
 
 /**
+ * Snapshot the data properties of a class instance for recording.
+ * Only captures own enumerable properties that are not functions.
+ * This avoids serializing methods while preserving instance state.
+ *
+ * @param {object} instance - The class instance to snapshot
+ * @returns {object} Serializable snapshot of data properties
+ */
+function snapshotInstance(instance) {
+  const snapshot = {}
+  for (const key of Object.keys(instance)) {
+    try {
+      const val = instance[key]
+      if (typeof val !== 'function') {
+        snapshot[key] = deepClone(val)
+      }
+    } catch { /* skip non-serializable properties */ }
+  }
+  return snapshot
+}
+
+/**
  * Create a Ghost Proxy wrapper for watched functions.
  * Records all calls (fn name, args, result) into the recorder array.
  * Handles promises transparently — waits for resolution before recording.
+ * Handles class constructors (called with `new`) via the `construct` trap.
+ * Optionally proxies instance methods when `instanceMethods` is provided.
  *
  * @param {object} targetModule - The module containing the functions to wrap
  * @param {string[]} watchList - Function names to monitor
  * @param {Array} recorder - Array to push call records into
+ * @param {object} [instanceMethods] - Map of class name → array of instance method names to watch
+ *   e.g., { Track: ['addEvent', 'buildData', 'setTempo'], Writer: ['buildFile'] }
  * @returns {object} Module with watched functions replaced by proxies
  */
-export function createGhost(targetModule, watchList, recorder) {
+export function createGhost(targetModule, watchList, recorder, instanceMethods = {}) {
   const proxied = {}
 
   // Build the ghost module object first (before creating proxies) so that
@@ -96,6 +121,7 @@ export function createGhost(targetModule, watchList, recorder) {
     }
 
     const original = targetModule[fnName]
+    const methodsToWatch = instanceMethods[fnName] || []
     proxied[fnName] = new Proxy(original, {
       apply(target, thisArg, args) {
         // If `this` is undefined or not the module object (e.g., called as
@@ -123,6 +149,65 @@ export function createGhost(targetModule, watchList, recorder) {
         }
         recorder.push({ fn: fnName, args: deepClone(args), result: deepClone(result) })
         return result
+      },
+
+      /**
+       * Intercept `new ClassName()` calls.
+       * Without this trap, class constructors called with `new` are invisible
+       * to the Ghost Proxy — the recorder stays empty even though the
+       * constructor was invoked. This is the #1 issue for class-based APIs
+       * where the primary usage is `new Track()`, `new NoteEvent({...})`, etc.
+       *
+       * When instance methods are specified in the instanceMethods config,
+       * the constructed instance is wrapped in a proxy that intercepts
+       * those method calls and records them with instance state snapshots.
+       */
+      construct(target, args, newTarget) {
+        const instance = Reflect.construct(target, args, newTarget)
+
+        // Record the construction with a snapshot of initial state
+        const snapshot = snapshotInstance(instance)
+        recorder.push({ fn: fnName, args: deepClone(args), result: snapshot, construct: true })
+
+        // If instance methods are specified, wrap the instance in a proxy
+        if (methodsToWatch.length > 0) {
+          return new Proxy(instance, {
+            get(obj, prop) {
+              const value = obj[prop]
+              // Intercept specified instance methods
+              if (methodsToWatch.includes(prop) && typeof value === 'function') {
+                return new Proxy(value.bind(obj), {
+                  apply(method, thisArg, callArgs) {
+                    let methodResult
+                    try {
+                      methodResult = method(...callArgs)
+                    } catch (err) {
+                      recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), error: String(err) })
+                      throw err
+                    }
+                    // Handle async methods
+                    if (methodResult && typeof methodResult.then === 'function') {
+                      return methodResult.then(resolved => {
+                        const postSnapshot = snapshotInstance(obj)
+                        recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), result: deepClone(resolved), instanceSnapshot: postSnapshot })
+                        return resolved
+                      }).catch(err => {
+                        recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), error: String(err) })
+                        throw err
+                      })
+                    }
+                    const postSnapshot = snapshotInstance(obj)
+                    recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), result: deepClone(methodResult), instanceSnapshot: postSnapshot })
+                    return methodResult
+                  }
+                })
+              }
+              return value
+            }
+          })
+        }
+
+        return instance
       }
     })
   }
