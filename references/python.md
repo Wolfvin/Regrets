@@ -540,6 +540,104 @@ class InvoiceService:
 
 ---
 
+## Adapter Module Pattern for Class-Based APIs
+
+When the target library exposes class-based APIs rather than standalone
+functions, create an **adapter module** that wraps class methods into
+top-level functions suitable for regret capture.
+
+### The Problem
+
+Regrets' `capture.py` expects `entry` to be a top-level function in the
+specified module. If the library uses classes like:
+
+```python
+class Romanizer:
+    def __init__(self, text):
+        self.text = text
+
+    def romanize(self):
+        # ... computation ...
+        return result
+```
+
+You can't set `entry: "Romanizer.romanize"` — capture.py expects a
+single callable name.
+
+### Solution: Adapter Module
+
+Create a `regrets_adapter.py` in the target project root:
+
+```python
+from my_library.romanizer import Romanizer
+
+def romanize(text):
+    """Top-level entry point for regret capture."""
+    return Romanizer(text).romanize()
+```
+
+Then in `regrets/manifest.json`:
+
+```json
+{
+  "id": "romanize-text",
+  "entry": "romanize",
+  "watches": ["romanize"],
+  "stack": "python",
+  "module": "regrets_adapter",
+  "pythonPath": ".",
+  "inputs": ["안녕하세요", "구미", "영동"]
+}
+```
+
+Key points:
+- `pythonPath: "."` adds the project root to `sys.path`
+- `module: "regrets_adapter"` references the adapter by Python module name
+- The adapter wraps class instantiation + method call into a single function
+- The adapter is a test-only artifact — it does not modify the library's public API
+
+### Object-to-Dict Serialization
+
+When the target returns custom objects, convert them to plain dicts for
+consistent JSON serialization:
+
+```python
+from my_library.syllable import Syllable
+
+def decompose_syllable(char):
+    s = Syllable(char)
+    return {
+        "initial": s.initial,
+        "medial": s.medial,
+        "final": s.final,
+        "reconstructed": str(s),
+    }
+```
+
+This ensures `json.dumps()` produces consistent output for fingerprinting.
+For `@dataclass` objects, use `dataclasses.asdict()`.
+
+### Wrapping Private Functions
+
+If the target has internal functions you want to cluster (Python
+convention: `_` prefix), the adapter can import and re-export them:
+
+```python
+from my_library.romanizer import _is_romanizable_hangul as is_romanizable_hangul
+```
+
+This is acceptable because the adapter is a test-only layer — it does
+not change the library's public API surface.
+
+### Real-World Example
+
+See `references/case-study-korean-romanizer.md` for a complete
+walkthrough of using this pattern with the `osori/korean-romanizer`
+library — including 5 clusters, 3-verification refactoring proof, and
+Unicode input handling.
+
+---
+
 ## NPM Script Equivalents for Python
 
 Add to the target project's `package.json` (if it has one for CI orchestration):

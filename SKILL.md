@@ -595,6 +595,7 @@ regression-testing/
     ├── extension.md            ← Browser extension variant
     ├── class-based.md           ← Class-based library wrapper pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
+    ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     └── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
 ```
