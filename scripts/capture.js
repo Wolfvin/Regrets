@@ -92,6 +92,9 @@ for (const cluster of clusters) {
     // named exports may not be available — instead they're on `mod.default`.
     // The ESM namespace object is frozen (not extensible), so we must create a new
     // plain object that merges both the namespace and the default export.
+    // Case 1: default is an object (multi-export CJS) — merge its keys
+    // Case 2: default is a function (single-class CJS export like AggressiveTokenizer)
+    //         — expose it under its own name for classMethod lookup
     if (rawModule.default && typeof rawModule.default === 'object' && !Array.isArray(rawModule.default)) {
       const merged = { ...rawModule }
       for (const key of Object.keys(rawModule.default)) {
@@ -99,7 +102,14 @@ for (const cluster of clusters) {
           merged[key] = rawModule.default[key]
         }
       }
-      // Replace the frozen namespace with the extensible merged object
+      rawModule = merged
+    } else if (rawModule.default && typeof rawModule.default === 'function') {
+      // Single function/class export — expose under its name for classMethod/entry lookup
+      const merged = { ...rawModule }
+      const fnName = rawModule.default.name
+      if (fnName && !(fnName in merged)) {
+        merged[fnName] = rawModule.default
+      }
       rawModule = merged
     }
 

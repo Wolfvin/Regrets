@@ -213,12 +213,21 @@ async function runCluster(clusterDef, regret) {
   // named exports may not be available — instead they're on `mod.default`.
   // The ESM namespace object is frozen (not extensible), so we must create a new
   // plain object that merges both the namespace and the default export.
+  // Case 1: default is an object (multi-export CJS) — merge its keys
+  // Case 2: default is a function (single-class CJS export) — expose under its name
   if (mod.default && typeof mod.default === 'object' && !Array.isArray(mod.default)) {
     const merged = { ...mod }
     for (const key of Object.keys(mod.default)) {
       if (!(key in merged)) {
         merged[key] = mod.default[key]
       }
+    }
+    mod = merged
+  } else if (mod.default && typeof mod.default === 'function') {
+    const merged = { ...mod }
+    const fnName = mod.default.name
+    if (fnName && !(fnName in merged)) {
+      merged[fnName] = mod.default
     }
     mod = merged
   }
