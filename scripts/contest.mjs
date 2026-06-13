@@ -11,6 +11,7 @@ import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, stableStringify, normalize, stripFields } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
+import { mergeCjsModule } from './cjs-merge.js'
 import { createHash } from 'crypto'
 import { execFileSync } from 'child_process'
 
@@ -67,19 +68,8 @@ class ContestRunner {
     const absPath = resolve(CWD, cluster.file)
     let rawModule = await import(pathToFileURL(absPath).href)
 
-    // Handle CJS modules — same merge logic as capture.js/validate.js
-    if (rawModule.default && typeof rawModule.default === 'object' && !Array.isArray(rawModule.default)) {
-      const merged = { ...rawModule }
-      for (const key of Object.keys(rawModule.default)) {
-        if (!(key in merged)) merged[key] = rawModule.default[key]
-      }
-      rawModule = merged
-    } else if (rawModule.default && typeof rawModule.default === 'function') {
-      const merged = { ...rawModule }
-      const fnName = rawModule.default.name
-      if (fnName && !(fnName in merged)) merged[fnName] = rawModule.default
-      rawModule = merged
-    }
+    // Handle CJS modules — merge default exports for consistent access
+    rawModule = mergeCjsModule(rawModule)
 
     // Support classMethod clusters in chains
     if (cluster.classMethod) {
