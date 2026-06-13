@@ -610,7 +610,14 @@ regression-testing/
     ├── esoteric-language.md    ← Esoteric language interpreter testing pattern
     ├── single-file-python.md   ← Single-file Python module integration pattern
     ├── case-study-pustaka.md   ← Case study: Javanese Calendar library
-    └── case-study-hebrew.md    ← Case study: Hebrew Gematria library
+    ├── case-study-hebrew.md    ← Case study: Hebrew Gematria library
+    ├── case-study-isbn3.md     ← Case study: ISBN utility library
+    ├── case-study-korean-romanizer.md ← Case study: korean-romanizer (Python adapter pattern)
+    ├── case-study-petungan.md  ← Case study: petungan (Javanese calendar, circular dep)
+    ├── case-study-riimut.md    ← Case study: riimut (rune transliteration, dual-truth)
+    ├── case-study-shakespearelang.md ← Case study: shakespearelang (esoteric language)
+    ├── dual-truth-verification.md ← Dual-truth verification pattern
+    └── mapping-transliteration.md ← Mapping/transliteration library guide
 ```
 
 ---
