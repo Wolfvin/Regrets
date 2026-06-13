@@ -1,0 +1,13 @@
+cluster: kana2alphabet
+version: 1
+fingerprint: 49den39
+captured: 2026-06-13T16:26:21.298279+00:00
+watches: [kana2alphabet, _convert]
+entry: kana2alphabet
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "まみさん"
+OUTPUT "mamisan"
+HASH   49den39

@@ -1,0 +1,13 @@
+cluster: hira2kata
+version: 1
+fingerprint: 3elv23o
+captured: 2026-06-13T16:26:21.296270+00:00
+watches: [hira2kata, _translate, _convert]
+entry: hira2kata
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "ともえまみ"
+OUTPUT "トモエマミ"
+HASH   3elv23o

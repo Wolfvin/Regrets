@@ -604,6 +604,7 @@ regression-testing/
     ├── stateful-encoding.md    ← Stateful encoding libraries (Baudot, Morse, shift states)
     ├── case-study-ogham.md     ← Case study: evanshortiss/ogham (CJS wrapper pattern)
     ├── esoteric-language.md    ← Esoteric language interpreter testing pattern
+    ├── nested-functions.md    ← Nested function watch limitation and workarounds
     └── single-file-python.md   ← Single-file Python module integration pattern
 ```
 

@@ -1,0 +1,13 @@
+cluster: kata2hira
+version: 1
+fingerprint: 3bqkaty
+captured: 2026-06-13T16:26:21.296821+00:00
+watches: [kata2hira, _translate, _convert]
+entry: kata2hira
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "マミサン"
+OUTPUT "まみさん"
+HASH   3bqkaty

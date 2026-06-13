@@ -1,0 +1,14 @@
+cluster: z2h-ascii-digit
+version: 1
+fingerprint: f44quxy
+captured: 2026-06-13T16:26:21.297796+00:00
+watches: [z2h, _convert]
+entry: z2h
+stack: python
+fingerprintLevel: entry
+multiArgs: True
+module: jaconv.jaconv
+---
+INPUT  ["ＡＢＣＤ", "", true, true, true]
+OUTPUT "ABCD"
+HASH   f44quxy

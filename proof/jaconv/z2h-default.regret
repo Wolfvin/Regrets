@@ -1,0 +1,13 @@
+cluster: z2h-default
+version: 1
+fingerprint: 53t36xc
+captured: 2026-06-13T16:26:21.297545+00:00
+watches: [z2h, _convert]
+entry: z2h
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "ティロフィナーレ"
+OUTPUT "ﾃｨﾛﾌｨﾅｰﾚ"
+HASH   53t36xc

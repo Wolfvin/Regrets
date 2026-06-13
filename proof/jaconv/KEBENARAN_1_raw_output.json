@@ -1,0 +1,75 @@
+{
+  "hira2kata": {
+    "ともえまみ": "トモエマミ",
+    "まどまぎ": "マドマギ",
+    "あいうえお": "アイウエオ",
+    "": ""
+  },
+  "hira2hkata": {
+    "ともえまみ": "ﾄﾓｴﾏﾐ",
+    "あいうえお": "ｱｲｳｴｵ",
+    "": ""
+  },
+  "kata2hira": {
+    "マミサン": "まみさん",
+    "トモエマミ": "ともえまみ",
+    "": ""
+  },
+  "h2z-default": {
+    "ﾃｨﾛﾌｨﾅｰﾚ": "ティロフィナーレ",
+    "ｶｷｸｹｺ": "カキクケコ",
+    "": ""
+  },
+  "h2z-ascii-digit": {
+    "abcd,kana=True,ascii=True,digit=True": "ａｂｃｄ",
+    "1234,kana=True,ascii=True,digit=True": "１２３４",
+    "ABCD1234,kana=False,ascii=True,digit=True": "ＡＢＣＤ１２３４"
+  },
+  "z2h-default": {
+    "ティロフィナーレ": "ﾃｨﾛﾌｨﾅｰﾚ",
+    "カキクケコ": "ｶｷｸｹｺ",
+    "": ""
+  },
+  "z2h-ascii-digit": {
+    "ＡＢＣＤ,kana=True,ascii=True,digit=True": "ABCD",
+    "１２３４,kana=True,ascii=True,digit=True": "1234"
+  },
+  "normalize": {
+    "ﾃｨﾛ･フィナ〜レ": "ティロ・フィナーレ",
+    "ＡＢＣ１２３": "ABC123",
+    "": ""
+  },
+  "kana2alphabet": {
+    "まみさん": "mamisan",
+    "きゃきゅきょ": "kyakyukyo",
+    "がっこう": "gakkou",
+    "": ""
+  },
+  "alphabet2kana": {
+    "mamisan": "まみさん",
+    "kyakyukyo": "きゃきゅきょ",
+    "gakkou": "がっこう",
+    "": ""
+  },
+  "kata2alphabet": {
+    "マミサン": "mamisan",
+    "キャキュキョ": "kyakyukyo",
+    "": ""
+  },
+  "alphabet2kata": {
+    "mamisan": "マミサン",
+    "kyakyukyo": "キャキュキョ",
+    "": ""
+  },
+  "hiragana2julius": {
+    "てんきすごくいいいいいい": "t e N k i s u g o k u i:",
+    "きゃきゅきょ": "ky a ky u ky o",
+    "がっこう": "g a q k o:",
+    "": ""
+  },
+  "enlarge-smallkana": {
+    "さくらきょうこ": "さくらきようこ",
+    "キュゥべえ": "キユウべえ",
+    "": ""
+  }
+}

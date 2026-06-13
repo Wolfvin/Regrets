@@ -1,0 +1,13 @@
+cluster: alphabet2kana
+version: 1
+fingerprint: 4mn4sz4
+captured: 2026-06-13T16:26:21.298552+00:00
+watches: [alphabet2kana, _convert]
+entry: alphabet2kana
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "mamisan"
+OUTPUT "まみさん"
+HASH   4mn4sz4

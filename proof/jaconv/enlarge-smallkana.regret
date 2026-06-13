@@ -1,0 +1,13 @@
+cluster: enlarge-smallkana
+version: 1
+fingerprint: 25poxfr
+captured: 2026-06-13T16:26:21.299449+00:00
+watches: [enlarge_smallkana, _translate, _convert]
+entry: enlarge_smallkana
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "さくらきょうこ"
+OUTPUT "さくらきようこ"
+HASH   25poxfr

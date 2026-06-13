@@ -1,0 +1,13 @@
+cluster: h2z-default
+version: 1
+fingerprint: 2solpmo
+captured: 2026-06-13T16:26:21.297017+00:00
+watches: [h2z, _convert]
+entry: h2z
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "ﾃｨﾛﾌｨﾅｰﾚ"
+OUTPUT "ティロフィナーレ"
+HASH   2solpmo
