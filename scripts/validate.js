@@ -47,6 +47,99 @@ if (updateReason && updateReason.split(' ').length < 4) {
 
 // ─── Parse a .regret file ─────────────────────────────────────────────────────
 
+/**
+ * Deserialize a value from .regret file format.
+ * Handles non-JSON types encoded by regretSerialize (capture.js):
+ * - <ArrayBuffer:hex> → ArrayBuffer
+ * - <Uint8Array:hex> → Uint8Array
+ * - <NaN> → NaN, <Infinity> → Infinity, <-Infinity> → -Infinity
+ * - <undefined> → undefined
+ * - <BigInt:N> → BigInt(N)
+ * - <Map:...> → Map
+ * - <Set:...> → Set
+ * - Objects with __regret_type → reconstructed original type
+ */
+function regretDeserialize(str) {
+  str = str.trim()
+
+  // Tagged primitives
+  if (str === '<undefined>') return undefined
+  if (str === '<NaN>') return NaN
+  if (str === '<Infinity>') return Infinity
+  if (str === '<-Infinity>') return -Infinity
+
+  // BigInt
+  const bigintMatch = str.match(/^<BigInt:(\d+)>$/)
+  if (bigintMatch) return BigInt(bigintMatch[1])
+
+  // Binary types: <TypeName:hex>
+  const binaryMatch = str.match(/^<(ArrayBuffer|DataView|Uint8Array|Int8Array|Uint16Array|Int16Array|Uint32Array|Int32Array|Float32Array|Float64Array):([0-9a-f]+)>$/)
+  if (binaryMatch) {
+    const [, typeName, hex] = binaryMatch
+    const bytes = new Uint8Array(hex.length / 2)
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes[i / 2] = parseInt(hex.substr(i, 2), 16)
+    }
+    if (typeName === 'ArrayBuffer') return bytes.buffer
+    if (typeName === 'DataView') return new DataView(bytes.buffer)
+    // TypedArray subtypes
+    const TypedCtor = globalThis[typeName]
+    if (TypedCtor) return new TypedCtor(bytes.buffer)
+    return bytes // fallback
+  }
+
+  // Try JSON parse first (handles standard JSON)
+  try {
+    return _fromSerializable(JSON.parse(str))
+  } catch {
+    // If JSON parse fails, return the raw string (backward compat)
+    return str
+  }
+}
+
+// Reconstruct non-JSON values from their __regret_type wrappers
+function _fromSerializable(val) {
+  if (val !== null && typeof val === 'object' && !Array.isArray(val) && val.__regret_type) {
+    switch (val.__regret_type) {
+      case 'undefined': return undefined
+      case 'NaN': return NaN
+      case 'Infinity': return Infinity
+      case '-Infinity': return -Infinity
+      case 'BigInt': return BigInt(val.value)
+      case 'ArrayBuffer': {
+        const bytes = new Uint8Array(val.hex.length / 2)
+        for (let i = 0; i < val.hex.length; i += 2) bytes[i / 2] = parseInt(val.hex.substr(i, 2), 16)
+        return bytes.buffer
+      }
+      case 'DataView': {
+        const bytes = new Uint8Array(val.hex.length / 2)
+        for (let i = 0; i < val.hex.length; i += 2) bytes[i / 2] = parseInt(val.hex.substr(i, 2), 16)
+        return new DataView(bytes.buffer)
+      }
+      case 'Uint8Array': case 'Int8Array': case 'Uint16Array': case 'Int16Array':
+      case 'Uint32Array': case 'Int32Array': case 'Float32Array': case 'Float64Array': {
+        const Ctor = globalThis[val.__regret_type]
+        const bytes = new Uint8Array(val.hex.length / 2)
+        for (let i = 0; i < val.hex.length; i += 2) bytes[i / 2] = parseInt(val.hex.substr(i, 2), 16)
+        return Ctor ? new Ctor(bytes.buffer) : bytes
+      }
+      case 'Map':
+        return new Map((val.entries || []).map(([k, v]) => [_fromSerializable(k), _fromSerializable(v)]))
+      case 'Set':
+        return new Set((val.values || []).map(v => _fromSerializable(v)))
+    }
+  }
+  if (Array.isArray(val)) return val.map(v => _fromSerializable(v))
+  if (val !== null && typeof val === 'object') {
+    const obj = {}
+    for (const k of Object.keys(val)) {
+      obj[k] = _fromSerializable(val[k])
+    }
+    return obj
+  }
+  return val
+}
+
 function parseRegret(content) {
   const [metaSection, dataSection] = content.split('\n---\n')
   const meta = {}
@@ -68,8 +161,8 @@ function parseRegret(content) {
   const hashLine   = lines.find(l => l.startsWith('HASH '))
   return {
     ...meta,
-    input:      inputLine  ? JSON.parse(inputLine.replace(/^INPUT\s+/, ''))   : null,
-    output:     outputLine ? JSON.parse(outputLine.replace(/^OUTPUT\s+/, '')) : null,
+    input:      inputLine  ? regretDeserialize(inputLine.replace(/^INPUT\s+/, ''))   : null,
+    output:     outputLine ? regretDeserialize(outputLine.replace(/^OUTPUT\s+/, '')) : null,
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
     raw:        content
   }

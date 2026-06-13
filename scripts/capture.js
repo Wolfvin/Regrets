@@ -11,10 +11,95 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, binaryToHex } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+// ─── Serialization for .regret files ─────────────────────────────────────────
+// JSON.stringify silently corrupts many non-JSON types (ArrayBuffer → {},
+// Uint8Array → indexed object, NaN → null, etc.). regretSerialize produces
+// a deterministic, human-readable string that preserves all value information.
+
+function regretSerialize(val) {
+  if (val === undefined) return '<undefined>'
+  if (typeof val === 'number') {
+    if (Number.isNaN(val)) return '<NaN>'
+    if (val === Infinity) return '<Infinity>'
+    if (val === -Infinity) return '<-Infinity>'
+  }
+  if (typeof val === 'bigint') return `<BigInt:${val.toString()}>`
+
+  // Binary types → hex string with type tag
+  const hex = binaryToHex(val)
+  if (hex !== null) {
+    const tag = val instanceof ArrayBuffer ? 'ArrayBuffer'
+      : val instanceof DataView ? 'DataView'
+      : val.constructor?.name || 'TypedArray'
+    return `<${tag}:${hex}>`
+  }
+
+  // Map → array of entries
+  if (val instanceof Map) {
+    return `<Map:${JSON.stringify([...val].map(([k, v]) => [regretSerialize(k), regretSerialize(v)]))}>`
+  }
+
+  // Set → array of values
+  if (val instanceof Set) {
+    return `<Set:${JSON.stringify([...val].map(v => regretSerialize(v)))}>`
+  }
+
+  // Arrays: recurse
+  if (Array.isArray(val)) {
+    return JSON.stringify(val.map(v => _toSerializable(v)))
+  }
+
+  // Plain objects: recurse
+  if (val !== null && typeof val === 'object') {
+    return JSON.stringify(_toSerializable(val))
+  }
+
+  return JSON.stringify(val)
+}
+
+// Convert a value to something JSON.stringify can handle without data loss
+function _toSerializable(val) {
+  if (val === undefined) return { __regret_type: 'undefined' }
+  if (typeof val === 'number') {
+    if (Number.isNaN(val)) return { __regret_type: 'NaN' }
+    if (val === Infinity) return { __regret_type: 'Infinity' }
+    if (val === -Infinity) return { __regret_type: '-Infinity' }
+  }
+  if (typeof val === 'bigint') return { __regret_type: 'BigInt', value: val.toString() }
+
+  const hex = binaryToHex(val)
+  if (hex !== null) {
+    const tag = val instanceof ArrayBuffer ? 'ArrayBuffer'
+      : val instanceof DataView ? 'DataView'
+      : val.constructor?.name || 'TypedArray'
+    return { __regret_type: tag, hex }
+  }
+
+  if (val instanceof Map) {
+    return { __regret_type: 'Map', entries: [...val].map(([k, v]) => [_toSerializable(k), _toSerializable(v)]) }
+  }
+
+  if (val instanceof Set) {
+    return { __regret_type: 'Set', values: [...val].map(v => _toSerializable(v)) }
+  }
+
+  if (Array.isArray(val)) return val.map(v => _toSerializable(v))
+
+  if (val !== null && typeof val === 'object') {
+    const obj = {}
+    for (const k of Object.keys(val)) {
+      obj[k] = _toSerializable(val[k])
+    }
+    return obj
+  }
+
+  return val
+}
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 
@@ -145,8 +230,8 @@ for (const cluster of clusters) {
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
       `---`,
-      `INPUT  ${JSON.stringify(input)}`,
-      `OUTPUT ${JSON.stringify(output)}`,
+      `INPUT  ${regretSerialize(input)}`,
+      `OUTPUT ${regretSerialize(output)}`,
       `HASH   ${fp}`,
     ].filter(Boolean).join('\n')
 

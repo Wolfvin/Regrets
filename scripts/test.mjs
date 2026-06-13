@@ -370,7 +370,101 @@ assert(typeof fp_unicode === 'string' && fp_unicode.length === 7, 'fingerprint h
 const fp_special = fingerprint('hello\n\t\r"\\', 'world<>%$')
 assert(typeof fp_special === 'string' && fp_special.length === 7, 'fingerprint handles special characters')
 
-// ─── 14. E2E Full-Cycle Test ──────────────────────────────────────────────────
+// ─── 14. Non-JSON Type Support ────────────────────────────────────────────────
+
+console.log('\n🧪 Non-JSON Type Support (Binary, Map, Set, NaN, etc.)\n')
+
+// ArrayBuffer fingerprinting
+const ab = new ArrayBuffer(4)
+new DataView(ab).setUint8(0, 0x01); new DataView(ab).setUint8(1, 0x02)
+new DataView(ab).setUint8(2, 0x03); new DataView(ab).setUint8(3, 0x04)
+const fp_ab = fingerprint('input', ab)
+const fp_empty_obj = fingerprint('input', {})
+assert(fp_ab !== fp_empty_obj, 'ArrayBuffer fingerprint differs from empty object')
+assertEqual(fp_ab.length, 7, 'ArrayBuffer fingerprint is 7 chars')
+
+// Uint8Array fingerprinting
+const u8 = new Uint8Array([1, 2, 3, 4])
+const fp_u8 = fingerprint('input', u8)
+assert(fp_u8 !== fp_empty_obj, 'Uint8Array fingerprint differs from empty object')
+assertEqual(fp_u8.length, 7, 'Uint8Array fingerprint is 7 chars')
+
+// ArrayBuffer deterministic
+const ab2 = new ArrayBuffer(4)
+new DataView(ab2).setUint8(0, 0x01); new DataView(ab2).setUint8(1, 0x02)
+new DataView(ab2).setUint8(2, 0x03); new DataView(ab2).setUint8(3, 0x04)
+const fp_ab2 = fingerprint('input', ab2)
+assertEqual(fp_ab, fp_ab2, 'ArrayBuffer fingerprint is deterministic')
+
+// NaN, Infinity, -Infinity fingerprinting
+const fp_nan = fingerprint('input', NaN)
+const fp_inf = fingerprint('input', Infinity)
+const fp_ninf = fingerprint('input', -Infinity)
+const fp_null_for_nan = fingerprint('input', null)
+const fp_zero_for_nan = fingerprint('input', 0)
+assert(fp_nan !== fp_null_for_nan, 'NaN fingerprint differs from null')
+assert(fp_nan !== fp_zero_for_nan, 'NaN fingerprint differs from 0')
+assert(fp_inf !== fp_null_for_nan, 'Infinity fingerprint differs from null')
+assert(fp_ninf !== fp_null_for_nan, '-Infinity fingerprint differs from null')
+assert(fp_inf !== fp_ninf, 'Infinity and -Infinity fingerprints differ')
+
+// undefined fingerprinting
+const fp_undef2 = fingerprint('input', undefined)
+assert(fp_undef2 !== fp_null_for_nan, 'undefined fingerprint differs from null')
+
+// Map fingerprinting
+const map1 = new Map([['a', 1], ['b', 2]])
+const map2 = new Map([['b', 2], ['a', 1]])
+const fp_map1 = fingerprint('input', map1)
+const fp_map2 = fingerprint('input', map2)
+assertEqual(fp_map1, fp_map2, 'Map fingerprint is key-order independent')
+
+// Set fingerprinting
+const set1 = new Set([1, 2, 3])
+const fp_set1 = fingerprint('input', set1)
+assertEqual(fp_set1.length, 7, 'Set fingerprint is 7 chars')
+
+// deepClone handles binary types
+const cloned_ab = deepClone(ab)
+assert(cloned_ab instanceof ArrayBuffer, 'deepClone preserves ArrayBuffer type')
+assertEqual(cloned_ab.byteLength, 4, 'deepClone preserves ArrayBuffer byteLength')
+
+const cloned_u8 = deepClone(u8)
+assert(cloned_u8 instanceof Uint8Array, 'deepClone preserves Uint8Array type')
+
+// deepClone handles Map
+const cloned_map = deepClone(map1)
+assert(cloned_map instanceof Map, 'deepClone preserves Map type')
+assertEqual(cloned_map.size, 2, 'deepClone preserves Map size')
+
+// deepClone handles Set
+const cloned_set = deepClone(set1)
+assert(cloned_set instanceof Set, 'deepClone preserves Set type')
+assertEqual(cloned_set.size, 3, 'deepClone preserves Set size')
+
+// deepClone handles circular references
+const circular = { a: 1 }
+circular.self = circular
+const cloned_circular = deepClone(circular)
+assertEqual(cloned_circular.a, 1, 'deepClone handles circular ref (preserves data)')
+assertEqual(cloned_circular.self, '[Circular]', 'deepClone marks circular refs')
+
+// stableStringify handles circular references
+const ss_circular = stableStringify(circular)
+assert(ss_circular.includes('<Circular>'), 'stableStringify handles circular ref')
+
+// extractSchema handles binary types
+assertEqual(extractSchema(ab), 'binary', 'extractSchema identifies ArrayBuffer as binary')
+assertEqual(extractSchema(u8), 'binary', 'extractSchema identifies Uint8Array as binary')
+
+// binaryToHex utility
+import { binaryToHex } from './fingerprint.js'
+const hex = binaryToHex(ab)
+assertEqual(hex, '01020304', 'binaryToHex converts ArrayBuffer to hex')
+const notBinary = binaryToHex({ a: 1 })
+assertEqual(notBinary, null, 'binaryToHex returns null for non-binary types')
+
+// ─── 15. E2E Full-Cycle Test ──────────────────────────────────────────────────
 
 console.log('\n🧪 End-to-End Full Cycle Test\n')
 
