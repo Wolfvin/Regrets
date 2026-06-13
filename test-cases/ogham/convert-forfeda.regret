@@ -1,0 +1,12 @@
+cluster: convert-forfeda
+version: 1
+fingerprint: 4it7h6l
+captured: 2026-06-13T14:05:05.821Z
+watches: [convert]
+entry: convert
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["is maith liom tae",{"useForfeda":true}]
+OUTPUT "᚛ᚔᚄ ᚋᚐᚔᚈᚆ ᚂᚔᚑᚋ ᚈᚙ᚜"
+HASH   4it7h6l

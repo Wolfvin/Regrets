@@ -1,0 +1,12 @@
+cluster: convert-default
+version: 1
+fingerprint: fkpu46l
+captured: 2026-06-13T14:05:05.816Z
+watches: [convert]
+entry: convert
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "eire"
+OUTPUT "᚛ᚓᚔᚏᚓ᚜"
+HASH   fkpu46l

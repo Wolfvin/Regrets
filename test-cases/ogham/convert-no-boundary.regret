@@ -1,0 +1,12 @@
+cluster: convert-no-boundary
+version: 1
+fingerprint: 1qz85pl
+captured: 2026-06-13T14:05:05.820Z
+watches: [convert]
+entry: convert
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["eire",{"addBoundary":false}]
+OUTPUT "ᚓᚔᚏᚓ"
+HASH   1qz85pl

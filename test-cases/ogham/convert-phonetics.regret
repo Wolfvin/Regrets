@@ -1,0 +1,12 @@
+cluster: convert-phonetics
+version: 1
+fingerprint: 34dtcwq
+captured: 2026-06-13T14:05:05.821Z
+watches: [convert]
+entry: convert
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["jkvwxy",{"usePhonetics":true}]
+OUTPUT "᚛ᚌᚊᚃᚒᚒᚎᚔ᚜"
+HASH   34dtcwq

@@ -1,0 +1,61 @@
+{
+  "clusters": [
+    {
+      "id": "convert-default",
+      "entry": "convert",
+      "watches": ["convert"],
+      "file": "src/ogham.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert Latin text to Ogham with default boundary markers",
+      "inputs": [
+        "eire",
+        "is maith liom tae",
+        "abc",
+        ""
+      ]
+    },
+    {
+      "id": "convert-no-boundary",
+      "entry": "convert",
+      "watches": ["convert"],
+      "file": "src/ogham.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Convert Latin text to Ogham without boundary markers",
+      "inputs": [
+        ["eire", { "addBoundary": false }],
+        ["abc", { "addBoundary": false }]
+      ]
+    },
+    {
+      "id": "convert-forfeda",
+      "entry": "convert",
+      "watches": ["convert"],
+      "file": "src/ogham.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Convert Latin text using forfeda (diphthong ligatures) with boundary",
+      "inputs": [
+        ["is maith liom tae", { "useForfeda": true }],
+        ["ae oi ui ia", { "useForfeda": true }]
+      ]
+    },
+    {
+      "id": "convert-phonetics",
+      "entry": "convert",
+      "watches": ["convert"],
+      "file": "src/ogham.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Convert text with phonetic replacements for unsupported letters (j,k,v,w,x,y)",
+      "inputs": [
+        ["jkvwxy", { "usePhonetics": true }],
+        ["keys", { "usePhonetics": true }]
+      ]
+    }
+  ]
+}
