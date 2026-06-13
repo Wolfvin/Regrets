@@ -323,6 +323,11 @@ switch (command) {
     break
   }
 
+  case 'structure': {
+    success = run('node', [`${SCRIPTS_DIR}/structure.js`, ...passThroughArgs])
+    break
+  }
+
   case 'coverage': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -388,6 +393,7 @@ Usage:
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
+  node scripts/regret.js structure [--dir src/]        Structural analysis (God Objects, pure/impure, refactor priority)
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
