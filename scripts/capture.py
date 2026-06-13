@@ -223,12 +223,20 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     # Add pythonPath to sys.path if specified
+    # Supports both single string ("src") and array of strings (["src", "lib"])
     for cluster in python_clusters:
-        python_path = cluster.get('pythonPath', '')
-        if python_path and python_path not in sys.path:
-            abs_python_path = os.path.join(os.getcwd(), python_path)
-            if abs_python_path not in sys.path:
-                sys.path.insert(0, abs_python_path)
+        raw_python_path = cluster.get('pythonPath', '')
+        if isinstance(raw_python_path, str):
+            python_paths = [raw_python_path] if raw_python_path else []
+        elif isinstance(raw_python_path, list):
+            python_paths = raw_python_path
+        else:
+            python_paths = []
+        for python_path in python_paths:
+            if python_path:
+                abs_python_path = os.path.join(os.getcwd(), python_path)
+                if abs_python_path not in sys.path:
+                    sys.path.insert(0, abs_python_path)
 
     passed = 0
     failed = 0

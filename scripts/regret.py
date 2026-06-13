@@ -154,6 +154,9 @@ def main():
     elif command == 'coverage':
         success = run(f'python3 {SCRIPTS_DIR}/coverage.py {extra_args}')
 
+    elif command == 'audit':
+        success = run(f'python3 {SCRIPTS_DIR}/audit.py {extra_args}')
+
     elif command == 'help':
         print("""
 regret.py — Unified Regret Runner (Python)
@@ -169,6 +172,7 @@ Usage:
   python scripts/regret.py chain [--capture|--validate]  Chain testing
   python scripts/regret.py scan <path> [--manifest]      Scan source, suggest clusters
   python scripts/regret.py coverage [--cluster <id>]     Branch coverage analysis
+  python scripts/regret.py audit [--strict]              Pre-refactor readiness audit
   python scripts/regret.py guard                         Pre-build gate
 
 Auto-detects stack from manifest.json and dispatches to the right handler.
