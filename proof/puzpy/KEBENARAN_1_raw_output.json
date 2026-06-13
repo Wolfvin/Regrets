@@ -1,0 +1,285 @@
+{
+  "scramble-string": {
+    "entry": "scramble_string",
+    "inputs": [
+      [
+        "CATAR",
+        1234
+      ],
+      [
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        9999
+      ],
+      [
+        "HELLO",
+        1000
+      ],
+      [
+        "A",
+        5555
+      ]
+    ],
+    "outputs": [
+      "GJAGJ",
+      "MAJXGUCEWOZLQITSKBNYDVHFRP",
+      "EMMQL",
+      "U"
+    ]
+  },
+  "unscramble-string": {
+    "entry": "unscramble_string",
+    "inputs": [
+      [
+        "GJAGJ",
+        1234
+      ],
+      [
+        "BCDEFGHIJKLMNOPQRSTUVWXYZA",
+        9999
+      ],
+      [
+        "IFMMP",
+        1000
+      ],
+      [
+        "B",
+        5555
+      ]
+    ],
+    "outputs": [
+      "CATAR",
+      "HCRJAQDPGFWMZUKBSIXLYOVNET",
+      "LIELK",
+      "H"
+    ]
+  },
+  "key-digits": {
+    "entry": "key_digits",
+    "inputs": [
+      1234,
+      9999,
+      1,
+      0
+    ],
+    "outputs": [
+      [
+        1,
+        2,
+        3,
+        4
+      ],
+      [
+        9,
+        9,
+        9,
+        9
+      ],
+      [
+        0,
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ]
+  },
+  "square-transform": {
+    "entry": "square",
+    "inputs": [
+      [
+        "ABCDEFGHI",
+        3,
+        3
+      ],
+      [
+        "CATAR",
+        1,
+        5
+      ],
+      [
+        "ADGBEHCFI",
+        3,
+        3
+      ]
+    ],
+    "outputs": [
+      "ADGBEHCFI",
+      "CATAR",
+      "ABCDEFGHI"
+    ]
+  },
+  "shift-chars": {
+    "entry": "shift",
+    "inputs": [
+      [
+        "ABC",
+        [
+          1,
+          2,
+          3,
+          4
+        ]
+      ],
+      [
+        "XYZ",
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      [
+        "HELLO",
+        [
+          25,
+          1,
+          13,
+          7
+        ]
+      ]
+    ],
+    "outputs": [
+      "BDF",
+      "XYZ",
+      "GFYSN"
+    ]
+  },
+  "shuffle-string": {
+    "entry": "shuffle",
+    "inputs": [
+      "ABCDEF",
+      "ABCDE",
+      "A",
+      "AB"
+    ],
+    "outputs": [
+      "DAEBFC",
+      "CADBE",
+      "A",
+      "BA"
+    ]
+  },
+  "unshuffle-string": {
+    "entry": "unshuffle",
+    "inputs": [
+      "DAEBFC",
+      "CADBE",
+      "A",
+      "AB"
+    ],
+    "outputs": [
+      "ABCDEF",
+      "ABCDE",
+      "A",
+      "BA"
+    ]
+  },
+  "is-blacksquare": {
+    "entry": "is_blacksquare",
+    "inputs": [
+      ".",
+      ":",
+      "A",
+      46,
+      0
+    ],
+    "outputs": [
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "replace-chars": {
+    "entry": "replace_chars",
+    "inputs": [
+      [
+        "A.B.C",
+        ".",
+        ""
+      ],
+      [
+        "HELLO",
+        "LO",
+        "XY"
+      ],
+      [
+        "ABC",
+        "",
+        ""
+      ]
+    ],
+    "outputs": [
+      "ABC",
+      "HEXYXYXY",
+      "ABC"
+    ]
+  },
+  "parse-dict": {
+    "entry": "parse_dict",
+    "inputs": [
+      "0:HEART;1:DIAMOND;17:CLUB;",
+      "",
+      "1:A;"
+    ],
+    "outputs": [
+      {
+        "0": "HEART",
+        "1": "DIAMOND",
+        "17": "CLUB"
+      },
+      {},
+      {
+        "1": "A"
+      }
+    ]
+  },
+  "dict-to-string": {
+    "entry": "dict_to_string",
+    "inputs": [
+      {
+        "0": "HEART",
+        "1": "DIAMOND"
+      },
+      {},
+      {
+        "13": "CLUB",
+        "23": "SPADE"
+      }
+    ],
+    "outputs": [
+      " 0:HEART; 1:DIAMOND;",
+      ";",
+      "13:CLUB;23:SPADE;"
+    ]
+  },
+  "restore-chars": {
+    "entry": "restore",
+    "inputs": [
+      [
+        "A.B.C",
+        "XYZ"
+      ],
+      [
+        ".A.B.",
+        "XY"
+      ],
+      [
+        "ABCD",
+        "WXYZ"
+      ]
+    ],
+    "outputs": [
+      "X.Y.Z",
+      ".X.Y.",
+      "WXYZ"
+    ]
+  }
+}

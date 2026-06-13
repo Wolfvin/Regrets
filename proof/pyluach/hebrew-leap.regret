@@ -1,0 +1,13 @@
+cluster: hebrew-leap
+version: 1
+fingerprint: 5wtkimf
+captured: 2026-06-13T15:42:12.257771+00:00
+watches: [_is_leap]
+entry: _is_leap
+stack: python
+fingerprintLevel: entry
+module: pyluach.utils
+---
+INPUT  5783
+OUTPUT false
+HASH   5wtkimf

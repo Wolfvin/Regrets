@@ -1,0 +1,13 @@
+cluster: elapsed-days
+version: 1
+fingerprint: 5hj9vhu
+captured: 2026-06-13T15:42:12.258859+00:00
+watches: [_elapsed_days, _elapsed_months, _is_leap]
+entry: _elapsed_days
+stack: python
+fingerprintLevel: entry
+module: pyluach.utils
+---
+INPUT  5783
+OUTPUT 2111852
+HASH   5hj9vhu
