@@ -165,6 +165,12 @@ def main():
     elif command == 'audit':
         success = run(f'python3 {SCRIPTS_DIR}/audit.py {extra_args}')
 
+    elif command == 'truth':
+        success = run(f'python3 {SCRIPTS_DIR}/truth.py {extra_args}')
+
+    elif command == 'diff':
+        success = run(f'python3 {SCRIPTS_DIR}/diff.py {extra_args}')
+
     elif command == 'help':
         print("""
 regret.py — Unified Regret Runner (Python)
@@ -183,6 +189,8 @@ Usage:
   python scripts/regret.py audit [--strict]              Pre-refactor readiness audit
   python scripts/regret.py guard                         Pre-build gate
   python scripts/regret.py check [--cluster <id>]       Pre-flight manifest validation
+  python scripts/regret.py truth [--outdir ./proof]      Save dual-truth baselines
+  python scripts/regret.py diff [--cluster <id>]         Deep-compare live vs golden output
 
 Auto-detects stack from manifest.json and dispatches to the right handler.
 """)
