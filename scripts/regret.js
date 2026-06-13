@@ -267,7 +267,12 @@ switch (command) {
   }
 
   case 'verify-kebenaran': {
-    success = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs])
+    const vkStacks = detectStacks()
+    if (vkStacks.includes('python')) {
+      success = run('python3', [`${SCRIPTS_DIR}/verify_kebenaran.py`, ...passThroughArgs])
+    } else {
+      success = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs])
+    }
     break
   }
 
