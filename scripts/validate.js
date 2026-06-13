@@ -61,6 +61,9 @@ function parseRegret(content) {
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'version') meta.version = Number(val)
+    else if (key === 'instanceMethods') {
+      try { meta.instanceMethods = JSON.parse(val) } catch { meta.instanceMethods = {} }
+    }
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
@@ -184,7 +187,8 @@ async function runReactCluster(clusterDef, regret) {
 
 async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
-          multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack } = clusterDef
+          multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
+          instanceMethods = {} } = clusterDef
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
@@ -238,7 +242,7 @@ async function runCluster(clusterDef, regret) {
   for (let i = 0; i < runs; i++) {
     for (const currentInput of inputsToValidate) {
       const recorder = []
-      const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
+      const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder, regret.instanceMethods || instanceMethods)
       const entryFn  = ghost[entry] ?? mod[entry] ?? mod.default?.[entry]
       if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
       // Deep-clone input before calling to prevent mutation from corrupting fingerprint

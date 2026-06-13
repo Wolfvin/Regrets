@@ -60,7 +60,7 @@ class ContestRunner {
     const absPath = resolve(CWD, cluster.file)
     const rawModule = await import(pathToFileURL(absPath).href)
     const recorder = []
-    const ghostModule = createGhost(rawModule, cluster.watches || [], recorder)
+    const ghostModule = createGhost(rawModule, cluster.watches || [], recorder, cluster.instanceMethods || {})
     const entryFn = ghostModule[cluster.entry] ?? rawModule[cluster.entry]
     if (typeof entryFn !== 'function') throw new Error(`Entry "${cluster.entry}" not found in ${cluster.file}`)
 
