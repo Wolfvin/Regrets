@@ -8,7 +8,8 @@ import { createHash } from 'crypto'
  * { b:2, a:1 } and { a:1, b:2 } produce identical output.
  */
 export function stableStringify(obj) {
-  if (obj === null || obj === undefined) return String(obj)
+  if (obj === undefined) return 'null'  // treat undefined as null for consistent serialization
+  if (obj === null) return 'null'
   if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']'
   if (typeof obj === 'object') {
     const keys = Object.keys(obj).sort()

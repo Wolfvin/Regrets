@@ -99,10 +99,13 @@ for (const cluster of clusters) {
 
     for (const input of testInputs) {
       recorder.length = 0  // clear between runs
-      const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
+      // null/undefined input means "no arguments" (entry function takes no params)
+      const args_ = (input === null || input === undefined)
+        ? []
+        : (cluster.multiArgs && Array.isArray(input) ? input : [input])
       const output = await entryFn(...args_)
       
-      const fpInput = cluster.multiArgs && Array.isArray(input) ? input : input
+      const fpInput = (input === null || input === undefined) ? null : (cluster.multiArgs && Array.isArray(input) ? input : input)
 
       // Determine fingerprint based on fingerprintMode
       let fp
@@ -155,8 +158,8 @@ for (const cluster of clusters) {
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
       `---`,
-      `INPUT  ${JSON.stringify(input)}`,
-      `OUTPUT ${JSON.stringify(output)}`,
+      `INPUT  ${JSON.stringify(input ?? null)}`,
+      `OUTPUT ${JSON.stringify(output ?? null)}`,
       `HASH   ${fp}`,
     ].filter(Boolean).join('\n')
 
