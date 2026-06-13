@@ -393,6 +393,13 @@ def main():
 
             mod = importlib.import_module(module_path)
 
+            # Read classMethod-related fields
+            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
+            constructor_name = regret.get('constructor') or cluster_def.get('constructor', None)
+            constructor_args_val = regret.get('constructorArgs') or cluster_def.get('constructorArgs', [])
+            setup_steps = regret.get('setup') or cluster_def.get('setup', [])
+            instance_methods_def = regret.get('instanceMethods') or cluster_def.get('instanceMethods', {})
+
             hashes = []           # flat list of all hashes (for backward compat)
             hashes_per_input = {}  # { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
             last_output = None
@@ -408,10 +415,6 @@ def main():
                 recorder = []
                 ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
 
-                entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
-                    raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
-
                 # Determine fingerprint mode: .regret file takes precedence over manifest
                 effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
                 effective_value_paths = regret.get('valuePaths') or value_paths or []
@@ -426,21 +429,53 @@ def main():
                     if track_mutation:
                         input_snapshot_before = snapshot_state(input_for_args)
 
-                    if multi_args and isinstance(input_for_args, list):
-                        raw_output = entry_fn(*input_for_args)
+                    # Handle class-based entry points
+                    if class_method:
+                        cls_name = constructor_name or entry_name
+                        Cls = getattr(ghost, cls_name, None) or getattr(mod, cls_name, None)
+                        if Cls is None:
+                            raise TypeError(f'Class "{cls_name}" not found in {module_path}')
+                        # Fresh instance per input to avoid state leakage
+                        instance = Cls(*deep_clone(constructor_args_val))
+
+                        # Run setup steps on the instance
+                        for step_setup in setup_steps:
+                            method_fn = getattr(instance, step_setup.get('method', ''), None)
+                            if method_fn:
+                                step_args = step_setup.get('args', [])
+                                method_fn(*deep_clone(step_args))
+
+                        # Call the classMethod
+                        if multi_args and isinstance(input_for_args, list):
+                            raw_output = getattr(instance, class_method)(*input_for_args)
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            raw_output = getattr(instance, class_method)(**input_for_args)
+                        elif input_for_args is not None:
+                            raw_output = getattr(instance, class_method)(input_for_args)
+                        else:
+                            raw_output = getattr(instance, class_method)()
                         fp_input = input_for_fp
-                    elif kwargs_mode and isinstance(input_for_args, dict):
-                        # kwargs mode: input dict is unpacked as keyword arguments
-                        raw_output = entry_fn(**input_for_args)
-                        fp_input = input_for_fp
-                    elif kwargs_mode and not isinstance(input_for_args, dict):
-                        raise TypeError(
-                            f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
-                            f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
-                        )
                     else:
-                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
-                        fp_input = input_for_fp
+                        # Function-based entry (original logic)
+                        entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                        if entry_fn is None or not callable(entry_fn):
+                            raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+
+                        if multi_args and isinstance(input_for_args, list):
+                            raw_output = entry_fn(*input_for_args)
+                            fp_input = input_for_fp
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            # kwargs mode: input dict is unpacked as keyword arguments
+                            raw_output = entry_fn(**input_for_args)
+                            fp_input = input_for_fp
+                        elif kwargs_mode and not isinstance(input_for_args, dict):
+                            raise TypeError(
+                                f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                                f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                            )
+                        else:
+                            raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                            fp_input = input_for_fp
 
                     # Materialize generator/iterator output if configured
                     output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
