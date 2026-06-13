@@ -295,6 +295,14 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
       }
     }
+    // If --decompose flag is passed but no stack detected, run Python scanner
+    if (passThroughArgs.includes('--decompose') && !success) {
+      // Try Python scanner with the --decompose flag directly
+      const dirArg = passThroughArgs.find(a => !a.startsWith('-'))
+      if (dirArg) {
+        success = run('python3', [`${SCRIPTS_DIR}/scan.py`, dirArg, '--decompose'])
+      }
+    }
     break
   }
 
@@ -357,7 +365,8 @@ Usage:
   node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
-  node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
+  node scripts/regret.js scan [--dir src/] [--stack] [--decompose]   Scan project for cluster suggestions
+  node scripts/regret.js scan --decompose <path>                    Detect god modules and suggest decomposition
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate

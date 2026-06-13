@@ -76,19 +76,69 @@ class ContestRunner:
         norm_rules = cluster.get('normalize', [])
         ign_fields = cluster.get('ignoreFields', [])
         multi_args = cluster.get('multiArgs', False)
+        kwargs_mode = cluster.get('kwargs', False)
+        class_method = cluster.get('classMethod', None)
+        constructor = cluster.get('constructor', None)
+        constructor_args = cluster.get('constructorArgs', [])
+        setup = cluster.get('setup', [])
+        output_transform = cluster.get('outputTransform', None)
+        instance_methods = cluster.get('instanceMethods', {})
 
         mod = importlib.import_module(module_path)
-        entry_fn = getattr(mod, entry_name, None)
-        if entry_fn is None or not callable(entry_fn):
-            raise TypeError(f'Entry "{entry_name}" not found in {module_path}')
 
-        input_val = step['input']
-        if multi_args and isinstance(input_val, list):
-            output = entry_fn(*input_val)
-        elif input_val is None:
-            output = entry_fn()
+        # Handle class-based clusters (stateful instance testing)
+        if class_method:
+            cls_name = constructor or entry_name
+            Cls = getattr(mod, cls_name, None)
+            if Cls is None:
+                raise TypeError(f'Class "{cls_name}" not found in {module_path}')
+            instance = Cls(*deep_clone(constructor_args))
+
+            # Run setup steps on the instance
+            for step_setup in setup:
+                method_fn = getattr(instance, step_setup.get('method', ''), None)
+                if method_fn:
+                    step_args = step_setup.get('args', [])
+                    method_fn(*deep_clone(step_args))
+
+            # Run any pre-step setup defined in the chain step
+            if 'setupSteps' in step:
+                for chain_setup in step['setupSteps']:
+                    method_name = chain_setup.get('method', '')
+                    method_fn = getattr(instance, method_name, None)
+                    if method_fn:
+                        setup_args = chain_setup.get('args', [])
+                        method_fn(*deep_clone(setup_args))
+
+            # Call the classMethod
+            input_val = step['input']
+            if multi_args and isinstance(input_val, list):
+                output = getattr(instance, class_method)(*input_val)
+            elif kwargs_mode and isinstance(input_val, dict):
+                output = getattr(instance, class_method)(**input_val)
+            elif input_val is not None:
+                output = getattr(instance, class_method)(input_val)
+            else:
+                output = getattr(instance, class_method)()
         else:
-            output = entry_fn(input_val)
+            entry_fn = getattr(mod, entry_name, None)
+            if entry_fn is None or not callable(entry_fn):
+                raise TypeError(f'Entry "{entry_name}" not found in {module_path}')
+
+            input_val = step['input']
+            if multi_args and isinstance(input_val, list):
+                output = entry_fn(*input_val)
+            elif kwargs_mode and isinstance(input_val, dict):
+                output = entry_fn(**input_val)
+            elif input_val is None:
+                output = entry_fn()
+            else:
+                output = entry_fn(input_val)
+
+        # Apply output transform if specified
+        if output_transform:
+            from capture import apply_output_transform
+            output = apply_output_transform(deep_clone(output), output_transform)
 
         fp = fingerprint(deep_clone(input_val), deep_clone(output), norm_rules, ign_fields)
         return {
