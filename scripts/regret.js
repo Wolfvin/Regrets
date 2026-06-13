@@ -64,6 +64,37 @@ function detectStacks() {
 
 let success = true
 
+// ─── Pre-build hook ───────────────────────────────────────────────────────────
+// If the manifest has a `preBuild` field, run it before capture/validate/truth.
+// This is essential for TypeScript projects that need `npm run build` before
+// Regrets can import the compiled output.
+// Example manifest: { "preBuild": "npm run build", "clusters": [...] }
+
+function runPreBuild() {
+  try {
+    const manifestPath = resolve(process.cwd(), 'regrets/manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    if (manifest.preBuild) {
+      console.log(`\n🔧 Running preBuild: ${manifest.preBuild}`)
+      try {
+        const [cmd, ...cmdArgs] = manifest.preBuild.split(' ')
+        execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: process.cwd() })
+        console.log(`   ✅ preBuild succeeded\n`)
+        return true
+      } catch {
+        console.error(`   ❌ preBuild failed — continuing anyway\n`)
+        return false
+      }
+    }
+  } catch { /* no manifest or no preBuild — that's fine */ }
+  return true
+}
+
+const needsPreBuild = ['capture', 'validate', 'truth', 'drift', 'ci', 'guard', 'chain']
+if (needsPreBuild.includes(command)) {
+  runPreBuild()
+}
+
 switch (command) {
   case 'capture': {
     const stacks = detectStacks()
@@ -163,6 +194,20 @@ switch (command) {
     break
   }
 
+  case 'truth': {
+    const stacks = detectStacks()
+    for (const stack of stacks) {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+        success = run('node', [`${SCRIPTS_DIR}/truth.js`, ...passThroughArgs]) && success
+      } else if (stack === 'python') {
+        success = run('python3', [`${SCRIPTS_DIR}/truth.py`, ...passThroughArgs]) && success
+      } else {
+        console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
+      }
+    }
+    break
+  }
+
   case 'rollback': {
     const targetCluster = passThroughArgs.find(a => !a.startsWith('-'))
     if (!targetCluster) {
@@ -241,6 +286,7 @@ Usage:
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
+  node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan <path> [--manifest]      Scan source, suggest clusters
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js guard                         Pre-build gate
