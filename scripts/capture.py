@@ -77,6 +77,85 @@ def consume_generator(val):
     return val
 
 
+def _recursive_to_dict(obj, depth=0, max_depth=10):
+    """Recursively convert custom objects to dicts using to_dict() or __dict__.
+
+    This handles the common case where a domain object's to_dict() returns
+    a dict that still contains custom objects (e.g., a Chord dict with Note
+    objects in a list). Without recursive conversion, these nested objects
+    would fail JSON serialization.
+
+    Args:
+        obj: The object to convert
+        depth: Current recursion depth (prevents infinite loops)
+        max_depth: Maximum recursion depth
+
+    Returns:
+        A JSON-serializable representation of the object
+    """
+    if depth > max_depth:
+        return repr(obj)
+
+    # Primitives — return as-is
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    # Bytes — convert to hex
+    if isinstance(obj, bytes):
+        return obj.hex()
+
+    # Lists — recurse
+    if isinstance(obj, list):
+        return [_recursive_to_dict(v, depth + 1, max_depth) for v in obj]
+
+    # Tuples — convert to list and recurse
+    if isinstance(obj, tuple):
+        return [_recursive_to_dict(v, depth + 1, max_depth) for v in obj]
+
+    # Dicts — recurse on values
+    if isinstance(obj, dict):
+        return {k: _recursive_to_dict(v, depth + 1, max_depth) for k, v in obj.items()}
+
+    # Sets — convert to sorted list
+    if isinstance(obj, set):
+        return sorted([_recursive_to_dict(v, depth + 1, max_depth) for v in obj],
+                       key=lambda x: str(x))
+
+    # Objects with to_dict() — call and recurse on result
+    if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+        try:
+            result = obj.to_dict()
+            return _recursive_to_dict(result, depth + 1, max_depth)
+        except Exception:
+            pass
+
+    # Objects with __dict__ — convert attributes and recurse
+    if hasattr(obj, '__dict__'):
+        cls_name = type(obj).__name__
+        attrs = {}
+        for k, v in obj.__dict__.items():
+            if not k.startswith('_'):
+                try:
+                    attrs[k] = _recursive_to_dict(v, depth + 1, max_depth)
+                except Exception:
+                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+        return {'__class__': cls_name, **attrs}
+
+    # Objects with __slots__
+    if hasattr(obj, '__slots__'):
+        cls_name = type(obj).__name__
+        attrs = {}
+        for slot in obj.__slots__:
+            try:
+                attrs[slot] = _recursive_to_dict(getattr(obj, slot), depth + 1, max_depth)
+            except AttributeError:
+                pass
+        return {'__class__': cls_name, **attrs}
+
+    # Fallback — repr
+    return repr(obj)
+
+
 def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
@@ -84,6 +163,10 @@ def apply_output_transform(output, transform):
     - "str":     Convert each element to its string representation
     - "repr":    Convert each element to its repr representation
     - "dict":    Convert each element using dict(obj) or obj.__dict__
+    - "to_dict": Recursively convert custom objects using to_dict(), __dict__,
+                 or __slots__ — handles nested custom objects (e.g., Chord
+                 containing Note objects). This is the recommended transform
+                 for domain-heavy libraries like musicpy.
     - "json":    Attempt obj.to_json() or json.dumps(obj)
     - "len":     Return len(obj) — useful for large collections
     - "type":    Return type names of elements
@@ -115,6 +198,8 @@ def apply_output_transform(output, transform):
             return str(obj)
         elif transform == 'repr':
             return repr(obj)
+        elif transform == 'to_dict':
+            return _recursive_to_dict(obj)
         elif transform == 'dict':
             if hasattr(obj, 'to_dict') and callable(obj.to_dict):
                 return obj.to_dict()

@@ -231,39 +231,175 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
         suggestions.append(suggestion)
 
     # Also suggest clusters from class methods that look like pure operations
+    GOD_CLASS_THRESHOLD = 20  # Classes with 20+ public methods are god objects
     for class_name, methods in result.classes.items():
-        for method in methods:
-            if method.name.startswith('_'):
-                continue
-            if not method.is_pure:
-                continue
+        public_methods = [m for m in methods if not m.name.startswith('_')]
+        pure_methods = [m for m in public_methods if m.is_pure]
 
-            cluster_id = f"{class_name.lower()}-{method.name.lower()}".replace('_', '-')
-            watches = [method.name]
-            for called in method.calls:
-                if called != method.name:
-                    watches.append(called)
+        # God class detection: suggest constructor + classMethod + instanceMethods pattern
+        if len(public_methods) >= GOD_CLASS_THRESHOLD:
+            # Find __init__ to understand constructor args
+            init_method = next((m for m in methods if m.name == '__init__'), None)
+            constructor_args = init_method.args if init_method else []
 
-            suggestion = {
-                'id': cluster_id,
-                'entry': method.name,
-                'watches': watches,
+            # Group methods by domain heuristics (based on naming patterns)
+            domain_groups = _group_methods_by_domain(pure_methods)
+
+            # Suggest one cluster per domain group using constructor + instanceMethods
+            for domain, domain_methods in domain_groups.items():
+                if not domain_methods:
+                    continue
+                method_names = [m.name for m in domain_methods]
+                cluster_id = f"{class_name.lower()}-{domain}".replace('_', '-')
+                all_watches = [class_name] + method_names[:5]  # cap watches for readability
+
+                suggestion = {
+                    'id': cluster_id,
+                    'entry': class_name,
+                    'watches': all_watches,
+                    'file': result.file,
+                    'module': result.module,
+                    'stack': 'python',
+                    'fingerprintLevel': 'entry',
+                    'branchCount': sum(m.branch_count for m in domain_methods),
+                    'isPure': all(m.is_pure for m in domain_methods),
+                    'isMethod': True,
+                    'isGodClass': True,
+                    'className': class_name,
+                    'constructor': class_name,
+                    'constructorArgs': _suggest_constructor_args(init_method) if init_method else [],
+                    'instanceMethods': {class_name: method_names[:10]},
+                    'domainHint': domain,
+                    'multiArgs': False,
+                    'args': constructor_args,
+                    'suggestedInputs': f"God class {class_name} ({len(public_methods)} methods) — {domain} domain group ({len(domain_methods)} methods)",
+                    'coverageNote': f"God class: {len(public_methods)} public methods, {len(domain_methods)} in {domain} domain. Consider decomposition.",
+                }
+                suggestions.append(suggestion)
+
+            # Also add an anchor cluster for the whole class (entry-level)
+            anchor_id = f"{class_name.lower()}-anchor".replace('_', '-')
+            anchor_suggestion = {
+                'id': anchor_id,
+                'entry': class_name,
+                'watches': [class_name],
                 'file': result.file,
                 'module': result.module,
                 'stack': 'python',
                 'fingerprintLevel': 'entry',
-                'branchCount': method.branch_count,
-                'isPure': method.is_pure,
+                'branchCount': 0,
+                'isPure': False,
                 'isMethod': True,
+                'isGodClass': True,
                 'className': class_name,
-                'multiArgs': len(method.args) > 1,
-                'args': method.args,
-                'suggestedInputs': f"Instance of {class_name} needed",
-                'coverageNote': f"Has {method.branch_count} branch(es)" if method.branch_count else 'All paths covered with single input',
+                'constructor': class_name,
+                'constructorArgs': _suggest_constructor_args(init_method) if init_method else [],
+                'domainHint': 'anchor',
+                'multiArgs': False,
+                'args': constructor_args,
+                'suggestedInputs': f"Anchor cluster for god class {class_name} — tests constructor + basic output",
+                'coverageNote': f"God class anchor — keep GREEN throughout refactor. {len(public_methods)} total methods.",
             }
-            suggestions.append(suggestion)
+            suggestions.append(anchor_suggestion)
+
+        # Individual method clusters (for non-god classes, or for fine-grained testing)
+        if len(public_methods) < GOD_CLASS_THRESHOLD:
+            for method in pure_methods:
+                cluster_id = f"{class_name.lower()}-{method.name.lower()}".replace('_', '-')
+                watches = [method.name]
+                for called in method.calls:
+                    if called != method.name:
+                        watches.append(called)
+
+                suggestion = {
+                    'id': cluster_id,
+                    'entry': method.name,
+                    'watches': watches,
+                    'file': result.file,
+                    'module': result.module,
+                    'stack': 'python',
+                    'fingerprintLevel': 'entry',
+                    'branchCount': method.branch_count,
+                    'isPure': method.is_pure,
+                    'isMethod': True,
+                    'className': class_name,
+                    'multiArgs': len(method.args) > 1,
+                    'args': method.args,
+                    'suggestedInputs': f"Instance of {class_name} needed",
+                    'coverageNote': f"Has {method.branch_count} branch(es)" if method.branch_count else 'All paths covered with single input',
+                }
+                suggestions.append(suggestion)
 
     return suggestions
+
+
+def _group_methods_by_domain(methods: list[FunctionInfo]) -> dict[str, list[FunctionInfo]]:
+    """Group class methods into domain buckets based on naming patterns.
+
+    This heuristic identifies common domain patterns in god classes:
+    - construction: __init__, build, create, from_*
+    - query: get, find, detect, check, is_, has_, count, search
+    - transform: up, down, sharp, flat, transpose, invert, reverse, normalize
+    - filter: filter, remove, clear, keep, select, pick, only
+    - time: cut, split, bar, beat, time, tempo, rhythm
+    - io: read, write, load, save, export, import, parse, to_*
+    - modify: set, add, insert, append, extend, replace, update, reset
+    - analyze: analyze, compare, compare, similarity, detect, interval
+    """
+    groups: dict[str, list[FunctionInfo]] = {}
+    domain_patterns = {
+        'query': ['get', 'find', 'detect', 'check', 'is_', 'has_', 'count', 'search', 'eval'],
+        'transform': ['up', 'down', 'sharp', 'flat', 'transpose', 'invert', 'reverse',
+                       'normalize', 'modulat', 'retrograde', 'pitch_inversion'],
+        'filter': ['filter', 'remove', 'clear', 'keep', 'select', 'pick', 'only',
+                    'omit', 'delete'],
+        'time': ['cut', 'split', 'bar', 'beat', 'time', 'tempo', 'rhythm',
+                  'firstn', 'count_bar', 'fix_length', 'apply_rhythm'],
+        'io': ['read', 'write', 'load', 'save', 'export', 'import', 'parse',
+                'to_', 'from_', 'serialize', 'deserialize'],
+        'modify': ['set', 'add', 'insert', 'append', 'extend', 'replace',
+                    'update', 'reset', 'change', 'apply', 'move', 'place'],
+        'analyze': ['analyze', 'compar', 'similar', 'interval', 'detect',
+                     'notation', 'standard', 'info', 'same'],
+    }
+
+    for method in methods:
+        name_lower = method.name.lower()
+        assigned = False
+        for domain, patterns in domain_patterns.items():
+            if any(name_lower.startswith(p) or name_lower == p for p in patterns):
+                groups.setdefault(domain, []).append(method)
+                assigned = True
+                break
+        if not assigned:
+            groups.setdefault('other', []).append(method)
+
+    return groups
+
+
+def _suggest_constructor_args(init_method: FunctionInfo) -> list:
+    """Suggest constructor arguments from __init__ method analysis.
+
+    Returns a list of suggested default values for constructor args,
+    based on type annotations and common patterns.
+    """
+    args = []
+    if not init_method:
+        return args
+
+    for i, arg_name in enumerate(init_method.args):
+        # Skip 'self'
+        if arg_name == 'self':
+            continue
+        # Try to use default value if available
+        default_idx = i - (len(init_method.args) - len(init_method.defaults))
+        if 0 <= default_idx < len(init_method.defaults) and init_method.defaults[default_idx] is not None:
+            args.append(init_method.defaults[default_idx])
+        else:
+            # No default — provide a type-based placeholder
+            args.append(f"<{arg_name}>")
+
+    return args
 
 
 # ─── File Scanner ───────────────────────────────────────────────────────────
@@ -345,13 +481,23 @@ def render_result(result: ScanResult):
 
     # Show suggested clusters
     if result.suggested_clusters:
-        print(f"\n   💡 Suggested clusters ({len(result.suggested_clusters)}):")
+        god_class_count = sum(1 for s in result.suggested_clusters if s.get('isGodClass'))
+        regular_count = len(result.suggested_clusters) - god_class_count
+        print(f"\n   💡 Suggested clusters ({len(result.suggested_clusters)}):"
+              f"{f' ({god_class_count} god-class, {regular_count} regular)' if god_class_count else ''}")
         for s in result.suggested_clusters:
             purity = "pure" if s['isPure'] else "impure"
-            print(f"     ┌─ {s['id']}  ({purity})")
+            god_tag = " 🔴 GOD CLASS" if s.get('isGodClass') else ""
+            domain_tag = f" [{s['domainHint']}]" if s.get('domainHint') else ""
+            print(f"     ┌─ {s['id']}  ({purity}){god_tag}{domain_tag}")
             print(f"     │  entry: {s['entry']}")
             print(f"     │  watches: {s['watches']}")
             print(f"     │  branches: {s['branchCount']}")
+            if s.get('instanceMethods'):
+                for cls, methods in s['instanceMethods'].items():
+                    print(f"     │  instanceMethods: {cls} → {methods}")
+            if s.get('constructorArgs'):
+                print(f"     │  constructorArgs: {s['constructorArgs']}")
             if s.get('coverageNote'):
                 print(f"     │  coverage: {s['coverageNote']}")
             if s.get('args'):
@@ -364,8 +510,9 @@ def render_manifest_json(results: list[ScanResult]) -> str:
     clusters = []
     for result in results:
         for s in result.suggested_clusters:
-            if not s['isPure']:
-                continue  # only suggest pure functions as clusters
+            # Include god-class clusters even if impure (they are anchor clusters)
+            if not s['isPure'] and not s.get('isGodClass'):
+                continue  # skip impure non-god-class clusters
             cluster = {
                 'id': s['id'],
                 'entry': s['entry'],
@@ -378,6 +525,16 @@ def render_manifest_json(results: list[ScanResult]) -> str:
             }
             if s.get('multiArgs'):
                 cluster['multiArgs'] = True
+            if s.get('isGodClass'):
+                cluster['_isGodClass'] = True
+                if s.get('constructor'):
+                    cluster['constructor'] = s['constructor']
+                if s.get('constructorArgs'):
+                    cluster['constructorArgs'] = s['constructorArgs']
+                if s.get('instanceMethods'):
+                    cluster['instanceMethods'] = s['instanceMethods']
+                if s.get('domainHint'):
+                    cluster['_domainHint'] = s['domainHint']
             if s['branchCount'] > 0:
                 cluster['_coverageNote'] = s['coverageNote']
             clusters.append(cluster)

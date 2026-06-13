@@ -64,9 +64,9 @@ function extractExportedFunctions(source, ext) {
     // Python: top-level def statements
     const matches = source.matchAll(/^def\s+(\w+)\s*\(/gm)
     for (const m of matches) fns.push(m[1])
-    // Class methods
+    // Class methods (indented def statements)
     const classMatches = source.matchAll(/^\s+def\s+(\w+)\s*\(/gm)
-    for (const m of matches) fns.push(m[1])
+    for (const m of classMatches) fns.push(m[1])
     return fns
   }
 

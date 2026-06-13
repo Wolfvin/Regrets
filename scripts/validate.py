@@ -72,6 +72,55 @@ def consume_generator(val):
     return val
 
 
+def _recursive_to_dict(obj, depth=0, max_depth=10):
+    """Recursively convert custom objects to dicts using to_dict() or __dict__.
+
+    See capture.py for full documentation.
+    """
+    if depth > max_depth:
+        return repr(obj)
+
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, bytes):
+        return obj.hex()
+    if isinstance(obj, list):
+        return [_recursive_to_dict(v, depth + 1, max_depth) for v in obj]
+    if isinstance(obj, tuple):
+        return [_recursive_to_dict(v, depth + 1, max_depth) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _recursive_to_dict(v, depth + 1, max_depth) for k, v in obj.items()}
+    if isinstance(obj, set):
+        return sorted([_recursive_to_dict(v, depth + 1, max_depth) for v in obj],
+                       key=lambda x: str(x))
+    if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+        try:
+            result = obj.to_dict()
+            return _recursive_to_dict(result, depth + 1, max_depth)
+        except Exception:
+            pass
+    if hasattr(obj, '__dict__'):
+        cls_name = type(obj).__name__
+        attrs = {}
+        for k, v in obj.__dict__.items():
+            if not k.startswith('_'):
+                try:
+                    attrs[k] = _recursive_to_dict(v, depth + 1, max_depth)
+                except Exception:
+                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+        return {'__class__': cls_name, **attrs}
+    if hasattr(obj, '__slots__'):
+        cls_name = type(obj).__name__
+        attrs = {}
+        for slot in obj.__slots__:
+            try:
+                attrs[slot] = _recursive_to_dict(getattr(obj, slot), depth + 1, max_depth)
+            except AttributeError:
+                pass
+        return {'__class__': cls_name, **attrs}
+    return repr(obj)
+
+
 def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
@@ -97,6 +146,8 @@ def apply_output_transform(output, transform):
             return str(obj)
         elif transform == 'repr':
             return repr(obj)
+        elif transform == 'to_dict':
+            return _recursive_to_dict(obj)
         elif transform == 'dict':
             if hasattr(obj, 'to_dict') and callable(obj.to_dict):
                 return obj.to_dict()
