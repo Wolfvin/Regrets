@@ -87,7 +87,10 @@ for (const cluster of clusters) {
     const ghostModule = createGhost(rawModule, watches, recorder)
 
     // Entry function from ghost module
-    const entryFn = ghostModule[entry] ?? rawModule[entry]
+    // Supports both ESM named exports and CommonJS default exports.
+    // CommonJS modules imported via dynamic import() may nest exports
+    // under .default, so we check: mod.fn → mod.default.fn → error
+    const entryFn = ghostModule[entry] ?? rawModule[entry] ?? rawModule.default?.[entry]
     if (typeof entryFn !== 'function') {
       throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
     }
