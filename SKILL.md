@@ -186,7 +186,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `goTestPkg` | ❌ | Relative path for `go test` command in Go stack (e.g., `"./pkg/name"`) |
 | `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
-| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `len`, `type`, or `"module.fn"` for custom (Python & JS) |
+| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `len`, `type`, `array_summary` (numpy array shape/stats summary — essential for DSP/scientific computing), or `"module.fn"` for custom (Python & JS) |
 | `materializeOutput` | ❌ | `true` → auto-consume generators/iterators into lists before fingerprinting |
 | `trackMutation` | ❌ | `true` → snapshot input state before/after call, detect mutations |
 
@@ -567,6 +567,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Tauri apps | esbuild transpile + adapter modules | Value (default) | See `references/tauri-apps.md` |
 | Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
 | Python pipeline | Pure logic extraction + adapter | Value / Schema / Mixed | See `references/python-pipeline.md` — OCR, NLP, and data processing pipelines |
+| Scientific computing / DSP | Adapter + `array_summary` transform | Array summary / Value / Schema | See `references/scientific-computing.md` — handles numpy arrays, complex numbers, float precision |
 | OCR/Parsing pipeline | Pure logic extraction + fixtures | Value (default) | See `references/ocr-parsing-pipeline.md` — handles OCR I/O boundary + float precision |
 
 ---

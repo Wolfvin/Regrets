@@ -50,9 +50,9 @@ def parse_args():
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
 def json_serialize(val):
-    """Serialize value to JSON string for .regret file. Handles numpy types."""
-    from fingerprint import _numpy_to_native
-    return json.dumps(_numpy_to_native(val), ensure_ascii=False)
+    """Serialize value to JSON string for .regret file. Handles numpy types and complex numbers."""
+    from fingerprint import _numpy_to_native, _complex_to_json
+    return json.dumps(_complex_to_json(_numpy_to_native(val)), ensure_ascii=False)
 
 
 def consume_generator(val):
@@ -77,6 +77,74 @@ def consume_generator(val):
     return val
 
 
+def _numpy_array_summary(arr):
+    """Compute a summary of a numpy array for fingerprinting.
+
+    Instead of serializing every element (which can be thousands of floats),
+    this produces a compact summary with shape, dtype, and key statistics.
+    This is essential for DSP/scientific computing libraries where functions
+    return large arrays (e.g., sdr.sinusoid returns 1000+ sample arrays).
+
+    The summary is deterministic and sufficient for regression testing:
+    if the algorithm changes, at least one statistic will change.
+    """
+    try:
+        import numpy as np
+        if not isinstance(arr, np.ndarray):
+            return arr
+    except ImportError:
+        return arr
+
+    summary = {
+        'shape': list(arr.shape),
+        'dtype': str(arr.dtype),
+        'size': int(arr.size),
+    }
+
+    # For empty arrays, just return shape/dtype
+    if arr.size == 0:
+        summary['note'] = 'empty array'
+        return summary
+
+    # For complex arrays, compute stats on real and imag parts separately
+    if np.iscomplexobj(arr):
+        real_part = arr.real.astype(np.float64)
+        imag_part = arr.imag.astype(np.float64)
+        summary['real_mean'] = float(np.mean(real_part))
+        summary['real_std'] = float(np.std(real_part))
+        summary['real_min'] = float(np.min(real_part))
+        summary['real_max'] = float(np.max(real_part))
+        summary['imag_mean'] = float(np.mean(imag_part))
+        summary['imag_std'] = float(np.std(imag_part))
+        summary['imag_min'] = float(np.min(imag_part))
+        summary['imag_max'] = float(np.max(imag_part))
+        # Include first and last few elements for extra sensitivity
+        flat = arr.flatten()
+        n_head = min(5, flat.size)
+        n_tail = min(5, flat.size)
+        summary['head'] = [complex(x) for x in flat[:n_head]]
+        summary['tail'] = [complex(x) for x in flat[-n_tail:]]
+    else:
+        # For real arrays
+        float_arr = arr.astype(np.float64) if np.issubdtype(arr.dtype, np.floating) else arr.astype(np.float64)
+        summary['mean'] = float(np.mean(float_arr))
+        summary['std'] = float(np.std(float_arr))
+        summary['min'] = float(np.min(float_arr))
+        summary['max'] = float(np.max(float_arr))
+        # Include first and last few elements for extra sensitivity
+        flat = arr.flatten()
+        n_head = min(5, flat.size)
+        n_tail = min(5, flat.size)
+        summary['head'] = [float(x) for x in flat[:n_head]]
+        summary['tail'] = [float(x) for x in flat[-n_tail:]]
+
+    # For integer arrays, also include sum for extra determinism
+    if np.issubdtype(arr.dtype, np.integer):
+        summary['sum'] = int(np.sum(arr))
+
+    return summary
+
+
 def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
@@ -87,6 +155,9 @@ def apply_output_transform(output, transform):
     - "json":    Attempt obj.to_json() or json.dumps(obj)
     - "len":     Return len(obj) — useful for large collections
     - "type":    Return type names of elements
+    - "array_summary": Compute shape/dtype/mean/std/min/max summary of numpy arrays
+                       — essential for DSP/scientific computing where outputs are
+                       large signal arrays (e.g., 1000+ sample arrays from sdr.sinusoid)
     - "module.fn": Import and call module.fn(output) for custom transforms
 
     When output is a tuple, it is first converted to a list.
@@ -115,6 +186,8 @@ def apply_output_transform(output, transform):
             return str(obj)
         elif transform == 'repr':
             return repr(obj)
+        elif transform == 'array_summary':
+            return _numpy_array_summary(obj)
         elif transform == 'dict':
             if hasattr(obj, 'to_dict') and callable(obj.to_dict):
                 return obj.to_dict()
