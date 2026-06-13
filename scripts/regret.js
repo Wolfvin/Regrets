@@ -169,7 +169,13 @@ switch (command) {
   }
 
   case 'chain': {
-    success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs])
+    // Auto-detect: if manifest has Python clusters, use Python chain runner
+    const stacks = detectStacks()
+    if (stacks.includes('python')) {
+      success = run('python3', [`${SCRIPTS_DIR}/chain.py`, ...passThroughArgs]) && success
+    } else {
+      success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
+    }
     break
   }
 

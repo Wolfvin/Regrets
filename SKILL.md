@@ -518,6 +518,8 @@ node scripts/regret.js chain --validate   # Validate against golden
 
 Chain fingerprints are stored as `.chain` files in `regrets/chains/`.
 
+**Python chains:** When the manifest contains Python clusters, `regret chain` automatically uses the Python chain runner (`scripts/chain.py`) instead of the JS runner (`scripts/contest.mjs`). This handles `module` (dot notation) imports correctly for Python stacks.
+
 Read `references/contest.md` for the full specification.
 
 ---
@@ -587,7 +589,8 @@ regression-testing/
 │   ├── capture_react.mjs       ← React component render capture
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
 │   ├── capture_go.sh           ← Go cluster capture runner (community preview)
-│   ├── contest.mjs             ← chain testing MVP (multi-step flow validation)
+│   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
+│   ├── chain.py                ← chain testing MVP (multi-step flow validation, Python)
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
 │   └── test.mjs                ← integration test suite (209 tests)
 └── references/
