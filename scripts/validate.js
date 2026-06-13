@@ -164,7 +164,7 @@ async function runReactCluster(clusterDef, regret) {
     lastOutput = html
   }
 
-  return { hashes, lastOutput }
+  return { hashes, goldenHashes: hashes, lastOutput }
 }
 
 // ─── Run cluster N times ──────────────────────────────────────────────────────
@@ -194,6 +194,7 @@ async function runCluster(clusterDef, regret) {
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
   const hashes = []
+  const goldenHashes = []  // Only hashes from the golden input (for drift detection)
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
@@ -245,9 +246,13 @@ async function runCluster(clusterDef, regret) {
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
       hashes.push(fp)
+      // Track golden input hashes separately for drift detection
+      if (JSON.stringify(currentInput) === JSON.stringify(regret.input)) {
+        goldenHashes.push(fp)
+      }
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+  return { hashes, goldenHashes, lastOutput }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +311,12 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, goldenHashes, lastOutput, skipped } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Drift detection uses only golden input hashes — different inputs naturally produce different fingerprints
+    const isDrift  = driftMode && new Set(goldenHashes).size > 1
 
     if (updateMode) {
       if (isMatch) {
@@ -323,7 +329,7 @@ for (const file of regretFiles) {
       }
     } else if (driftMode) {
       if (isDrift) {
-        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${goldenHashes.join(' / ')}]`)
         results.push({ id, pass: false, drift: true })
       } else {
         const icon = isMatch ? '✅' : '❌'

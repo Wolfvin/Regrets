@@ -295,6 +295,7 @@ def main():
             mod = importlib.import_module(module_path)
 
             hashes = []
+            golden_hashes = []  # Only hashes from the golden input (for drift detection)
             last_output = None
 
             for _ in range(cli['runs']):
@@ -350,10 +351,14 @@ def main():
                         fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
                     hashes.append(fp)
+                    # Track golden input hashes separately for drift detection
+                    if json.dumps(current_input, sort_keys=True) == json.dumps(regret.get('input'), sort_keys=True):
+                        golden_hashes.append(fp)
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+            # Drift detection uses only golden input hashes — different inputs naturally produce different fingerprints
+            is_drift = drift_mode and len(set(golden_hashes)) > 1
 
             if update_mode:
                 if is_match:
@@ -368,7 +373,7 @@ def main():
 
             elif drift_mode:
                 if is_drift:
-                    print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(hashes)}]")
+                    print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(golden_hashes)}]")
                     results.append({'id': cluster_id, 'pass': False, 'drift': True})
                 else:
                     icon = '✅' if is_match else '❌'
