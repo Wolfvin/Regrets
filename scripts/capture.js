@@ -63,7 +63,17 @@ for (const cluster of clusters) {
   console.log(`   Watches: ${watches.join(', ')}`)
 
   if (stack && stack !== 'js' && stack !== 'ts') {
-    console.log(`   ⚠️  Stack "${stack}" — see references/ for non-JS capture`)
+    const stackScripts = {
+      python: 'python3 scripts/capture.py',
+      react: 'node scripts/capture_react.mjs',
+      rust: 'bash scripts/capture_rust.sh capture',
+      go: 'bash scripts/capture_go.sh capture',
+    }
+    if (stackScripts[stack]) {
+      console.log(`   ⏭️  Stack "${stack}" — use: ${stackScripts[stack]}`)
+    } else {
+      console.log(`   ⚠️  Stack "${stack}" is not supported — see references/ for available stacks`)
+    }
     continue
   }
 
