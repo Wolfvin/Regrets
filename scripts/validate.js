@@ -62,6 +62,9 @@ function parseRegret(content) {
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'outputTransform') meta.outputTransform = val
     else if (key === 'kwargs') meta.kwargs = val === 'true'
+    else if (key === 'materializeOutput') meta.materializeOutput = val === 'true'
+    else if (key === 'trackMutation') meta.trackMutation = val === 'true'
+    else if (key === 'mutationFingerprint') meta.mutationFingerprint = val
     else if (key === 'version') meta.version = Number(val)
     else if (key === 'constructorArgs' || key === 'setup') meta[key] = JSON.parse(val)
     else if (key === 'instanceMethods') {
@@ -85,11 +88,16 @@ function parseRegret(content) {
     const outputStr = outputLine.replace(/^OUTPUT\s+/, '')
     parsedOutput = outputStr === 'undefined' ? undefined : JSON.parse(outputStr)
   }
+  // Parse MUTATION_BEFORE/AFTER lines
+  const mutationBeforeLine = lines.find(l => l.startsWith('MUTATION_BEFORE '))
+  const mutationAfterLine = lines.find(l => l.startsWith('MUTATION_AFTER '))
   return {
     ...meta,
     input:      parsedInput,
     output:     parsedOutput,
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
+    mutationBefore: mutationBeforeLine ? JSON.parse(mutationBeforeLine.replace(/^MUTATION_BEFORE\s+/, '')) : null,
+    mutationAfter:  mutationAfterLine  ? JSON.parse(mutationAfterLine.replace(/^MUTATION_AFTER\s+/, ''))   : null,
     raw:        content
   }
 }
@@ -193,6 +201,7 @@ async function runCluster(clusterDef, regret) {
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, outputTransform: manifestOutputTransform = null } = clusterDef
+  const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
@@ -296,12 +305,35 @@ async function runCluster(clusterDef, regret) {
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await instance[classMethod](...args_)
 
-        // Consume generators/iterators into arrays for fingerprinting
-        let consumedOutput = rawOutput
-        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-          consumedOutput = [...rawOutput]
+        // Materialize generator/iterator output if configured
+        let consumedOutput
+        if (materializeOutputFlag && rawOutput && typeof rawOutput === 'object') {
+          const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
+                             typeof rawOutput[Symbol.iterator] === 'function'
+          if (isIterable && !Array.isArray(rawOutput)) {
+            consumedOutput = []
+            if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
+              for await (const item of rawOutput) consumedOutput.push(deepClone(item))
+            } else {
+              for (const item of rawOutput) consumedOutput.push(deepClone(item))
+            }
+          } else {
+            // Consume generators/iterators into arrays for fingerprinting
+            consumedOutput = rawOutput
+            if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+                typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+                !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+              consumedOutput = [...rawOutput]
+            }
+          }
+        } else {
+          // Consume generators/iterators into arrays for fingerprinting (always-on fallback)
+          consumedOutput = rawOutput
+          if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+              typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+              !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+            consumedOutput = [...rawOutput]
+          }
         }
 
         // Apply outputTransform if specified (from .regret or manifest)
@@ -351,12 +383,35 @@ async function runCluster(clusterDef, regret) {
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
 
-        // Consume generators/iterators into arrays for fingerprinting
-        let consumedOutput = rawOutput
-        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-          consumedOutput = [...rawOutput]
+        // Materialize generator/iterator output if configured
+        let consumedOutput
+        if (materializeOutputFlag && rawOutput && typeof rawOutput === 'object') {
+          const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
+                             typeof rawOutput[Symbol.iterator] === 'function'
+          if (isIterable && !Array.isArray(rawOutput)) {
+            consumedOutput = []
+            if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
+              for await (const item of rawOutput) consumedOutput.push(deepClone(item))
+            } else {
+              for (const item of rawOutput) consumedOutput.push(deepClone(item))
+            }
+          } else {
+            // Consume generators/iterators into arrays for fingerprinting
+            consumedOutput = rawOutput
+            if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+                typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+                !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+              consumedOutput = [...rawOutput]
+            }
+          }
+        } else {
+          // Consume generators/iterators into arrays for fingerprinting (always-on fallback)
+          consumedOutput = rawOutput
+          if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+              typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+              !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+            consumedOutput = [...rawOutput]
+          }
         }
 
         // Apply outputTransform if specified (from .regret or manifest)

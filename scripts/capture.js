@@ -57,7 +57,8 @@ for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
-          instanceMethods = {}, kwargs = false, outputTransform = null } = cluster
+          instanceMethods = {}, kwargs = false, outputTransform = null,
+          materializeOutput = false } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -269,14 +270,36 @@ for (const cluster of clusters) {
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
 
-        // Consume generators/iterators into arrays for fingerprinting.
-        // Entry functions that return generators (e.g., function*) would otherwise
-        // result in the generator object being recorded, not the values it yields.
-        let consumedOutput = rawOutput
-        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-          consumedOutput = [...rawOutput]
+        // Materialize generator/iterator output if configured
+        let consumedOutput
+        if (materializeOutput && rawOutput && typeof rawOutput === 'object') {
+          const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
+                             typeof rawOutput[Symbol.iterator] === 'function'
+          if (isIterable && !Array.isArray(rawOutput)) {
+            consumedOutput = []
+            if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
+              for await (const item of rawOutput) consumedOutput.push(deepClone(item))
+            } else {
+              for (const item of rawOutput) consumedOutput.push(deepClone(item))
+            }
+            console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${consumedOutput.length} items)`)
+          } else {
+            // Consume generators/iterators into arrays for fingerprinting.
+            consumedOutput = rawOutput
+            if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+                typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+                !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+              consumedOutput = [...rawOutput]
+            }
+          }
+        } else {
+          // Consume generators/iterators into arrays for fingerprinting (always-on fallback).
+          consumedOutput = rawOutput
+          if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+              typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+              !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+            consumedOutput = [...rawOutput]
+          }
         }
 
         // Apply outputTransform if specified in manifest
@@ -396,6 +419,7 @@ for (const cluster of clusters) {
       setup?.length ? `setup: ${JSON.stringify(setup)}` : null,
       Object.keys(instanceMethods).length ? `instanceMethods: ${JSON.stringify(instanceMethods)}` : null,
       kwargs ? `kwargs: ${kwargs}` : null,
+      materializeOutput ? `materializeOutput: true` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,

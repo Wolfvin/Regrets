@@ -22,7 +22,7 @@ from pathlib import Path
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    _numpy_to_native
+    _numpy_to_native, materialize_output, snapshot_state
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -144,6 +144,12 @@ def parse_regret(content):
             meta['kwargs'] = val.lower() == 'true'
         elif key == 'outputTransform':
             meta['outputTransform'] = val
+        elif key == 'materializeOutput':
+            meta['materializeOutput'] = val.lower() == 'true'
+        elif key == 'trackMutation':
+            meta['trackMutation'] = val.lower() == 'true'
+        elif key == 'mutationFingerprint':
+            meta['mutationFingerprint'] = val.strip()
         else:
             meta[key] = val
 
@@ -155,6 +161,10 @@ def parse_regret(content):
             meta['output'] = json.loads(line[7:])
         elif line.startswith('HASH '):
             meta['goldenHash'] = line[5:].strip()
+        elif line.startswith('MUTATION_BEFORE '):
+            meta['mutationBefore'] = json.loads(line[16:])
+        elif line.startswith('MUTATION_AFTER '):
+            meta['mutationAfter'] = json.loads(line[15:])
 
     meta['raw'] = content
     return meta
@@ -365,6 +375,8 @@ def main():
             multi_args = cluster_def.get('multiArgs', False)
             kwargs_mode = regret.get('kwargs', cluster_def.get('kwargs', False))
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
+            materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
+            track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
 
             mod = importlib.import_module(module_path)
 
@@ -395,12 +407,18 @@ def main():
                     # Deep-clone input before calling to prevent mutation from corrupting fingerprint
                     input_for_fp = deep_clone(current_input)
                     input_for_args = deep_clone(current_input)
+
+                    # Snapshot input state BEFORE call (for mutation tracking)
+                    input_snapshot_before = None
+                    if track_mutation:
+                        input_snapshot_before = snapshot_state(input_for_args)
+
                     if multi_args and isinstance(input_for_args, list):
-                        output = entry_fn(*input_for_args)
+                        raw_output = entry_fn(*input_for_args)
                         fp_input = input_for_fp
                     elif kwargs_mode and isinstance(input_for_args, dict):
                         # kwargs mode: input dict is unpacked as keyword arguments
-                        output = entry_fn(**input_for_args)
+                        raw_output = entry_fn(**input_for_args)
                         fp_input = input_for_fp
                     elif kwargs_mode and not isinstance(input_for_args, dict):
                         raise TypeError(
@@ -408,14 +426,31 @@ def main():
                             f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
                         )
                     else:
-                        output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                         fp_input = input_for_fp
 
-                    # Consume generators/iterators into lists for fingerprinting
-                    output = consume_generator(output)
+                    # Materialize generator/iterator output if configured
+                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+
+                    # Consume generators/iterators into lists for fingerprinting (always-on fallback)
+                    if not materialize_output_flag:
+                        output = consume_generator(output)
 
                     # Apply output transform if specified
                     output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+                    # Snapshot input state AFTER call (for mutation tracking)
+                    mutation_match = True
+                    if track_mutation:
+                        input_snapshot_after = snapshot_state(input_for_args)
+                        # Check mutation fingerprint matches the golden
+                        golden_mutation_fp = regret.get('mutationFingerprint')
+                        live_mutation_fp = fingerprint(
+                            input_snapshot_before, input_snapshot_after,
+                            norm_rules, ign_fields
+                        )
+                        if golden_mutation_fp and live_mutation_fp != golden_mutation_fp:
+                            mutation_match = False
 
                     last_output = output_for_fp
 
@@ -453,12 +488,16 @@ def main():
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
             # Per-input drift detection: each input must produce the same hash across all runs.
-            # Previous logic used `len(set(hashes)) > 1` which was wrong — it compared
-            # fingerprints from DIFFERENT inputs against each other, causing false drift reports.
             is_drift = drift_mode and any(
                 len(set(input_hashes)) > 1
                 for input_hashes in hashes_per_input.values()
             )
+
+            # Mutation mismatch is a separate failure condition
+            if track_mutation and not mutation_match:
+                print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
+                results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
+                continue
 
             if update_mode:
                 if is_match:
