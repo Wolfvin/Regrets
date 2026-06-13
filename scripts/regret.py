@@ -145,6 +145,9 @@ def main():
         else:
             print('\n❌ Regret guard FAILED — some clusters are red.')
 
+    elif command == 'check':
+        success = run(f'python3 {SCRIPTS_DIR}/check.py {extra_args}')
+
     elif command == 'help':
         print("""
 regret.py — Unified Regret Runner (Python)
@@ -158,6 +161,7 @@ Usage:
   python scripts/regret.py ci                            CI mode (fail-fast)
   python scripts/regret.py rollback <id>                Rollback cluster (re-capture + validate)
   python scripts/regret.py guard                         Pre-build gate
+  python scripts/regret.py check [--cluster <id>]       Pre-flight manifest validation
 
 Auto-detects stack from manifest.json and dispatches to the right handler.
 """)

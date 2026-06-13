@@ -149,6 +149,14 @@ def main():
             abs_python_path = os.path.join(os.getcwd(), python_path)
             if abs_python_path not in sys.path:
                 sys.path.insert(0, abs_python_path)
+        # Support multiple pythonPaths (list or comma-separated string)
+        python_paths = cluster.get('pythonPaths', [])
+        if isinstance(python_paths, str):
+            python_paths = [p.strip() for p in python_paths.split(',')]
+        for pp in python_paths:
+            abs_pp = os.path.join(os.getcwd(), pp)
+            if abs_pp not in sys.path:
+                sys.path.insert(0, abs_pp)
 
     passed = 0
     failed = 0
