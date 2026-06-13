@@ -294,29 +294,30 @@ def main():
 
             mod = importlib.import_module(module_path)
 
-            hashes = []
+            hashes = []           # flat list of all hashes (for backward compat)
+            hashes_per_input = {} # { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
             last_output = None
 
+            # Determine which inputs to validate: golden from .regret + all from manifest
+            all_inputs = cluster_def.get('inputs', [regret.get('input')])
+            inputs_to_validate = [regret.get('input')]
+            for inp in all_inputs:
+                if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
+                    inputs_to_validate.append(inp)
+
             for _ in range(cli['runs']):
-                recorder = []
-                ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
-
-                entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
-                    raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
-
-                # Determine fingerprint mode: .regret file takes precedence over manifest
-                effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
-                effective_value_paths = regret.get('valuePaths') or value_paths or []
-
-                # Determine which inputs to validate: golden from .regret + all from manifest
-                all_inputs = cluster_def.get('inputs', [regret.get('input')])
-                inputs_to_validate = [regret.get('input')]
-                for inp in all_inputs:
-                    if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
-                        inputs_to_validate.append(inp)
-
                 for current_input in inputs_to_validate:
+                    recorder = []
+                    ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
+
+                    entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                    if entry_fn is None or not callable(entry_fn):
+                        raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+
+                    # Determine fingerprint mode: .regret file takes precedence over manifest
+                    effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
+                    effective_value_paths = regret.get('valuePaths') or value_paths or []
+
                     if multi_args and isinstance(current_input, list):
                         output = entry_fn(*current_input)
                         fp_input = current_input
@@ -351,9 +352,21 @@ def main():
 
                     hashes.append(fp)
 
+                    # Track per-input hashes for drift detection
+                    input_key = json.dumps(current_input, sort_keys=True)
+                    if input_key not in hashes_per_input:
+                        hashes_per_input[input_key] = []
+                    hashes_per_input[input_key].append(fp)
+
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+            # Per-input drift detection: each input must produce the same hash across all runs.
+            # Previous logic used `len(set(hashes)) > 1` which was wrong — it compared
+            # fingerprints from DIFFERENT inputs against each other, causing false drift reports.
+            is_drift = drift_mode and any(
+                len(set(input_hashes)) > 1
+                for input_hashes in hashes_per_input.values()
+            )
 
             if update_mode:
                 if is_match:
@@ -368,7 +381,14 @@ def main():
 
             elif drift_mode:
                 if is_drift:
-                    print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(hashes)}]")
+                    # Show per-input drift details
+                    drift_details = []
+                    for input_key, input_hashes in hashes_per_input.items():
+                        if len(set(input_hashes)) > 1:
+                            drift_details.append(f"  input={input_key[:50]}  hashes=[{' / '.join(input_hashes)}]")
+                    print(f"  ❌ {cluster_id:<35} DRIFT")
+                    for detail in drift_details:
+                        print(f"    {detail}")
                     results.append({'id': cluster_id, 'pass': False, 'drift': True})
                 else:
                     icon = '✅' if is_match else '❌'
