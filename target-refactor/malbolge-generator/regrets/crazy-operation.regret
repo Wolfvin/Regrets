@@ -1,0 +1,14 @@
+cluster: crazy-operation
+version: 1
+fingerprint: 4ylidxo
+captured: 2026-06-13T14:20:42.494075+00:00
+watches: [crazy_operation]
+entry: crazy_operation
+stack: python
+fingerprintLevel: entry
+multiArgs: True
+module: malbolge.utils
+---
+INPUT  [0, 0]
+OUTPUT 29524
+HASH   4ylidxo

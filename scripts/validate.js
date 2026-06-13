@@ -222,7 +222,7 @@ async function runCluster(clusterDef, regret) {
     for (const currentInput of inputsToValidate) {
       const recorder = []
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
-      const entryFn  = ghost[entry] ?? mod[entry]
+      const entryFn  = ghost[entry] ?? mod[entry] ?? mod.default?.[entry]
       if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
       // Deep-clone input before calling to prevent mutation from corrupting fingerprint
       const inputForFp = deepClone(currentInput)

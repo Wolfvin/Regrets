@@ -6,9 +6,17 @@ import { createHash } from 'crypto'
 /**
  * Stable JSON stringify — keys sorted recursively.
  * { b:2, a:1 } and { a:1, b:2 } produce identical output.
+ *
+ * Handles Map objects by converting them to sorted entry arrays,
+ * since JSON.stringify(new Map()) produces "{}" which loses all data.
  */
 export function stableStringify(obj) {
   if (obj === null || obj === undefined) return String(obj)
+  // Handle Map — convert to sorted array of entries for deterministic serialization
+  if (obj instanceof Map) {
+    const entries = [...obj.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    return 'Map:' + stableStringify(entries)
+  }
   // Handle TypedArrays (Uint8Array, Int32Array, etc.) — convert to regular arrays
   // so that Uint8Array [1,2,3] serializes as [1,2,3], not {"0":1,"1":2,"2":3}
   if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {

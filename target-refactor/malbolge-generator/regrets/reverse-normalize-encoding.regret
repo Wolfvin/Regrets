@@ -1,0 +1,13 @@
+cluster: reverse-normalize-encoding
+version: 1
+fingerprint: 5mwfgvs
+captured: 2026-06-13T14:20:42.495561+00:00
+watches: [reverse_normalize]
+entry: reverse_normalize
+stack: python
+fingerprintLevel: entry
+module: malbolge.encoding
+---
+INPUT  ["j"]
+OUTPUT ["("]
+HASH   5mwfgvs

@@ -236,3 +236,78 @@ fp := fingerprint(input, result)
 3. For multiple return values, ensure the wrapper struct uses consistent JSON field names and ordering.
 4. Run the cross-stack parity test: `go test -run TestCrossStackParity` in the generated test file.
 5. Compare the intermediate `combined` string (before hashing) from both stacks to isolate where serialization diverges.
+
+---
+
+## TypedArray input produces wrong fingerprint
+
+**Problem:** A function that accepts `Uint8Array` as input produces a different fingerprint when called through Regrets compared to manual computation. Or, the `.regret` file shows `{"0":72,"1":101,...}` instead of `[72,101,...]` for the INPUT.
+
+**Cause:** The `deepClone` function in `ghost.js` converts TypedArrays to regular arrays, but the initial capture in `capture.js` passes the manifest input (a regular JSON array) directly to the function. If the function's behavior differs between `Uint8Array` and `Array` inputs, the fingerprint may not reflect real-world usage. Additionally, `JSON.stringify(new Uint8Array([1,2,3]))` produces `{"0":1,"1":2,"2":3}` which is not a valid array representation.
+
+**Solution:**
+1. Use regular arrays in the manifest `inputs` field — JSON doesn't support `Uint8Array`.
+2. Ensure the target function works correctly with regular `Array` inputs (most do, since methods like `reduce`, `map`, `for...of`, and indexed access work identically on both).
+3. For functions that **require** `Uint8Array` input (e.g., they check `instanceof Uint8Array`), you need to wrap the entry function. Create a thin wrapper module that converts the array to `Uint8Array` before calling the real function, and point the manifest to the wrapper.
+4. Regrets' `deepClone`, `stableStringify`, and `capture.js` all handle TypedArray **outputs** correctly — they automatically convert `Uint8Array` outputs to regular arrays for serialization and fingerprinting.
+5. See `references/binary-encoding.md` for a complete case study using `qntm/braille-encode`.
+
+---
+
+## Binary encoding library: encode/decode roundtrip mismatch
+
+**Problem:** After refactoring a binary encoding library (e.g., base64, hex, Braille encoding), the Regrets validation passes but the encode→decode roundtrip is broken.
+
+**Cause:** Regrets fingerprints encode and decode as separate clusters. If the refactoring changes the encoding mapping slightly but consistently (both encode and decode change in the same way), the fingerprints would still match. However, this would break roundtrip consistency with data encoded before the refactoring.
+
+**Solution:**
+1. Always create **separate clusters** for encode and decode functions — do not combine them.
+2. Include roundtrip test inputs: encode a known array, then decode the result, and verify the decoded output matches the original input.
+3. Use the `inputs` field to cover boundary values: byte 0, byte 255, and multi-byte sequences.
+4. After refactoring, run a manual roundtrip check outside of Regrets to verify cross-consistency.
+5. Document the expected mapping in the cluster description (e.g., "byte 0 maps to Braille U+2800, byte 255 maps to Braille U+28FF").
+
+---
+
+## Function uses Math.random() — drift on every run
+
+**Problem:** `npm run regret:drift` reports drift on a cluster that calls `Math.random()`, `crypto.randomUUID()`, or any other non-deterministic API internally. The output changes every run even though the code hasn't changed.
+
+**Cause:** The function produces different output values on each invocation due to internal randomness. Value-mode fingerprinting hashes the exact output, so different outputs produce different hashes. This is NOT a bug in the code — it's inherent non-determinism.
+
+**Solution:**
+1. Use `"fingerprintMode": "schema"` in the manifest for this cluster. Schema mode fingerprints the *structure* of the output (e.g., "string", "number", "object") rather than the exact values. For a function that always returns a string, the schema fingerprint will be stable across runs even if the string content varies.
+2. If some values matter and some don't, use `"fingerprintMode": "mixed"` with `"valuePaths"` to specify which output fields must match exactly and which can vary.
+3. For functions where you need exact value matching but the randomness is internal, consider extracting the pure logic into a separate function that accepts a deterministic random source as a parameter, then fingerprint the pure version.
+4. Re-capture after switching fingerprint modes: `npm run regret:capture -- --cluster <id>`.
+
+**Example:** A Zalgo text generator uses `Math.random()` to select combining characters. In value mode, each run produces different Zalgo text and drift is detected. Switching to schema mode fingerprints "this function returns a string" which is stable.
+
+---
+
+## Unicode combining characters in fingerprints
+
+**Problem:** Functions that return strings containing Unicode combining characters (e.g., Zalgo text, diacritical marks, emoji with skin tone modifiers) produce fingerprints that look complex or have long serialized forms.
+
+**Cause:** Unicode combining characters (U+0300-U+036F range) are separate code points that visually combine with base characters. `stableStringify` serializes them correctly as their code point representations. The fingerprint is deterministic and consistent as long as the same combining characters are produced.
+
+**Solution:**
+1. This is not a bug — the fingerprint correctly captures the Unicode output. If the same function produces the same combining characters consistently, value mode works perfectly.
+2. If the combining characters are selected randomly (e.g., Zalgo generators), use schema mode instead — it will fingerprint "string" regardless of which combining characters are used.
+3. For roundtrip testing (e.g., encode then decode), use value mode on the decode function which strips the combining characters deterministically.
+4. Be aware that Unicode normalization (NFC vs NFD) can cause the same visual text to have different byte representations. If your runtime normalizes differently across versions, consider adding a normalization rule.
+
+---
+
+## CommonJS module with multi-argument entry functions
+
+**Problem:** A CommonJS module exports a function that takes multiple arguments (e.g., `zalgoGeneration(text, upCount, midCount, downCount)`), and capture fails or produces incorrect fingerprints.
+
+**Cause:** By default, Regrets passes each input as a single argument to the entry function. For multi-argument functions, you must set `"multiArgs": true` in the manifest and provide each input as an array that will be spread as separate arguments.
+
+**Solution:**
+1. Add `"multiArgs": true` to the cluster definition in `manifest.json`.
+2. Provide inputs as arrays: `"inputs": [["hello", 1, 1, 1], ["world", 2, 0, 3]]`.
+3. Each array is spread as separate arguments: `entryFn("hello", 1, 1, 1)`.
+4. Without `multiArgs`, the entire array would be passed as the first argument, causing incorrect behavior or errors.
+5. CommonJS modules work fine with Regrets' dynamic `import()` — the exports are accessible the same way as ES module named exports.
