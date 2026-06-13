@@ -58,7 +58,42 @@ class ContestRunner {
     if (!cluster) throw new Error(`Cluster "${step.cluster}" not found in manifest`)
 
     const absPath = resolve(CWD, cluster.file)
-    const rawModule = await import(pathToFileURL(absPath).href)
+    let rawModule = await import(pathToFileURL(absPath).href)
+
+    // Handle CJS modules — same merge logic as capture.js/validate.js
+    if (rawModule.default && typeof rawModule.default === 'object' && !Array.isArray(rawModule.default)) {
+      const merged = { ...rawModule }
+      for (const key of Object.keys(rawModule.default)) {
+        if (!(key in merged)) merged[key] = rawModule.default[key]
+      }
+      rawModule = merged
+    } else if (rawModule.default && typeof rawModule.default === 'function') {
+      const merged = { ...rawModule }
+      const fnName = rawModule.default.name
+      if (fnName && !(fnName in merged)) merged[fnName] = rawModule.default
+      rawModule = merged
+    }
+
+    // Support classMethod clusters in chains
+    if (cluster.classMethod) {
+      const Cls = rawModule[cluster.constructor ?? cluster.entry] ?? rawModule.default?.[cluster.constructor ?? cluster.entry]
+      if (typeof Cls !== 'function') throw new Error(`Constructor "${cluster.constructor ?? cluster.entry}" not found in ${cluster.file}`)
+      const cArgs = cluster.constructorArgs ? JSON.parse(JSON.stringify(cluster.constructorArgs)) : []
+      const instance = new Cls(...cArgs)
+      if (cluster.setup && cluster.setup.length > 0) {
+        for (const step of cluster.setup) {
+          instance[step.method](...(step.args ? JSON.parse(JSON.stringify(step.args)) : []))
+        }
+      }
+      const input = step.input
+      const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
+      const output = await instance[cluster.classMethod](...args_)
+      const fp = fingerprint(input, output, {
+        normalize: cluster.normalize || [], ignoreFields: cluster.ignoreFields || []
+      })
+      return { cluster: step.cluster, input, output, fingerprint: fp, calls: [] }
+    }
+
     const recorder = []
     const ghostModule = createGhost(rawModule, cluster.watches || [], recorder)
     const entryFn = ghostModule[cluster.entry] ?? rawModule[cluster.entry]
