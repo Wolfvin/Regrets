@@ -1,0 +1,129 @@
+{
+  "clusters": [
+    {
+      "id": "iterate-koch-curve",
+      "entry": "iterateKochCurve",
+      "watches": ["iterateKochCurve"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Koch curve L-System iteration — deterministic string rewriting"
+    },
+    {
+      "id": "iterate-simple",
+      "entry": "iterateSimple",
+      "watches": ["iterateSimple"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Simple L-System iteration with F→F+F-F-F+F production"
+    },
+    {
+      "id": "iterate-multiple",
+      "entry": "iterateMultiple",
+      "watches": ["iterateMultiple"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Multiple sequential iterate() calls on same L-System instance"
+    },
+    {
+      "id": "iterate-utf8",
+      "entry": "iterateUTF8",
+      "watches": ["iterateUTF8"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "UTF8 character L-System iteration"
+    },
+    {
+      "id": "iterate-context-sensitive",
+      "entry": "iterateContextSensitive",
+      "watches": ["iterateContextSensitive"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Context-sensitive production L-System iteration"
+    },
+    {
+      "id": "iterate-parametric",
+      "entry": "iterateParametric",
+      "watches": ["iterateParametric"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Parametric L-System with function-based productions"
+    },
+    {
+      "id": "get-string-from-object-axiom",
+      "entry": "getStringFromObjectAxiom",
+      "watches": ["getStringFromObjectAxiom"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "getString() from object-based axiom with forceObjects=true"
+    },
+    {
+      "id": "transform-classic-cs",
+      "entry": "transformClassicCSProduction",
+      "watches": ["transformClassicCSProduction"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Transform classic context-sensitive production syntax",
+      "inputs": [
+        ["A<B>C", "Z"],
+        ["F", "FF"],
+        ["A<B", "Z"],
+        ["B>C", "X"]
+      ]
+    },
+    {
+      "id": "test-parametric-syntax",
+      "entry": "testClassicParametricSyntax",
+      "watches": ["testClassicParametricSyntax"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Test if axiom uses classic parametric syntax",
+      "inputs": [
+        "A(1,2,5)B(2.5)",
+        "F+F-F",
+        "F(1)"
+      ]
+    },
+    {
+      "id": "string-to-objects",
+      "entry": "stringToObjects",
+      "watches": ["stringToObjects"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert string axiom to array of {symbol} objects",
+      "inputs": [
+        "F+F-F",
+        "F",
+        ""
+      ]
+    },
+    {
+      "id": "match-context-left",
+      "entry": "matchContextLeft",
+      "watches": ["matchContextLeft"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Context-sensitive match function — left direction"
+    },
+    {
+      "id": "match-context-right",
+      "entry": "matchContextRight",
+      "watches": ["matchContextRight"],
+      "file": "regrets-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Context-sensitive match function — right direction"
+    }
+  ]
+}
