@@ -82,8 +82,11 @@ function runPreBuild() {
         execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: process.cwd() })
         console.log(`   ✅ preBuild succeeded\n`)
         return true
-      } catch {
-        console.error(`   ❌ preBuild failed — continuing anyway\n`)
+      } catch (e) {
+        console.error(`   ❌ preBuild failed — fingerprints may be stale!\n`)
+        console.error(`   ⚠️  If preBuild compiles source files that Regrets imports, stale output WILL cause false positives or false negatives.\n`)
+        console.error(`   Fix the preBuild command in regrets/manifest.json before relying on results.\n`)
+        // Return false but don't exit — let the agent decide whether to proceed
         return false
       }
     }

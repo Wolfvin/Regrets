@@ -840,6 +840,7 @@ regression-testing/
     ├── nextjs.md                ← Next.js integration — adapter modules for noEmit projects
     ├── tauri-apps.md            ← Tauri app integration — esbuild transpile + adapter modules
     ├── zustand-store.md          ← Zustand store — extract pure logic from create() closures
+    ├── reexport-hub.md            ← Re-export hub pattern — backward-compatible decomposition
     ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
     ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
     ├── contest.md              ← Chain testing — multi-step flow validation
