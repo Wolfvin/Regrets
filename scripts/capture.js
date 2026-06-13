@@ -157,6 +157,20 @@ for (const cluster of clusters) {
       results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
     }
 
+    // Warn about watched functions that were never called during capture
+    const calledFns = new Set()
+    for (const r of results) {
+      for (const call of r.calls) {
+        calledFns.add(call.fn)
+      }
+    }
+    const uncalledWatches = watches.filter(fn => !calledFns.has(fn))
+    if (uncalledWatches.length > 0) {
+      console.warn(`   ⚠️  Watched function(s) never called during capture: ${uncalledWatches.join(', ')}`)
+      console.warn(`      The fingerprint may be based on incomplete data.`)
+      console.warn(`      Consider splitting into separate clusters or adjusting the entry function.`)
+    }
+
     // Use first run as the golden (representative) for the .regret file
     const { input, output, fp } = results[0]
 
