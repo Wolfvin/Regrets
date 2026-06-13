@@ -92,7 +92,14 @@ function runPreBuild() {
 }
 
 const needsPreBuild = ['capture', 'validate', 'truth', 'drift', 'ci', 'guard', 'chain']
-if (needsPreBuild.includes(command)) {
+const skipBuild = passThroughArgs.includes('--skip-build')
+if (skipBuild) {
+  // Remove --skip-build from args so it doesn't get passed to sub-commands
+  const idx = passThroughArgs.indexOf('--skip-build')
+  if (idx !== -1) passThroughArgs.splice(idx, 1)
+  console.log('\n⏩ Skipping preBuild (--skip-build flag)')
+}
+if (needsPreBuild.includes(command) && !skipBuild) {
   runPreBuild()
 }
 
@@ -362,6 +369,9 @@ Usage:
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
+
+Global flags:
+  --skip-build        Skip preBuild step (use when project is already built)
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js
