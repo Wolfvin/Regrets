@@ -1,0 +1,100 @@
+=== d2g-julian-to-gregorian.regret ===
+cluster: d2g-julian-to-gregorian
+version: 1
+fingerprint: 1wqi591
+captured: 2026-06-13T14:10:39.558Z
+watches: [d2g]
+entry: d2g
+stack: js
+fingerprintLevel: entry
+
+=== d2j-julian-to-jalaali.regret ===
+cluster: d2j-julian-to-jalaali
+version: 1
+fingerprint: 2cl0ilc
+captured: 2026-06-13T14:10:39.558Z
+watches: [d2j]
+entry: d2j
+stack: js
+fingerprintLevel: entry
+
+=== g2d-gregorian-to-julian.regret ===
+cluster: g2d-gregorian-to-julian
+version: 1
+fingerprint: 2kivask
+captured: 2026-06-13T14:10:39.558Z
+watches: [g2d]
+entry: g2d
+stack: js
+fingerprintLevel: entry
+
+=== is-leap-jalaali-year.regret ===
+cluster: is-leap-jalaali-year
+version: 1
+fingerprint: 4m253ff
+captured: 2026-06-13T14:10:39.556Z
+watches: [isLeapJalaaliYear]
+entry: isLeapJalaaliYear
+stack: js
+fingerprintLevel: entry
+
+=== is-valid-jalaali-date.regret ===
+cluster: is-valid-jalaali-date
+version: 1
+fingerprint: 5b77992
+captured: 2026-06-13T14:10:39.556Z
+watches: [isValidJalaaliDate]
+entry: isValidJalaaliDate
+stack: js
+fingerprintLevel: entry
+
+=== j2d-jalaali-to-julian.regret ===
+cluster: j2d-jalaali-to-julian
+version: 1
+fingerprint: 5adcrf6
+captured: 2026-06-13T14:10:39.557Z
+watches: [j2d]
+entry: j2d
+stack: js
+fingerprintLevel: entry
+
+=== jal-cal.regret ===
+cluster: jal-cal
+version: 1
+fingerprint: v1d20xq
+captured: 2026-06-13T14:10:39.557Z
+watches: [jalCal]
+entry: jalCal
+stack: js
+fingerprintLevel: entry
+
+=== jalaali-month-length.regret ===
+cluster: jalaali-month-length
+version: 1
+fingerprint: 67tykov
+captured: 2026-06-13T14:10:39.557Z
+watches: [jalaaliMonthLength]
+entry: jalaaliMonthLength
+stack: js
+fingerprintLevel: entry
+
+=== to-gregorian.regret ===
+cluster: to-gregorian
+version: 1
+fingerprint: 4rcn6td
+captured: 2026-06-13T14:10:39.555Z
+watches: [toGregorian]
+entry: toGregorian
+stack: js
+fingerprintLevel: entry
+
+=== to-jalaali.regret ===
+cluster: to-jalaali
+version: 1
+fingerprint: 634kqca
+captured: 2026-06-13T14:10:39.554Z
+watches: [toJalaali]
+entry: toJalaali
+stack: js
+fingerprintLevel: entry
+
