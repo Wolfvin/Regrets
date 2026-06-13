@@ -318,6 +318,11 @@ switch (command) {
     break
   }
 
+  case 'diagnose': {
+    success = run('node', [`${SCRIPTS_DIR}/diagnose.js`, ...passThroughArgs])
+    break
+  }
+
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -360,6 +365,7 @@ Usage:
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
+  node scripts/regret.js diagnose <file>                Diagnose module exports & recommend mode
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
 
