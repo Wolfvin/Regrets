@@ -1,0 +1,13 @@
+cluster: normalize
+version: 1
+fingerprint: t98ohy1
+captured: 2026-06-13T16:26:21.298029+00:00
+watches: [normalize]
+entry: normalize
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "ﾃｨﾛ･フィナ〜レ"
+OUTPUT "ティロ・フィナーレ"
+HASH   t98ohy1

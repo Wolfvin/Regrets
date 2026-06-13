@@ -1,0 +1,128 @@
+{
+  "alphabet2kana": {
+    "fingerprint": "4mn4sz4",
+    "entry": "alphabet2kana",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"mamisan\"",
+    "output": "\"まみさん\"",
+    "hash": "4mn4sz4"
+  },
+  "alphabet2kata": {
+    "fingerprint": "2iiyfbt",
+    "entry": "alphabet2kata",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"mamisan\"",
+    "output": "\"マミサン\"",
+    "hash": "2iiyfbt"
+  },
+  "enlarge-smallkana": {
+    "fingerprint": "25poxfr",
+    "entry": "enlarge_smallkana",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"さくらきょうこ\"",
+    "output": "\"さくらきようこ\"",
+    "hash": "25poxfr"
+  },
+  "h2z-ascii-digit": {
+    "fingerprint": "2zkvw4g",
+    "entry": "h2z",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " [\"abcd\", \"\", true, true, true]",
+    "output": "\"ａｂｃｄ\"",
+    "hash": "2zkvw4g"
+  },
+  "h2z-default": {
+    "fingerprint": "2solpmo",
+    "entry": "h2z",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"ﾃｨﾛﾌｨﾅｰﾚ\"",
+    "output": "\"ティロフィナーレ\"",
+    "hash": "2solpmo"
+  },
+  "hira2hkata": {
+    "fingerprint": "330zkoe",
+    "entry": "hira2hkata",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"ともえまみ\"",
+    "output": "\"ﾄﾓｴﾏﾐ\"",
+    "hash": "330zkoe"
+  },
+  "hira2kata": {
+    "fingerprint": "3elv23o",
+    "entry": "hira2kata",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"ともえまみ\"",
+    "output": "\"トモエマミ\"",
+    "hash": "3elv23o"
+  },
+  "hiragana2julius": {
+    "fingerprint": "3ckg83v",
+    "entry": "hiragana2julius",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"てんきすごくいいいいいい\"",
+    "output": "\"t e N k i s u g o k u i:\"",
+    "hash": "3ckg83v"
+  },
+  "kana2alphabet": {
+    "fingerprint": "49den39",
+    "entry": "kana2alphabet",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"まみさん\"",
+    "output": "\"mamisan\"",
+    "hash": "49den39"
+  },
+  "kata2alphabet": {
+    "fingerprint": "61uj8ha",
+    "entry": "kata2alphabet",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"マミサン\"",
+    "output": "\"mamisan\"",
+    "hash": "61uj8ha"
+  },
+  "kata2hira": {
+    "fingerprint": "3bqkaty",
+    "entry": "kata2hira",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"マミサン\"",
+    "output": "\"まみさん\"",
+    "hash": "3bqkaty"
+  },
+  "normalize": {
+    "fingerprint": "t98ohy1",
+    "entry": "normalize",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"ﾃｨﾛ･フィナ〜レ\"",
+    "output": "\"ティロ・フィナーレ\"",
+    "hash": "t98ohy1"
+  },
+  "z2h-ascii-digit": {
+    "fingerprint": "f44quxy",
+    "entry": "z2h",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " [\"ＡＢＣＤ\", \"\", true, true, true]",
+    "output": "\"ABCD\"",
+    "hash": "f44quxy"
+  },
+  "z2h-default": {
+    "fingerprint": "53t36xc",
+    "entry": "z2h",
+    "stack": "python",
+    "fingerprintLevel": "entry",
+    "input": " \"ティロフィナーレ\"",
+    "output": "\"ﾃｨﾛﾌｨﾅｰﾚ\"",
+    "hash": "53t36xc"
+  }
+}

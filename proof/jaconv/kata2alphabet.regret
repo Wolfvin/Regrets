@@ -1,0 +1,13 @@
+cluster: kata2alphabet
+version: 1
+fingerprint: 61uj8ha
+captured: 2026-06-13T16:26:21.298773+00:00
+watches: [kata2alphabet, kata2hira, kana2alphabet]
+entry: kata2alphabet
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "マミサン"
+OUTPUT "mamisan"
+HASH   61uj8ha

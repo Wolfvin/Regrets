@@ -1,0 +1,219 @@
+{
+  "clusters": [
+    {
+      "id": "hira2kata",
+      "entry": "hira2kata",
+      "watches": ["hira2kata", "_translate", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Hiragana to Full-width Katakana",
+      "inputs": [
+        "ともえまみ",
+        "まどまぎ",
+        "あいうえお",
+        ""
+      ]
+    },
+    {
+      "id": "hira2hkata",
+      "entry": "hira2hkata",
+      "watches": ["hira2hkata", "_translate", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Hiragana to Half-width Katakana",
+      "inputs": [
+        "ともえまみ",
+        "あいうえお",
+        ""
+      ]
+    },
+    {
+      "id": "kata2hira",
+      "entry": "kata2hira",
+      "watches": ["kata2hira", "_translate", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Full-width Katakana to Hiragana",
+      "inputs": [
+        "マミサン",
+        "トモエマミ",
+        ""
+      ]
+    },
+    {
+      "id": "h2z-default",
+      "entry": "h2z",
+      "watches": ["h2z", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Half-width to Full-width (default: kana only)",
+      "inputs": [
+        "ﾃｨﾛﾌｨﾅｰﾚ",
+        "ｶｷｸｹｺ",
+        ""
+      ]
+    },
+    {
+      "id": "h2z-ascii-digit",
+      "entry": "h2z",
+      "watches": ["h2z", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Half-width to Full-width with ascii and digit flags",
+      "multiArgs": true,
+      "inputs": [
+        ["abcd", "", true, true, true],
+        ["1234", "", true, true, true],
+        ["ABCD1234", "", true, false, true]
+      ]
+    },
+    {
+      "id": "z2h-default",
+      "entry": "z2h",
+      "watches": ["z2h", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Full-width to Half-width (default: kana only)",
+      "inputs": [
+        "ティロフィナーレ",
+        "カキクケコ",
+        ""
+      ]
+    },
+    {
+      "id": "z2h-ascii-digit",
+      "entry": "z2h",
+      "watches": ["z2h", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Full-width to Half-width with ascii and digit flags",
+      "multiArgs": true,
+      "inputs": [
+        ["ＡＢＣＤ", "", true, true, true],
+        ["１２３４", "", true, true, true]
+      ]
+    },
+    {
+      "id": "normalize",
+      "entry": "normalize",
+      "watches": ["normalize"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Normalize Japanese text with Unicode normalization",
+      "inputs": [
+        "ﾃｨﾛ･フィナ〜レ",
+        "ＡＢＣ１２３",
+        ""
+      ]
+    },
+    {
+      "id": "kana2alphabet",
+      "entry": "kana2alphabet",
+      "watches": ["kana2alphabet", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Hiragana to Roman-input-style alphabets",
+      "inputs": [
+        "まみさん",
+        "きゃきゅきょ",
+        "がっこう",
+        ""
+      ]
+    },
+    {
+      "id": "alphabet2kana",
+      "entry": "alphabet2kana",
+      "watches": ["alphabet2kana", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Roman-input-style alphabets to Hiragana",
+      "inputs": [
+        "mamisan",
+        "kyakyukyo",
+        "gakkou",
+        ""
+      ]
+    },
+    {
+      "id": "kata2alphabet",
+      "entry": "kata2alphabet",
+      "watches": ["kata2alphabet", "kata2hira", "kana2alphabet"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Katakana to Roman-input-style alphabets",
+      "inputs": [
+        "マミサン",
+        "キャキュキョ",
+        ""
+      ]
+    },
+    {
+      "id": "alphabet2kata",
+      "entry": "alphabet2kata",
+      "watches": ["alphabet2kata", "alphabet2kana", "hira2kata"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Roman-input-style alphabets to Katakana",
+      "inputs": [
+        "mamisan",
+        "kyakyukyo",
+        ""
+      ]
+    },
+    {
+      "id": "hiragana2julius",
+      "entry": "hiragana2julius",
+      "watches": ["hiragana2julius"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert Hiragana to Julius speech recognizer phoneme format",
+      "inputs": [
+        "てんきすごくいいいいいい",
+        "きゃきゅきょ",
+        "がっこう",
+        ""
+      ]
+    },
+    {
+      "id": "enlarge-smallkana",
+      "entry": "enlarge_smallkana",
+      "watches": ["enlarge_smallkana", "_translate", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert small Kana characters to normal size",
+      "inputs": [
+        "さくらきょうこ",
+        "キュゥべえ",
+        ""
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+cluster: hiragana2julius
+version: 1
+fingerprint: 3ckg83v
+captured: 2026-06-13T16:26:21.299261+00:00
+watches: [hiragana2julius]
+entry: hiragana2julius
+stack: python
+fingerprintLevel: entry
+module: jaconv.jaconv
+---
+INPUT  "てんきすごくいいいいいい"
+OUTPUT "t e N k i s u g o k u i:"
+HASH   3ckg83v
