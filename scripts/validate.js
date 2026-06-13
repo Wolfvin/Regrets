@@ -226,7 +226,8 @@ async function runCluster(clusterDef, regret) {
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
-  const allInputs = clusterDef.inputs ?? [regret.input]
+  // Note: empty array `[]` in manifest is treated as "no inputs specified"
+  const allInputs = (clusterDef.inputs && clusterDef.inputs.length > 0) ? clusterDef.inputs : [regret.input]
   const inputsToValidate = [regret.input]  // Always validate golden first
   for (const inp of allInputs) {
     if (JSON.stringify(inp) !== JSON.stringify(regret.input)) {

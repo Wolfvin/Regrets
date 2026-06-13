@@ -112,7 +112,9 @@ for (const cluster of clusters) {
 
     // Run with provided inputs, or with no args if none specified
     // multiArgs: true → each input is spread as separate arguments
-    const testInputs = inputs ?? [undefined]
+    // Note: empty array `[]` means "no inputs specified" — treat same as undefined
+    // Use `[null]` in manifest to call a zero-argument function once
+    const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
     const results = []
 
     for (const input of testInputs) {
