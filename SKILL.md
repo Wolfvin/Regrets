@@ -457,6 +457,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
+| Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
 
 ---
 
@@ -594,6 +595,7 @@ regression-testing/
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant
     ├── class-based.md           ← Class-based library wrapper pattern
+    ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     └── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
