@@ -276,6 +276,22 @@ def main():
             # module uses dot notation: "src.invoice.processor"
             mod = importlib.import_module(module_path)
 
+            # ── CWD shadowing detection ────────────────────────────────────
+            # When the project directory name matches the package name,
+            # Python may find the CWD as a namespace package instead of
+            # the real package subdirectory. Detect this and warn.
+            if hasattr(mod, '__path__') and not hasattr(mod, '__file__'):
+                # This is a namespace package — check if it's the CWD
+                mod_paths = list(mod.__path__)
+                cwd = os.getcwd()
+                for mp in mod_paths:
+                    if os.path.normpath(mp) == os.path.normpath(cwd):
+                        print(f"   ⚠️  CWD SHADOWING: Module \"{module_path}\" resolves to a namespace package at")
+                        print(f"      {mp} instead of the real package.")
+                        print(f"      This happens when the project directory name matches the package name.")
+                        print(f"      Fix: Run from a different directory, or use `pip install -e .`")
+                        break
+
             # ── classMethod mode ────────────────────────────────────────────
             # For class-based APIs: construct a fresh instance for each input,
             # optionally call setup methods, then call the target method.
