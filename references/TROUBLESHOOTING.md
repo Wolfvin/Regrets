@@ -149,3 +149,90 @@ Common issues encountered during regret-based regression testing, with causes an
 3. For numeric precision issues (e.g., `1.0` vs `1`), add a normalize rule or round numbers in the function output before fingerprinting.
 4. Run the integration test suite (`npm run regret:test`) — it includes cross-stack parity checks that will flag any algorithm divergence.
 5. If the mismatch persists, compare the intermediate `INPUT_HASH` and `OUTPUT_HASH` from both stacks to isolate whether the issue is in input serialization or output serialization.
+
+---
+
+## Go capture fails: go not found
+
+**Problem:** Running `bash scripts/capture_go.sh capture` produces `⚠️ Go is not installed.`
+
+**Cause:** The Go toolchain (`go` binary) is not installed on the system, or not in the PATH. The Go stack requires the Go compiler and `go test` tool to generate and run capture tests.
+
+**Solution:**
+1. Install Go from https://go.dev/dl/ or via your package manager (`apt install golang-go`, `brew install go`, etc.).
+2. Verify installation: `go version` should output a version string.
+3. Ensure the project's `go.mod` file exists and dependencies are resolved: `go mod tidy`.
+4. Re-run capture after installing Go.
+
+---
+
+## Go capture: generated test file has compilation errors
+
+**Problem:** The generated `regret_capture_test.go` file fails to compile with errors like `undefined: ToValidBF` or `cannot import package`.
+
+**Cause:** The generated test file references functions and packages based on the manifest configuration, but the `goPackage` path is incorrect, or the function is unexported (lowercase in Go), or the test file is in the wrong package. Go requires that: the import path matches the `go.mod` module declaration; exported function names start with uppercase letters; and test files in the same package can access unexported functions.
+
+**Solution:**
+1. Verify `goPackage` matches the module path in `go.mod` plus the subdirectory: if `go.mod` says `module github.com/user/repo` and the file is at `lang/readcode/read.go`, then `goPackage` should be `"github.com/user/repo/lang/readcode"`.
+2. For unexported functions (lowercase first letter), the test file must be in the same Go package (use `package readcode` not `package readcode_test`).
+3. Check that the function name in `entry` matches the exact Go function name including case.
+4. Run `go build ./...` from the project root to verify all packages compile before running capture.
+
+---
+
+## Go cluster: function has multiple return values
+
+**Problem:** The target Go function returns multiple values (e.g., `func MatchLoopIndices(index int, code string) (int, int, string)`) and the capture fails because the fingerprinter expects a single JSON-serializable value.
+
+**Cause:** The fingerprint algorithm serializes output to JSON. Go's multiple return values are not a single JSON-serializable object by default. They need to be wrapped into a struct.
+
+**Solution:**
+1. In the generated test file, wrap the multiple return values into a struct before fingerprinting:
+```go
+type MatchLoopIndicesResult struct {
+    Start int    `json:"start"`
+    End   int    `json:"end"`
+    Expr  string `json:"expr"`
+}
+start, end, expr := interpreter.MatchLoopIndices(0, "++[>++<-]")
+result := MatchLoopIndicesResult{Start: start, End: end, Expr: expr}
+fp := fingerprint(input, result)
+```
+2. Alternatively, add a `resultWrapper` field to the manifest cluster definition to specify the struct type name.
+3. See `references/go.md` for the full multi-return-value handling pattern.
+
+---
+
+## Go cluster: function is a method on a struct
+
+**Problem:** The target function is a method (has a receiver) like `func (ctx *BfContext) EvalExprWithContext(code string)`, but the manifest `entry` field only specifies function names.
+
+**Cause:** Go methods require a receiver instance to call. The capture script needs to know how to construct the receiver before calling the method.
+
+**Solution:**
+1. Add the `receiver` field to the manifest cluster to specify the constructor function:
+```json
+{
+  "id": "eval-expr",
+  "entry": "EvalExprWithContext",
+  "receiver": "NewBfContext",
+  "stack": "go"
+}
+```
+2. The capture script generates code that calls `receiver()` to create the struct, then calls `entry()` on it.
+3. For methods that modify struct state (like `EvalExprWithContext`), consider extracting the pure logic into a standalone function for easier fingerprinting. See `references/go.md` for pure logic extraction patterns.
+
+---
+
+## Cross-stack hash mismatch between JS and Go
+
+**Problem:** The same function fingerprinted in both JS and Go produces different hashes for identical input/output data.
+
+**Cause:** The fingerprint algorithm depends on stable JSON serialization with sorted keys. Go's `encoding/json` and JS's `JSON.stringify` handle edge cases differently: Go uses `null` for nil pointers, `true`/`false` for booleans; numeric formatting may differ (e.g., `1e+06` vs `1000000`); and `stableStringify` in Go must exactly mirror the JS implementation's handling of types.
+
+**Solution:**
+1. Both the JS (`fingerprint.js`) and Go implementations use `stableStringify` with sorted keys — verify you are using the latest versions.
+2. Check for type mismatches: Go `int` values may serialize differently than JS `number`. Use `float64` for all numeric values in the Go fingerprint to match JS behavior.
+3. For multiple return values, ensure the wrapper struct uses consistent JSON field names and ordering.
+4. Run the cross-stack parity test: `go test -run TestCrossStackParity` in the generated test file.
+5. Compare the intermediate `combined` string (before hashing) from both stacks to isolate where serialization diverges.

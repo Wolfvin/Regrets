@@ -182,6 +182,10 @@ async function runCluster(clusterDef, regret) {
     console.log(`  ⏭️  ${clusterDef.id}: stack=rust — use capture_rust.sh validate`)
     return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
   }
+  if (stack === 'go') {
+    console.log(`  ⏭️  ${clusterDef.id}: stack=go — use capture_go.sh validate`)
+    return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
+  }
 
   // React stack: re-render component and compare
   if (stack === 'react') {
