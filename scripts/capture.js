@@ -360,9 +360,19 @@ for (const cluster of clusters) {
     }
     const uncalledWatches = watches.filter(fn => !calledFns.has(fn))
     if (uncalledWatches.length > 0) {
-      console.warn(`   ⚠️  Watched function(s) never called during capture: ${uncalledWatches.join(', ')}`)
-      console.warn(`      The fingerprint may be based on incomplete data.`)
-      console.warn(`      Consider splitting into separate clusters or adjusting the entry function.`)
+      if (fingerprintLevel === 'entry') {
+        // When fingerprinting at entry level, uncalled watches are EXPECTED.
+        // The Ghost Proxy only intercepts module-level exports, not internal calls.
+        // The entry function calls watched functions internally, but the proxy
+        // doesn't see those calls — it only sees calls through the proxied module.
+        console.log(`   ℹ️  Watched function(s) not called through proxy: ${uncalledWatches.join(', ')}`)
+        console.log(`      This is expected with fingerprintLevel: "entry" — internal calls aren't proxied.`)
+        console.log(`      The fingerprint is still valid (based on entry function output).`)
+      } else {
+        console.warn(`   ⚠️  Watched function(s) never called during capture: ${uncalledWatches.join(', ')}`)
+        console.warn(`      The fingerprint may be based on incomplete data.`)
+        console.warn(`      Consider splitting into separate clusters or adjusting the entry function.`)
+      }
     }
 
     // Warn when fingerprintLevel is 'watched' or 'full' but no calls were recorded.
