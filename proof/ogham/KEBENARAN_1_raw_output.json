@@ -1,0 +1,37 @@
+{
+  "convert-default": {
+    "eire": "᚛ᚓᚔᚏᚓ᚜",
+    "hello": "᚛ᚆᚓᚂᚂᚑ᚜",
+    "is maith liom tae": "᚛ᚔᚄ ᚋᚐᚔᚈᚆ ᚂᚔᚑᚋ ᚈᚐᚓ᚜",
+    "": "᚛᚜",
+    "abc": "᚛ᚐᚁᚉ᚜",
+    "dbca": "᚛ᚇᚁᚉᚐ᚜"
+  },
+  "convert-no-boundary": {
+    "eire": "ᚓᚔᚏᚓ",
+    "hello": "ᚆᚓᚂᚂᚑ",
+    "is maith liom tae": "ᚔᚄ ᚋᚐᚔᚈᚆ ᚂᚔᚑᚋ ᚈᚐᚓ",
+    "": "",
+    "abc": "ᚐᚁᚉ"
+  },
+  "convert-with-forfeda": {
+    "is maith liom tae": "᚛ᚔᚄ ᚋᚐᚔᚈᚆ ᚂᚔᚑᚋ ᚈᚙ᚜",
+    "eire": "᚛ᚓᚔᚏᚓ᚜",
+    "ea oi ui ia ae": "᚛ᚕ ᚖ ᚗ ᚘ ᚙ᚜"
+  },
+  "convert-with-phonetics": {
+    "jkvwxy": "᚛ᚌᚊᚃᚒᚒᚎᚔ᚜",
+    "keys": "᚛ᚊᚓᚔᚄ᚜",
+    "jolly van xray": "᚛ᚌᚑᚂᚂᚔ ᚃᚐᚅ ᚎᚏᚐᚔ᚜"
+  },
+  "convert-forfeda-phonetics": {
+    "keys": "᚛ᚊᚓᚔᚄ᚜",
+    "jkvwxy ea oi": "᚛ᚌᚊᚃᚒᚒᚎᚔ ᚕ ᚖ᚜",
+    "jolly van xray": "᚛ᚌᚑᚂᚂᚔ ᚃᚐᚅ ᚎᚏᚐᚔ᚜"
+  },
+  "convert-phonetics-no-boundary": {
+    "hello": "ᚆᚓᚂᚂᚑ",
+    "jkvwxy": "ᚌᚊᚃᚒᚒᚎᚔ",
+    "keys": "ᚊᚓᚔᚄ"
+  }
+}
