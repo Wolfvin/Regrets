@@ -455,6 +455,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
+| Class-based libraries | Wrapper module pattern | Value / Schema / Mixed | See `references/class-based.md` |
 
 ---
 
@@ -591,6 +592,7 @@ regression-testing/
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant
+    ├── class-based.md           ← Class-based library wrapper pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     └── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
@@ -613,6 +615,7 @@ regression-testing/
    - React → `references/react.md`
    - Extension → `references/extension.md`
    - Go → `references/go.md`
+   - Class-based → `references/class-based.md`
 
 ### Decision Tree: Which Script to Use?
 
