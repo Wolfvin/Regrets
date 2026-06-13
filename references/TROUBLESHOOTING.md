@@ -239,6 +239,36 @@ fp := fingerprint(input, result)
 
 ---
 
+## TypedArray input produces wrong fingerprint
+
+**Problem:** A function that accepts `Uint8Array` as input produces a different fingerprint when called through Regrets compared to manual computation. Or, the `.regret` file shows `{"0":72,"1":101,...}` instead of `[72,101,...]` for the INPUT.
+
+**Cause:** The `deepClone` function in `ghost.js` converts TypedArrays to regular arrays, but the initial capture in `capture.js` passes the manifest input (a regular JSON array) directly to the function. If the function's behavior differs between `Uint8Array` and `Array` inputs, the fingerprint may not reflect real-world usage. Additionally, `JSON.stringify(new Uint8Array([1,2,3]))` produces `{"0":1,"1":2,"2":3}` which is not a valid array representation.
+
+**Solution:**
+1. Use regular arrays in the manifest `inputs` field — JSON doesn't support `Uint8Array`.
+2. Ensure the target function works correctly with regular `Array` inputs (most do, since methods like `reduce`, `map`, `for...of`, and indexed access work identically on both).
+3. For functions that **require** `Uint8Array` input (e.g., they check `instanceof Uint8Array`), you need to wrap the entry function. Create a thin wrapper module that converts the array to `Uint8Array` before calling the real function, and point the manifest to the wrapper.
+4. Regrets' `deepClone`, `stableStringify`, and `capture.js` all handle TypedArray **outputs** correctly — they automatically convert `Uint8Array` outputs to regular arrays for serialization and fingerprinting.
+5. See `references/binary-encoding.md` for a complete case study using `qntm/braille-encode`.
+
+---
+
+## Binary encoding library: encode/decode roundtrip mismatch
+
+**Problem:** After refactoring a binary encoding library (e.g., base64, hex, Braille encoding), the Regrets validation passes but the encode→decode roundtrip is broken.
+
+**Cause:** Regrets fingerprints encode and decode as separate clusters. If the refactoring changes the encoding mapping slightly but consistently (both encode and decode change in the same way), the fingerprints would still match. However, this would break roundtrip consistency with data encoded before the refactoring.
+
+**Solution:**
+1. Always create **separate clusters** for encode and decode functions — do not combine them.
+2. Include roundtrip test inputs: encode a known array, then decode the result, and verify the decoded output matches the original input.
+3. Use the `inputs` field to cover boundary values: byte 0, byte 255, and multi-byte sequences.
+4. After refactoring, run a manual roundtrip check outside of Regrets to verify cross-consistency.
+5. Document the expected mapping in the cluster description (e.g., "byte 0 maps to Braille U+2800, byte 255 maps to Braille U+28FF").
+
+---
+
 ## Function uses Math.random() — drift on every run
 
 **Problem:** `npm run regret:drift` reports drift on a cluster that calls `Math.random()`, `crypto.randomUUID()`, or any other non-deterministic API internally. The output changes every run even though the code hasn't changed.
