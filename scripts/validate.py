@@ -294,7 +294,8 @@ def main():
 
             mod = importlib.import_module(module_path)
 
-            hashes = []
+            hashes = []           # flat list of all hashes (for backward compat)
+            hashes_per_input = {}   # { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
             last_output = None
 
             for _ in range(cli['runs']):
@@ -351,9 +352,18 @@ def main():
 
                     hashes.append(fp)
 
+                    # Track per-input hashes for drift detection
+                    input_key = json.dumps(current_input, sort_keys=True)
+                    if input_key not in hashes_per_input:
+                        hashes_per_input[input_key] = []
+                    hashes_per_input[input_key].append(fp)
+
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+            # Per-input drift detection: each input must produce the same hash across all runs.
+            # Previous logic used `len(set(hashes)) > 1` which was wrong — it compared
+            # fingerprints from DIFFERENT inputs against each other, causing false drift reports.
+            is_drift = drift_mode and any(len(set(input_hashes)) > 1 for input_hashes in hashes_per_input.values())
 
             if update_mode:
                 if is_match:
