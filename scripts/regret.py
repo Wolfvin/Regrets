@@ -133,6 +133,14 @@ def main():
         if success:
             success = run(f'python3 {SCRIPTS_DIR}/validate.py --cluster {target_cluster}') and success
 
+    elif command == 'chain':
+        stacks = detect_stacks()
+        for stack in stacks:
+            if stack == 'python':
+                success = run(f'python3 {SCRIPTS_DIR}/contest.py {extra_args}') and success
+            else:
+                success = run(f'node {SCRIPTS_DIR}/contest.mjs {extra_args}') and success
+
     elif command == 'guard':
         stacks = detect_stacks()
         for stack in stacks:
@@ -157,6 +165,7 @@ Usage:
   python scripts/regret.py drift [--cluster <id>]       Drift detection (5 runs)
   python scripts/regret.py ci                            CI mode (fail-fast)
   python scripts/regret.py rollback <id>                Rollback cluster (re-capture + validate)
+  python scripts/regret.py chain [--capture|--validate]  Chain testing (multi-step flows)
   python scripts/regret.py guard                         Pre-build gate
 
 Auto-detects stack from manifest.json and dispatches to the right handler.

@@ -142,6 +142,8 @@ def parse_regret(content):
             meta['valuePaths'] = [p.strip() for p in val.strip('[]').split(',') if p.strip()]
         elif key == 'outputTransform':
             meta['outputTransform'] = val
+        elif key == 'kwargs':
+            meta['kwargs'] = val
         else:
             meta[key] = val
 
@@ -354,6 +356,7 @@ def main():
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
+            kwargs_mode = regret.get('kwargs') == 'true' or cluster_def.get('kwargs', False)
 
             mod = importlib.import_module(module_path)
 
@@ -386,6 +389,9 @@ def main():
                     input_for_args = deep_clone(current_input)
                     if multi_args and isinstance(input_for_args, list):
                         output = entry_fn(*input_for_args)
+                        fp_input = input_for_fp
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        output = entry_fn(**input_for_args)
                         fp_input = input_for_fp
                     else:
                         output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()

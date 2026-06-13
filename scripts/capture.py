@@ -246,6 +246,7 @@ def main():
         multi_args = cluster.get('multiArgs', False)
         inputs = cluster.get('inputs', [None])
         output_transform = cluster.get('outputTransform', None)
+        kwargs_mode = cluster.get('kwargs', False)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -279,6 +280,11 @@ def main():
 
                 if multi_args and isinstance(input_for_args, list):
                     output = entry_fn(*input_for_args)
+                    fp_input = input_for_record
+                elif kwargs_mode and isinstance(input_for_args, dict):
+                    # kwargs mode: spread dict as keyword arguments
+                    # Input like {"sql": "...", "reindent": true} → entry_fn(sql="...", reindent=True)
+                    output = entry_fn(**input_for_args)
                     fp_input = input_for_record
                 else:
                     output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
@@ -343,6 +349,8 @@ def main():
                 lines.append(f"ignoreFields: [{', '.join(ignore_fields)}]")
             if cluster.get('multiArgs'):
                 lines.append(f"multiArgs: {multi_args}")
+            if kwargs_mode:
+                lines.append(f"kwargs: true")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
             if output_transform:

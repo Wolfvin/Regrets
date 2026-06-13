@@ -169,7 +169,15 @@ switch (command) {
   }
 
   case 'chain': {
-    success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs])
+    const stacks = detectStacks()
+    // Use Python chain runner for Python stacks, JS contest.mjs for JS stacks
+    for (const stack of stacks) {
+      if (stack === 'python') {
+        success = run('python3', [`${SCRIPTS_DIR}/contest.py`, ...passThroughArgs]) && success
+      } else {
+        success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
+      }
+    }
     break
   }
 

@@ -186,6 +186,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
 | `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `len`, `type`, or `"module.fn"` for custom (Python & JS) |
+| `kwargs` | ❌ | `true` → spread dict input as keyword arguments (Python). E.g., `{"sql": "...", "reindent": true}` → `entry_fn(sql="...", reindent=True)` |
 
 ---
 
