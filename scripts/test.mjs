@@ -370,6 +370,56 @@ assert(typeof fp_unicode === 'string' && fp_unicode.length === 7, 'fingerprint h
 const fp_special = fingerprint('hello\n\t\r"\\', 'world<>%$')
 assert(typeof fp_special === 'string' && fp_special.length === 7, 'fingerprint handles special characters')
 
+// ─── 13.5. TypedArray Support ─────────────────────────────────────────────────
+
+console.log('\n🧪 TypedArray Support\n')
+
+// Uint8Array fingerprinting — must serialize as array, not indexed object
+const uint8 = new Uint8Array([212, 29, 140, 217])
+const fp_uint8 = fingerprint('input', uint8)
+assert(typeof fp_uint8 === 'string' && fp_uint8.length === 7, 'fingerprint handles Uint8Array output')
+
+// Uint8Array must produce same fingerprint as equivalent array
+const fp_array_equiv = fingerprint('input', [212, 29, 140, 217])
+assertEqual(fp_uint8, fp_array_equiv, 'Uint8Array fingerprint matches equivalent array')
+
+// Different TypedArray values must produce different hashes
+const uint8_diff = new Uint8Array([0, 0, 0, 0])
+const fp_uint8_diff = fingerprint('input', uint8_diff)
+assert(fp_uint8 !== fp_uint8_diff, 'different TypedArray values produce different hashes')
+
+// stableStringify TypedArray
+const ss_uint8 = stableStringify(new Uint8Array([1, 2, 3]))
+assertEqual(ss_uint8, '[1,2,3]', 'stableStringify serializes Uint8Array as array')
+
+// normalize TypedArray
+const norm_uint8 = normalize(new Uint8Array([1, 2, 3]), [])
+assert(Array.isArray(norm_uint8), 'normalize converts TypedArray to array')
+
+// stripFields TypedArray
+const stripped_uint8 = stripFields(new Uint8Array([1, 2, 3]), ['x'])
+assert(Array.isArray(stripped_uint8), 'stripFields converts TypedArray to array')
+
+// extractSchema TypedArray
+const schema_uint8 = extractSchema(new Uint8Array([1, 2, 3]))
+assertEqual(JSON.stringify(schema_uint8), JSON.stringify(['number']), 'extractSchema handles TypedArray')
+
+// Int32Array
+const int32 = new Int32Array([1000, 2000])
+const fp_int32 = fingerprint('input', int32)
+assert(typeof fp_int32 === 'string' && fp_int32.length === 7, 'fingerprint handles Int32Array')
+
+// deepClone TypedArray
+const cloned_uint8 = deepClone(new Uint8Array([10, 20, 30]))
+assert(Array.isArray(cloned_uint8), 'deepClone converts TypedArray to array')
+assertEqual(cloned_uint8[0], 10, 'deepClone preserves TypedArray values')
+assertEqual(cloned_uint8[2], 30, 'deepClone preserves all TypedArray values')
+
+// Float64Array
+const f64 = new Float64Array([1.5, 2.5, 3.5])
+const fp_f64 = fingerprint('input', f64)
+assert(typeof fp_f64 === 'string' && fp_f64.length === 7, 'fingerprint handles Float64Array')
+
 // ─── 14. E2E Full-Cycle Test ──────────────────────────────────────────────────
 
 console.log('\n🧪 End-to-End Full Cycle Test\n')

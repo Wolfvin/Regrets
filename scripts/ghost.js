@@ -5,8 +5,14 @@
 /**
  * Deep clone a value via JSON round-trip.
  * Handles most JSON-compatible values. Non-JSON values pass through unchanged.
+ * TypedArrays are converted to regular arrays so they serialize deterministically.
  */
 export function deepClone(val) {
+  // Handle TypedArrays — convert to regular array before cloning
+  // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
+  if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
+    return Array.from(val)
+  }
   try { return JSON.parse(JSON.stringify(val)) } catch { return val }
 }
 
