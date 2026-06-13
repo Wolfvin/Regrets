@@ -269,7 +269,9 @@ Add these to the target project's `package.json`:
   "regret:test": "node ../../The-skill/regresion-testing/scripts/test.mjs",
   "regret:init": "node ../../The-skill/regresion-testing/scripts/init.js",
   "regret:rollback": "node ../../The-skill/regresion-testing/scripts/regret.js rollback",
-  "regret:chain": "node ../../The-skill/regresion-testing/scripts/regret.js chain"
+  "regret:chain": "node ../../The-skill/regresion-testing/scripts/regret.js chain",
+  "regret:coverage": "node ../../The-skill/regresion-testing/scripts/regret.js coverage",
+  "regret:scan": "node ../../The-skill/regresion-testing/scripts/regret.js scan"
 }
 ```
 
@@ -280,6 +282,8 @@ Add these to the target project's `package.json`:
 - `regret:init` — scaffold regrets/ directory with manifest template
 - `regret:rollback` — re-capture a specific cluster (undo bad update)
 - `regret:chain` — chain testing (multi-step flow validation)
+- `regret:coverage` — branch coverage analysis (detects under-covered clusters)
+- `regret:scan` — scan project for cluster suggestions (useful for new projects)
 - The unified runner (`regret.js`) auto-detects stack from manifest and dispatches to the right handler. You can also call individual scripts directly (see Decision Tree below).
 - Install globally with `npm link` (from the skill directory) to use `regret capture` directly
 - Programmatic API: `import { fingerprint, createGhost } from 'regret-testing'`
@@ -396,6 +400,67 @@ Health score is derived from:
 
 **SOLID** clusters → don't touch, they represent stable contracts
 **FRAGILE** clusters → candidates for deeper refactor or cluster split
+
+---
+
+## Gap 4 — Branch Coverage Analysis
+
+A cluster with 1 input for a function that has 5 branches only protects ONE execution path. A refactor that breaks the other 4 branches will **still show GREEN** because the fingerprint was never tested with inputs that exercise those paths.
+
+```bash
+node scripts/coverage.js
+node scripts/coverage.js --cluster validate-age --verbose
+```
+
+Output:
+
+```
+BRANCH COVERAGE REPORT
+──────────────────────────────────────────────────────────────────────
+cluster                    inputs  branches  coverage  status
+──────────────────────────────────────────────────────────────────────
+validate-age               1       5         20%       🔴 UNDER-COVERED
+format-currency            3       3         100%      ✅ WELL-COVERED
+──────────────────────────────────────────────────────────────────────
+
+⚠️  Coverage Recommendations:
+  validate-age  → add at least 4 more input(s) to cover branches
+```
+
+The coverage tool counts decision points (`if/else`, ternary, switch/case, early returns, try/catch, `&&`/`||`) in watched functions and compares against the number of inputs in the manifest.
+
+**Rules:**
+- `inputs >= branches` → MINIMUM requirement
+- Coverage < 50% → UNDER-COVERED (exits with code 1, CI gate fails)
+- Coverage 50-79% → PARTIAL
+- Coverage ≥ 80% → WELL-COVERED
+
+### Scan Command
+
+For new projects, use `regret scan` to discover candidate functions:
+
+```bash
+node scripts/scan.js                              # scan entire project
+node scripts/scan.js --dir src/lib/               # scan specific directory
+node scripts/scan.js --stack python               # filter by stack
+node scripts/scan.js --format manifest            # output as manifest.json snippet
+```
+
+The scan identifies exported functions, estimates cyclomatic complexity, and suggests clusters prioritized by complexity.
+
+Read `references/branch-coverage.md` for the full specification and branch-map pattern.
+
+---
+
+## Gap 5 — Project Scanner
+
+When approaching an unfamiliar codebase, use `regret scan` to discover candidate functions for clustering:
+
+```bash
+node scripts/scan.js
+```
+
+This scans the project, identifies exported functions, estimates cyclomatic complexity, and suggests clusters. Use `--format manifest` to generate a starting manifest.json.
 
 ---
 
@@ -582,6 +647,8 @@ regression-testing/
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
 │   ├── capture_go.sh           ← Go cluster capture runner (community preview)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation)
+│   ├── coverage.js             ← branch coverage analysis (detect under-covered clusters)
+│   ├── scan.js                 ← project scanner (suggest clusters from source)
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
 │   └── test.mjs                ← integration test suite (209 tests)
 └── references/
@@ -598,6 +665,7 @@ regression-testing/
     ├── esoteric-language.md     ← Esoteric language interpreter testing pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
+    ├── branch-coverage.md     ← branch coverage analysis and branch-map pattern
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
     ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
     ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
@@ -840,17 +908,18 @@ Follow this **in order**, do not skip any step:
 ```
 [ ] 1. npm run regret:build (tsc only — preserves individual JS files)
 [ ] 2. npm run regret:capture (capture all cluster fingerprints)
-[ ] 3. npm run regret:drift (5 runs — ensure ALL STABLE)
-[ ] 4. If DRIFT detected → add normalize rules to manifest, re-capture
-[ ] 5. npm run regret:health — ensure all SOLID
-[ ] 6. Perform the refactor
-[ ] 7. npm run regret:build (rebuild tsc after refactor)
-[ ] 8. npm run regret:validate — all must still be GREEN
-[ ] 9. If any RED:
+[ ] 3. npm run regret:coverage (check branch coverage — add inputs if UNDER-COVERED)
+[ ] 4. npm run regret:drift (5 runs — ensure ALL STABLE)
+[ ] 5. If DRIFT detected → add normalize rules to manifest, re-capture
+[ ] 6. npm run regret:health — ensure all SOLID
+[ ] 7. Perform the refactor
+[ ] 8. npm run regret:build (rebuild tsc after refactor)
+[ ] 9. npm run regret:validate — all must still be GREEN
+[ ] 10. If any RED:
       [ ] Read fingerprint diff — see which input/output changed
       [ ] Do NOT edit .regret files — fix the CODE
       [ ] If behavior intentionally changed → npm run regret:update -- <cluster> --reason "..."
-[ ] 10. All green → npm run build → then push
+[ ] 11. All green → npm run build → then push
 ```
 
 ---

@@ -10,7 +10,8 @@
 //   node scripts/regret.js drift
 //   node scripts/regret.js ci
 //   node scripts/regret.js guard
-
+//   node scripts/regret.js coverage [--cluster <id>] [--verbose]
+//   node scripts/regret.js scan [--dir src/] [--stack js] [--format manifest]
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -173,6 +174,16 @@ switch (command) {
     break
   }
 
+  case 'coverage': {
+    success = run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs])
+    break
+  }
+
+  case 'scan': {
+    success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs])
+    break
+  }
+
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -206,6 +217,8 @@ Usage:
   node scripts/regret.js ci                            CI mode (fail-fast)
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows)
+  node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
+  node scripts/regret.js scan [--dir src/] [--stack js] Scan project for cluster suggestions
   node scripts/regret.js guard                         Pre-build gate
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
