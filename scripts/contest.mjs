@@ -10,8 +10,9 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, stableStringify, normalize, stripFields } from './fingerprint.js'
-import { createGhost } from './ghost.js'
+import { createGhost, deepClone } from './ghost.js'
 import { createHash } from 'crypto'
+import { execFileSync } from 'child_process'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -57,6 +58,12 @@ class ContestRunner {
     const cluster = this.findCluster(step.cluster)
     if (!cluster) throw new Error(`Cluster "${step.cluster}" not found in manifest`)
 
+    // Python stack: delegate to a Python subprocess for chain step execution
+    if (cluster.stack === 'python') {
+      return await this.runPythonStep(step, cluster)
+    }
+
+    // JS/TS stack: use dynamic import + Ghost Proxy
     const absPath = resolve(CWD, cluster.file)
     let rawModule = await import(pathToFileURL(absPath).href)
 
@@ -106,6 +113,38 @@ class ContestRunner {
       normalize: cluster.normalize || [], ignoreFields: cluster.ignoreFields || []
     })
     return { cluster: step.cluster, input, output, fingerprint: fp, calls: [...recorder] }
+  }
+
+  async runPythonStep(step, cluster) {
+    /** Run a single chain step for a Python cluster by invoking a Python subprocess. */
+    const scriptPath = join(__dirname, '_chain_step.py')
+    const payload = JSON.stringify({
+      cluster_id: step.cluster,
+      entry: cluster.entry,
+      module: cluster.module || cluster.file || '',
+      python_path: cluster.pythonPath || '',
+      multi_args: cluster.multiArgs || false,
+      input: step.input,
+      normalize: cluster.normalize || [],
+      ignore_fields: cluster.ignoreFields || [],
+    })
+    try {
+      const result = execFileSync('python3', [scriptPath, payload], {
+        encoding: 'utf8',
+        cwd: CWD,
+        maxBuffer: 10 * 1024 * 1024,
+      })
+      const parsed = JSON.parse(result.trim())
+      return {
+        cluster: step.cluster,
+        input: step.input,
+        output: parsed.output,
+        fingerprint: parsed.fingerprint,
+        calls: [],
+      }
+    } catch (err) {
+      throw new Error(`Python chain step failed for "${step.cluster}": ${err.message}`)
+    }
   }
 
   async runChain(chainId) {
