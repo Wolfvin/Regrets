@@ -258,10 +258,17 @@ def main():
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
         track_mutation = cluster.get('trackMutation', False)
+        class_method = cluster.get('classMethod', None)
+        constructor_name = cluster.get('constructor', entry)
+        constructor_args = cluster.get('constructorArgs', [])
+        setup_steps = cluster.get('setup', [])
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
-        print(f"   Entry:   {entry}")
+        if class_method:
+            print(f"   Class:   {constructor_name} → {class_method}()")
+        else:
+            print(f"   Entry:   {entry}")
         print(f"   Watches: {', '.join(watches)}")
 
         try:
@@ -269,78 +276,98 @@ def main():
             # module uses dot notation: "src.invoice.processor"
             mod = importlib.import_module(module_path)
 
-            # Read classMethod-related fields
-            class_method = cluster.get('classMethod', None)
-            constructor_name = cluster.get('constructor', None)
-            constructor_args = cluster.get('constructorArgs', [])
-            setup = cluster.get('setup', [])
-            instance_methods = cluster.get('instanceMethods', {})
+            # ── classMethod mode ────────────────────────────────────────────
+            # For class-based APIs: construct a fresh instance for each input,
+            # optionally call setup methods, then call the target method.
+            #
+            # This is essential for stateful classes (e.g., inflect.engine)
+            # where methods like classical() mutate instance state and affect
+            # subsequent calls. A fresh instance per input ensures clean state
+            # and deterministic fingerprints.
+            #
+            # Manifest fields:
+            #   classMethod: "methodName"          — the instance method to fingerprint
+            #   constructor: "ClassName"           — class to instantiate (default: entry)
+            #   constructorArgs: [...]             — args for the constructor
+            #   setup: [{ method, args }, ...]     — setup calls before the target method
 
-            recorder_local = []
-            ghost = create_ghost(mod, watches, recorder_local)
-
-            # Handle class-based entry points
             if class_method:
-                # Class method mode: instantiate class, optionally run setup, then call classMethod
-                cls_name = constructor_name or entry
-                Cls = getattr(ghost, cls_name, None) or getattr(mod, cls_name, None)
-                if Cls is None:
-                    raise TypeError(f'Class "{cls_name}" not found in {module_path}')
+                Cls = getattr(mod, constructor_name, None)
+                if Cls is None or not isinstance(Cls, type):
+                    raise TypeError(
+                        f"Constructor \"{constructor_name}\" not found or not a class in {module_path}"
+                    )
+                if setup_steps:
+                    print(f"   Setup:   {', '.join(s['method'] + '()' for s in setup_steps)}")
 
                 # Run with provided inputs
                 results = []
                 for input_val in inputs:
                     recorder_local = []
-                    ghost = create_ghost(mod, watches, recorder_local)
 
+                    # Deep-clone input BEFORE calling the function
                     input_for_record = deep_clone(input_val)
                     input_for_args = deep_clone(input_val)
 
-                    # Snapshot input state BEFORE call
-                    input_snapshot_before = None
-                    if track_mutation:
-                        input_snapshot_before = snapshot_state(input_for_args)
+                    # Create fresh instance for each input
+                    c_args = deep_clone(constructor_args) if constructor_args else []
+                    instance = Cls(*c_args)
 
-                    # Create fresh instance for each input to avoid state leakage
-                    Cls_fresh = getattr(ghost, cls_name, None) or getattr(mod, cls_name, None)
-                    instance = Cls_fresh(*deep_clone(constructor_args))
+                    # Apply ghost proxy to instance methods for watch recording
+                    for watch_fn in watches:
+                        orig_method = getattr(instance, watch_fn, None)
+                        if orig_method is not None and callable(orig_method):
+                            def make_instance_ghost(orig, name, rec):
+                                @wraps(orig)
+                                def wrapper(*a, **kw):
+                                    try:
+                                        result = orig(*a, **kw)
+                                        rec.append({
+                                            'fn': name,
+                                            'args': deep_clone(a),
+                                            'result': deep_clone(result),
+                                        })
+                                        return result
+                                    except Exception as err:
+                                        rec.append({
+                                            'fn': name,
+                                            'args': deep_clone(a),
+                                            'error': str(err),
+                                        })
+                                        raise
+                                return wrapper
+                            setattr(instance, watch_fn, make_instance_ghost(orig_method, watch_fn, recorder_local))
 
-                    # Wrap instance methods if instanceMethods specified
-                    if instance_methods:
-                        for cls_key, method_names in instance_methods.items():
-                            if cls_key == cls_name or cls_key == entry:
-                                for method_name in method_names:
-                                    orig_method = getattr(instance, method_name, None)
-                                    if orig_method and callable(orig_method):
-                                        def make_ghost_method(orig, name, rec):
-                                            @wraps(orig)
-                                            def wrapper(*a, **kw):
-                                                try:
-                                                    result = orig(*a, **kw)
-                                                    rec.append({'fn': name, 'args': deep_clone(a), 'result': deep_clone(result)})
-                                                    return result
-                                                except Exception as err:
-                                                    rec.append({'fn': name, 'args': deep_clone(a), 'error': str(err)})
-                                                    raise
-                                            return wrapper
-                                        setattr(instance, method_name, make_ghost_method(orig_method, method_name, recorder_local))
+                    # Run setup methods (e.g., classical(all=True))
+                    for step in setup_steps:
+                        setup_method = getattr(instance, step.get('method', ''), None)
+                        if setup_method is None or not callable(setup_method):
+                            raise TypeError(
+                                f"Setup method \"{step.get('method')}\" not found on instance"
+                            )
+                        setup_args = deep_clone(step.get('args', []))
+                        if isinstance(setup_args, list):
+                            setup_method(*setup_args)
+                        elif isinstance(setup_args, dict):
+                            setup_method(**setup_args)
+                        else:
+                            setup_method(setup_args)
 
-                    # Run setup steps on the instance
-                    for step_setup in setup:
-                        method_fn = getattr(instance, step_setup.get('method', ''), None)
-                        if method_fn:
-                            step_args = step_setup.get('args', [])
-                            method_fn(*deep_clone(step_args))
+                    # Call the target method
+                    target_method = getattr(instance, class_method, None)
+                    if target_method is None or not callable(target_method):
+                        raise TypeError(
+                            f"Method \"{class_method}\" not found on instance"
+                        )
 
-                    # Call the classMethod
+                    # Handle multiArgs and kwargs
                     if multi_args and isinstance(input_for_args, list):
-                        raw_output = getattr(instance, class_method)(*input_for_args)
+                        raw_output = target_method(*input_for_args)
                     elif kwargs_mode and isinstance(input_for_args, dict):
-                        raw_output = getattr(instance, class_method)(**input_for_args)
-                    elif input_for_args is not None:
-                        raw_output = getattr(instance, class_method)(input_for_args)
+                        raw_output = target_method(**input_for_args)
                     else:
-                        raw_output = getattr(instance, class_method)()
+                        raw_output = target_method(input_for_args) if input_for_args is not None else target_method()
+
                     fp_input = input_for_record
 
                     # Materialize generator/iterator output if configured
@@ -348,25 +375,15 @@ def main():
                     if was_materialized:
                         print(f"   🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)")
 
+                    # Consume generators/iterators into lists for fingerprinting (always-on fallback)
                     if not materialize_output_flag:
                         raw_type_name = type(output).__name__
                         output = consume_generator(output)
                         if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
                             print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
 
+                    # Apply output transform if specified
                     output_for_fp = apply_output_transform(deep_clone(output), output_transform)
-
-                    # Snapshot input state AFTER call
-                    input_snapshot_after = None
-                    input_mutation_fingerprint = None
-                    if track_mutation:
-                        input_snapshot_after = snapshot_state(input_for_args)
-                        input_mutation_fingerprint = fingerprint(
-                            input_snapshot_before, input_snapshot_after,
-                            normalize_rules, ignore_fields
-                        )
-                        if input_snapshot_before != input_snapshot_after:
-                            print(f"   ⚠️  Input mutation detected! Fingerprint: {input_mutation_fingerprint}")
 
                     if fingerprint_mode == 'schema':
                         schema = extract_schema(output_for_fp)
@@ -396,14 +413,15 @@ def main():
                         'output': output_for_fp,
                         'fp': fp,
                         'calls': list(recorder_local),
-                        'input_snapshot_before': input_snapshot_before,
-                        'input_snapshot_after': input_snapshot_after,
-                        'input_mutation_fingerprint': input_mutation_fingerprint,
                         'was_materialized': was_materialized,
                     })
 
             else:
-                # Function-based entry (original logic)
+                # ── Function-based entry (original behavior) ────────────────
+                recorder_local = []
+                ghost = create_ghost(mod, watches, recorder_local)
+
+                # Get entry function from ghost module
                 entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
                 if entry_fn is None or not callable(entry_fn):
                     raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
@@ -461,7 +479,6 @@ def main():
                     input_mutation_fingerprint = None
                     if track_mutation:
                         input_snapshot_after = snapshot_state(input_for_args)
-                        # Compute mutation fingerprint — if input changed, this hash will differ
                         input_mutation_fingerprint = fingerprint(
                             input_snapshot_before, input_snapshot_after,
                             normalize_rules, ignore_fields
@@ -528,10 +545,18 @@ def main():
                 f"fingerprint: {fp}",
                 f"captured: {timestamp}",
                 f"watches: [{', '.join(watches)}]",
-                f"entry: {entry}",
-                "stack: python",
-                f"fingerprintLevel: {fingerprint_level}",
             ]
+            if class_method:
+                lines.append(f"constructor: {constructor_name}")
+                lines.append(f"classMethod: {class_method}")
+                if constructor_args:
+                    lines.append(f"constructorArgs: {json_serialize(constructor_args)}")
+                if setup_steps:
+                    lines.append(f"setup: {json_serialize(setup_steps)}")
+            else:
+                lines.append(f"entry: {entry}")
+            lines.append("stack: python")
+            lines.append(f"fingerprintLevel: {fingerprint_level}")
             if fingerprint_mode != 'value':
                 lines.append(f"fingerprintMode: {fingerprint_mode}")
             if value_paths:
@@ -546,16 +571,6 @@ def main():
                 lines.append(f"kwargs: {kwargs_mode}")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
-            if class_method:
-                lines.append(f"classMethod: {class_method}")
-            if constructor_name:
-                lines.append(f"constructor: {constructor_name}")
-            if constructor_args:
-                lines.append(f"constructorArgs: {json_serialize(constructor_args)}")
-            if setup:
-                lines.append(f"setup: {json_serialize(setup)}")
-            if instance_methods:
-                lines.append(f"instanceMethods: {json_serialize(instance_methods)}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
             if materialize_output_flag:
