@@ -17,8 +17,10 @@ from datetime import datetime, timezone
 # Import shared fingerprint module
 from fingerprint import (
     normalize, strip_fields, to_base36,
-    deep_clone, fingerprint, extract_schema
+    deep_clone, fingerprint, extract_schema,
+    materialize_output
 )
+from capture import consume_generator
 
 
 def parse_args():
@@ -76,6 +78,9 @@ class ContestRunner:
         norm_rules = cluster.get('normalize', [])
         ign_fields = cluster.get('ignoreFields', [])
         multi_args = cluster.get('multiArgs', False)
+        kwargs_mode = cluster.get('kwargs', False)
+        output_transform = cluster.get('outputTransform', None)
+        materialize_output_flag = cluster.get('materializeOutput', False)
 
         mod = importlib.import_module(module_path)
         entry_fn = getattr(mod, entry_name, None)
@@ -85,12 +90,27 @@ class ContestRunner:
         input_val = step['input']
         if multi_args and isinstance(input_val, list):
             output = entry_fn(*input_val)
+        elif kwargs_mode and isinstance(input_val, dict):
+            output = entry_fn(**input_val)
+        elif kwargs_mode and input_val is not None and not isinstance(input_val, dict):
+            raise TypeError(
+                f"kwargs=True but input is {type(input_val).__name__}, not dict."
+            )
         elif input_val is None:
             output = entry_fn()
         else:
             output = entry_fn(input_val)
 
-        fp = fingerprint(deep_clone(input_val), deep_clone(output), norm_rules, ign_fields)
+        # Materialize generators/iterators
+        if materialize_output_flag:
+            output, _ = materialize_output(output)
+        output = consume_generator(output)
+
+        # Apply output transform
+        from capture import apply_output_transform
+        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+        fp = fingerprint(deep_clone(input_val), output_for_fp, norm_rules, ign_fields)
         return {
             'cluster': step['cluster'],
             'input': input_val,

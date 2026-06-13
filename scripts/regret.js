@@ -267,7 +267,16 @@ switch (command) {
   }
 
   case 'verify-kebenaran': {
-    success = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs])
+    const stacks = detectStacks()
+    let kebenaranOk = true
+    for (const stack of stacks) {
+      if (stack === 'python') {
+        kebenaranOk = run('python3', [`${SCRIPTS_DIR}/verify_kebenaran.py`, ...passThroughArgs]) && kebenaranOk
+      } else {
+        kebenaranOk = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs]) && kebenaranOk
+      }
+    }
+    success = kebenaranOk
     break
   }
 
