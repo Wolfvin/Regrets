@@ -164,7 +164,9 @@ async function runReactCluster(clusterDef, regret) {
     lastOutput = html
   }
 
-  return { hashes, lastOutput }
+  // React only uses golden input, so hashesPerInput is trivially grouped
+  const hashesPerInput = [{ input: regret.input, hashes }]
+  return { hashes, hashesPerInput, lastOutput }
 }
 
 // ─── Run cluster N times ──────────────────────────────────────────────────────
@@ -193,7 +195,8 @@ async function runCluster(clusterDef, regret) {
   }
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
-  const hashes = []
+  const hashes = []          // flat list of all hashes (for backward compat)
+  const hashesPerInput = []  // grouped by input for per-input drift detection
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
@@ -205,8 +208,11 @@ async function runCluster(clusterDef, regret) {
     }
   }
 
-  for (let i = 0; i < runs; i++) {
-    for (const currentInput of inputsToValidate) {
+  for (let inputIdx = 0; inputIdx < inputsToValidate.length; inputIdx++) {
+    const currentInput = inputsToValidate[inputIdx]
+    const inputHashes = []
+
+    for (let i = 0; i < runs; i++) {
       const recorder = []
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
       const entryFn  = ghost[entry] ?? mod[entry]
@@ -245,9 +251,12 @@ async function runCluster(clusterDef, regret) {
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
       hashes.push(fp)
-    } // end for each input
-  } // end for each run
-  return { hashes, lastOutput }
+      inputHashes.push(fp)
+    } // end for each run
+
+    hashesPerInput.push({ input: currentInput, hashes: inputHashes })
+  } // end for each input
+  return { hashes, hashesPerInput, lastOutput }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +315,13 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, hashesPerInput, lastOutput, skipped } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Per-input drift detection: each input must produce a stable hash across runs.
+    // Different inputs producing different hashes is NOT drift — it's expected.
+    const isDrift  = driftMode && hashesPerInput.some(({ hashes: inputHashes }) => new Set(inputHashes).size > 1)
 
     if (updateMode) {
       if (isMatch) {
