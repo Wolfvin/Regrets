@@ -595,6 +595,8 @@ regression-testing/
     ├── extension.md            ← Browser extension variant
     ├── class-based.md           ← Class-based library wrapper pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
+    ├── case-study-pustaka.md      ← case study: Pustaka date library (TypeScript)
+    ├── case-study-shakespearelang.md ← case study: SPL interpreter (Python)
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     └── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
 ```

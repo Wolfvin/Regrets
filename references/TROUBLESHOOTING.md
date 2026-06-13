@@ -75,6 +75,7 @@ Common issues encountered during regret-based regression testing, with causes an
 3. Verify the `module` field uses correct dot notation: `"invoice.processor"` maps to `invoice/processor.py`.
 4. Test the import manually: `cd <project-root> && python3 -c "from invoice.processor import process_invoice"`.
 5. If using a virtual environment, ensure the regret scripts are invoked with the correct Python interpreter (check the `python3` path).
+6. **For non-installed projects:** If the project is cloned but not installed via `pip install -e .`, add `"pythonPath": "."` to each cluster in the manifest. This adds the project root to `sys.path` before `importlib.import_module()` is called, allowing the module to be found. Without this, you'll get `ModuleNotFoundError` even though the code runs fine when invoked directly with `python3 -c "from mypackage import ..."`.
 
 ---
 
