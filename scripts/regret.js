@@ -12,7 +12,7 @@
 //   node scripts/regret.js guard
 //   node scripts/regret.js coverage [--cluster <id>] [--verbose]
 //   node scripts/regret.js scan [--dir src/] [--stack js] [--format manifest]
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { execFileSync } from 'child_process'
@@ -215,8 +215,22 @@ switch (command) {
           if (!hasId) issues.push('missing id')
           if (!hasEntry) issues.push('missing entry')
           if (!hasFile) issues.push('missing file')
+          // Check that the referenced file actually exists on disk
+          if (hasFile) {
+            const filePath = resolve(process.cwd(), cluster.file)
+            if (!existsSync(filePath)) {
+              issues.push(`file not found: ${cluster.file}`)
+              ok = false
+            }
+          }
           console.log(`  ${icon} ${cluster.id || '(unnamed)'}${issues.length ? ' — ' + issues.join(', ') : ''}`)
-          if (issues.length) ok = false
+          if (issues.length && !(hasId && hasEntry && hasFile)) ok = false
+        }
+        // Check preBuild if present
+        if (manifest.preBuild) {
+          console.log(`  🔧 preBuild: ${manifest.preBuild}`)
+        } else {
+          console.log(`  ⚠️  No preBuild — if this is a TypeScript project, add "preBuild": "npx tsc" to manifest`)
         }
         success = ok
       } catch (e) {
