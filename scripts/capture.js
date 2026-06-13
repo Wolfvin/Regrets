@@ -55,11 +55,16 @@ let failed = 0
 
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
-          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs } = cluster
+          fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
+          classMethod, constructor: constructorName, constructorArgs, setup } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
-  console.log(`   Entry:   ${entry}`)
+  if (classMethod) {
+    console.log(`   Class:   ${constructorName ?? entry} → ${classMethod}()`)
+  } else {
+    console.log(`   Entry:   ${entry}`)
+  }
   console.log(`   Watches: ${watches.join(', ')}`)
 
   if (stack && stack !== 'js' && stack !== 'ts') {
@@ -101,68 +106,136 @@ for (const cluster of clusters) {
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder)
 
-    // Entry function from ghost module
-    // Supports both ESM named exports and CommonJS default exports.
-    // CommonJS modules imported via dynamic import() may nest exports
-    // under .default, so we check: mod.fn → mod.default.fn → error
-    const entryFn = ghostModule[entry] ?? rawModule[entry] ?? rawModule.default?.[entry]
-    if (typeof entryFn !== 'function') {
-      throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
-    }
+    // ─── classMethod mode ─────────────────────────────────────────────────
+    // For class-based APIs: construct an instance, optionally call setup
+    // methods, then call the target method and fingerprint its output.
+    //
+    // Manifest fields:
+    //   classMethod: "methodName"          — the instance method to fingerprint
+    //   constructor: "ClassName"           — class to instantiate (default: entry)
+    //   constructorArgs: [...]             — args for the constructor
+    //   setup: [{ method, args }, ...]     — setup calls before the target method
+    //
+    // If classMethod is set, the flow is:
+    //   1. new ClassName(...constructorArgs) → instance
+    //   2. For each setup: instance[setup.method](...setup.args)
+    //   3. instance.classMethod(input) → output (fingerprint this)
+    //   4. Watches are applied to instance methods via ghost proxy
 
-    // Run with provided inputs, or with no args if none specified
-    // multiArgs: true → each input is spread as separate arguments
-    // Note: empty array `[]` means "no inputs specified" — treat same as undefined
-    // Use `[null]` in manifest to call a zero-argument function once
     const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
     const results = []
 
-    for (const input of testInputs) {
-      recorder.length = 0  // clear between runs
-      // Deep-clone input BEFORE calling the function to prevent mutation from
-      // corrupting the stored fingerprint. Two clones: one for the .regret file
-      // (immutable record), one for the args (may be mutated by the function)
-      const inputForRecord = deepClone(input)
-      const inputForArgs = deepClone(input)
-      const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
-      const rawOutput = await entryFn(...args_)
-      // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
-      // from the same serializable data that will be stored in the .regret file.
-      // Without this, non-serializable properties (functions, circular refs) would be
-      // present during fingerprinting but absent in the stored OUTPUT — causing the
-      // .regret file's data to be irreproducible from its own hash.
-      const output = deepClone(rawOutput)
+    if (classMethod) {
+      // ── Class-based entry ────────────────────────────────────────────────
+      const Cls = rawModule[constructorName ?? entry] ?? rawModule.default?.[constructorName ?? entry]
+      if (typeof Cls !== 'function') {
+        throw new Error(`Constructor "${constructorName ?? entry}" not found or not a class in ${file}`)
+      }
+      const cArgs = constructorArgs ? deepClone(constructorArgs) : []
 
-      const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
+      for (const input of testInputs) {
+        recorder.length = 0
+        const instance = new Cls(...cArgs)
 
-      // Determine fingerprint based on fingerprintMode
-      let fp
-      if (fingerprintMode === 'schema') {
-        const schema = extractSchema(output)
-        fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
-      } else if (fingerprintMode === 'mixed') {
-        const schema = extractSchema(output)
-        const selectedValues = {}
-        for (const path of valuePaths) {
-          // Simple dot-notation extraction (e.g., "$.status" → output.status)
-          const key = path.replace(/^\$\./, '')
-          const parts = key.split('.')
-          let val = output
-          for (const p of parts) {
-            val = val?.[p]
+        // Apply ghost proxy to instance methods for watch recording
+        for (const watchFn of watches) {
+          if (typeof instance[watchFn] === 'function') {
+            const original = instance[watchFn].bind(instance)
+            instance[watchFn] = new Proxy(original, {
+              apply(target, thisArg, args) {
+                const result = target(...args)
+                recorder.push({ fn: watchFn, args: deepClone(args), result: deepClone(result) })
+                return result
+              }
+            })
           }
-          if (val !== undefined) selectedValues[path] = val
         }
-        const combined = { schema, values: selectedValues }
-        fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
-      } else {
-        // Default: value mode
-        fp = fingerprintLevel === 'entry'
-          ? fingerprint(fpInput, output, { normalize, ignoreFields })
-          : fingerprintSequence(recorder, { normalize, ignoreFields })
+
+        // Run setup methods
+        if (setup && setup.length > 0) {
+          for (const step of setup) {
+            if (typeof instance[step.method] !== 'function') {
+              throw new Error(`Setup method "${step.method}" not found on instance`)
+            }
+            instance[step.method](...(step.args ? deepClone(step.args) : []))
+          }
+        }
+
+        // Call the target method
+        if (typeof instance[classMethod] !== 'function') {
+          throw new Error(`Method "${classMethod}" not found on instance`)
+        }
+        const inputForRecord = deepClone(input)
+        const inputForArgs = deepClone(input)
+        const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const rawOutput = await instance[classMethod](...args_)
+        const output = deepClone(rawOutput)
+
+        const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
+
+        let fp
+        if (fingerprintMode === 'schema') {
+          const schema = extractSchema(output)
+          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+        } else if (fingerprintMode === 'mixed') {
+          const schema = extractSchema(output)
+          const selectedValues = {}
+          for (const path of valuePaths) {
+            const key = path.replace(/^\$\./, '')
+            const parts = key.split('.')
+            let val = output
+            for (const p of parts) { val = val?.[p] }
+            if (val !== undefined) selectedValues[path] = val
+          }
+          fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
+        } else {
+          fp = fingerprintLevel === 'entry'
+            ? fingerprint(fpInput, output, { normalize, ignoreFields })
+            : fingerprintSequence(recorder, { normalize, ignoreFields })
+        }
+
+        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+      }
+    } else {
+      // ── Function-based entry (original behavior) ───────────────────────
+      const entryFn = ghostModule[entry] ?? rawModule[entry] ?? rawModule.default?.[entry]
+      if (typeof entryFn !== 'function') {
+        throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
       }
 
-      results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+      for (const input of testInputs) {
+        recorder.length = 0  // clear between runs
+        const inputForRecord = deepClone(input)
+        const inputForArgs = deepClone(input)
+        const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const rawOutput = await entryFn(...args_)
+        const output = deepClone(rawOutput)
+
+        const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
+
+        let fp
+        if (fingerprintMode === 'schema') {
+          const schema = extractSchema(output)
+          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+        } else if (fingerprintMode === 'mixed') {
+          const schema = extractSchema(output)
+          const selectedValues = {}
+          for (const path of valuePaths) {
+            const key = path.replace(/^\$\./, '')
+            const parts = key.split('.')
+            let val = output
+            for (const p of parts) { val = val?.[p] }
+            if (val !== undefined) selectedValues[path] = val
+          }
+          fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
+        } else {
+          fp = fingerprintLevel === 'entry'
+            ? fingerprint(fpInput, output, { normalize, ignoreFields })
+            : fingerprintSequence(recorder, { normalize, ignoreFields })
+        }
+
+        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+      }
     }
 
     // Warn about watched functions that were never called during capture
@@ -193,13 +266,16 @@ for (const cluster of clusters) {
       `fingerprint: ${fp}`,
       `captured: ${timestamp}`,
       `watches: [${watches.join(', ')}]`,
-      `entry: ${entry}`,
+      classMethod ? `constructor: ${constructorName ?? entry}` : `entry: ${entry}`,
+      classMethod ? `classMethod: ${classMethod}` : null,
       `stack: ${stack ?? 'js'}`,
       `fingerprintLevel: ${fingerprintLevel}`,
       fingerprintMode !== 'value' ? `fingerprintMode: ${fingerprintMode}` : null,
       valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+      constructorArgs?.length ? `constructorArgs: ${JSON.stringify(constructorArgs)}` : null,
+      setup?.length ? `setup: ${JSON.stringify(setup)}` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,

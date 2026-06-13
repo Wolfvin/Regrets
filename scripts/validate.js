@@ -61,6 +61,7 @@ function parseRegret(content) {
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'version') meta.version = Number(val)
+    else if (key === 'constructorArgs' || key === 'setup') meta[key] = JSON.parse(val)
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
@@ -184,7 +185,8 @@ async function runReactCluster(clusterDef, regret) {
 
 async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
-          multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack } = clusterDef
+          multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
+          classMethod, constructor: constructorName, constructorArgs, setup } = clusterDef
 
   // Skip stacks not handled by this validator
   if (stack === 'python') {
@@ -238,25 +240,64 @@ async function runCluster(clusterDef, regret) {
   for (let i = 0; i < runs; i++) {
     for (const currentInput of inputsToValidate) {
       const recorder = []
-      const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
-      const entryFn  = ghost[entry] ?? mod[entry] ?? mod.default?.[entry]
-      if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
-      // Deep-clone input before calling to prevent mutation from corrupting fingerprint
-      const inputForFp = deepClone(currentInput)
-      const inputForArgs = deepClone(currentInput)
-      // multiArgs: spread input as separate arguments (use separate clone for args)
-      const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
-      const rawOutput = await entryFn(...args_)
-      // Deep-clone output BEFORE fingerprinting to match capture.js behavior.
-      // Ensures fingerprints are computed from serializable data only, making
-      // .regret file data reproducible from its own hash.
-      const output   = deepClone(rawOutput)
-      lastOutput     = output
-      const fpInput  = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
+      let output
+      let fpInput
 
-      // Determine fingerprint based on fingerprintMode (from .regret or manifest)
+      // Determine fingerprint mode (from .regret or manifest)
       const mode = regret.fingerprintMode || fingerprintMode || 'value'
       const paths = regret.valuePaths || valuePaths || []
+
+      if (classMethod) {
+        // ── Class-based entry ─────────────────────────────────────────────
+        const Cls = mod[constructorName ?? entry] ?? mod.default?.[constructorName ?? entry]
+        if (typeof Cls !== 'function') throw new Error(`Constructor "${constructorName ?? entry}" not found in ${file}`)
+        const cArgs = constructorArgs ? deepClone(constructorArgs) : []
+        const instance = new Cls(...cArgs)
+
+        // Apply ghost proxy to instance methods
+        for (const watchFn of (regret.watches ?? clusterDef.watches)) {
+          if (typeof instance[watchFn] === 'function') {
+            const original = instance[watchFn].bind(instance)
+            instance[watchFn] = new Proxy(original, {
+              apply(target, thisArg, args) {
+                const result = target(...args)
+                recorder.push({ fn: watchFn, args: deepClone(args), result: deepClone(result) })
+                return result
+              }
+            })
+          }
+        }
+
+        // Run setup methods
+        if (setup && setup.length > 0) {
+          for (const step of setup) {
+            instance[step.method](...(step.args ? deepClone(step.args) : []))
+          }
+        }
+
+        // Call target method
+        const inputForFp = deepClone(currentInput)
+        const inputForArgs = deepClone(currentInput)
+        const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const rawOutput = await instance[classMethod](...args_)
+        output = deepClone(rawOutput)
+        lastOutput = output
+        fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
+      } else {
+        // ── Function-based entry (original behavior) ──────────────────────
+        const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
+        const entryFn  = ghost[entry] ?? mod[entry] ?? mod.default?.[entry]
+        if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
+        const inputForFp = deepClone(currentInput)
+        const inputForArgs = deepClone(currentInput)
+        const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const rawOutput = await entryFn(...args_)
+        output = deepClone(rawOutput)
+        lastOutput = output
+        fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
+      }
+
+      // Compute fingerprint
       let fp
       if (mode === 'schema') {
         const schema = extractSchema(output)
@@ -276,7 +317,6 @@ async function runCluster(clusterDef, regret) {
         const combined = { schema, values: selectedValues }
         fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
       } else {
-        // Default: value mode
         fp = fingerprintLevel === 'entry'
           ? fingerprint(fpInput, output, { normalize, ignoreFields })
           : fingerprintSequence(recorder, { normalize, ignoreFields })
