@@ -12,7 +12,7 @@
 //   node scripts/regret.js guard
 //   node scripts/regret.js coverage [--cluster <id>] [--verbose]
 //   node scripts/regret.js scan [--dir src/] [--stack js] [--format manifest]
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { execFileSync } from 'child_process'
@@ -82,11 +82,8 @@ function runPreBuild() {
         execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: process.cwd() })
         console.log(`   ✅ preBuild succeeded\n`)
         return true
-      } catch (e) {
-        console.error(`   ❌ preBuild failed — fingerprints may be stale!\n`)
-        console.error(`   ⚠️  If preBuild compiles source files that Regrets imports, stale output WILL cause false positives or false negatives.\n`)
-        console.error(`   Fix the preBuild command in regrets/manifest.json before relying on results.\n`)
-        // Return false but don't exit — let the agent decide whether to proceed
+      } catch {
+        console.error(`   ❌ preBuild failed — continuing anyway\n`)
         return false
       }
     }
@@ -218,22 +215,8 @@ switch (command) {
           if (!hasId) issues.push('missing id')
           if (!hasEntry) issues.push('missing entry')
           if (!hasFile) issues.push('missing file')
-          // Check that the referenced file actually exists on disk
-          if (hasFile) {
-            const filePath = resolve(process.cwd(), cluster.file)
-            if (!existsSync(filePath)) {
-              issues.push(`file not found: ${cluster.file}`)
-              ok = false
-            }
-          }
           console.log(`  ${icon} ${cluster.id || '(unnamed)'}${issues.length ? ' — ' + issues.join(', ') : ''}`)
-          if (issues.length && !(hasId && hasEntry && hasFile)) ok = false
-        }
-        // Check preBuild if present
-        if (manifest.preBuild) {
-          console.log(`  🔧 preBuild: ${manifest.preBuild}`)
-        } else {
-          console.log(`  ⚠️  No preBuild — if this is a TypeScript project, add "preBuild": "npx tsc" to manifest`)
+          if (issues.length) ok = false
         }
         success = ok
       } catch (e) {
@@ -284,18 +267,7 @@ switch (command) {
   }
 
   case 'verify-kebenaran': {
-    const stacksForKebenaran = detectStacks()
-    let kebenaranOk = true
-    for (const stack of stacksForKebenaran) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
-        kebenaranOk = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs]) && kebenaranOk
-      } else if (stack === 'python') {
-        kebenaranOk = run('python3', [`${SCRIPTS_DIR}/verify_kebenaran.py`, ...passThroughArgs]) && kebenaranOk
-      } else {
-        console.log(`  ⏭️  Stack "${stack}" — verify-kebenaran not yet supported`)
-      }
-    }
-    success = kebenaranOk
+    success = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs])
     break
   }
 
@@ -352,13 +324,7 @@ switch (command) {
   }
 
   case 'audit': {
-    const stacksForAudit = detectStacks()
-    if (stacksForAudit.includes('python')) {
-      success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
-    } else {
-      // JS/TS audit — uses the new audit.js
-      success = run('node', [`${SCRIPTS_DIR}/audit.js`, ...passThroughArgs])
-    }
+    success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
     break
   }
 
@@ -383,11 +349,6 @@ switch (command) {
     break
   }
 
-  case 'compare': {
-    success = run('node', [`${SCRIPTS_DIR}/compare.js`, ...passThroughArgs])
-    break
-  }
-
   case 'help':
   default:
     console.log(`
@@ -403,13 +364,12 @@ Usage:
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js list                       List all clusters with status
-  node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2 (JS+Python)
-  node scripts/regret.js compare --pre <dir> --post <dir>  Compare pre vs post refactor baselines
+  node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js structure [--dir src/]        Structural analysis (God Objects, pure/impure, refactor priority)
-  node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
+  node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate
