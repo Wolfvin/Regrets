@@ -100,76 +100,152 @@ for (const cluster of clusters) {
     for (const input of testInputs) {
       recorder.length = 0  // clear between runs
       const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
-      const output = await entryFn(...args_)
-      
       const fpInput = cluster.multiArgs && Array.isArray(input) ? input : input
 
-      // Determine fingerprint based on fingerprintMode
-      let fp
-      if (fingerprintMode === 'schema') {
-        const schema = extractSchema(output)
-        fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
-      } else if (fingerprintMode === 'mixed') {
-        const schema = extractSchema(output)
-        const selectedValues = {}
-        for (const path of valuePaths) {
-          // Simple dot-notation extraction (e.g., "$.status" → output.status)
-          const key = path.replace(/^\$\./, '')
-          const parts = key.split('.')
-          let val = output
-          for (const p of parts) {
-            val = val?.[p]
-          }
-          if (val !== undefined) selectedValues[path] = val
-        }
-        const combined = { schema, values: selectedValues }
-        fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
-      } else {
-        // Default: value mode
-        fp = fingerprintLevel === 'entry'
-          ? fingerprint(fpInput, output, { normalize, ignoreFields })
-          : fingerprintSequence(recorder, { normalize, ignoreFields })
+      let output, errorResult
+      try {
+        output = await entryFn(...args_)
+      } catch (err) {
+        // Error path: record the error as the output for fingerprinting
+        // This allows error-path regression testing — ensures the same errors
+        // are thrown for the same invalid inputs after refactoring.
+        errorResult = err instanceof Error ? err.message : String(err)
       }
 
-      results.push({ input, output, fp, calls: [...recorder] })
+      if (errorResult !== undefined) {
+        // Fingerprint error paths: { __error: errorMessage }
+        const errorOutput = { __error: errorResult }
+        const fp = fingerprint(fpInput, errorOutput, { normalize, ignoreFields })
+        results.push({ input, output: errorOutput, fp, calls: [...recorder], isError: true })
+        console.log(`   ⚠️  Error path captured for input ${JSON.stringify(input)}: ${errorResult}`)
+      } else {
+        // Determine fingerprint based on fingerprintMode
+        let fp
+        if (fingerprintMode === 'schema') {
+          const schema = extractSchema(output)
+          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+        } else if (fingerprintMode === 'mixed') {
+          const schema = extractSchema(output)
+          const selectedValues = {}
+          for (const path of valuePaths) {
+            // Simple dot-notation extraction (e.g., "$.status" → output.status)
+            const key = path.replace(/^\$\./, '')
+            const parts = key.split('.')
+            let val = output
+            for (const p of parts) {
+              val = val?.[p]
+            }
+            if (val !== undefined) selectedValues[path] = val
+          }
+          const combined = { schema, values: selectedValues }
+          fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
+        } else {
+          // Default: value mode
+          fp = fingerprintLevel === 'entry'
+            ? fingerprint(fpInput, output, { normalize, ignoreFields })
+            : fingerprintSequence(recorder, { normalize, ignoreFields })
+        }
+
+        results.push({ input, output, fp, calls: [...recorder], isError: false })
+      }
     }
 
-    // Use first run as the golden (representative) for the .regret file
-    const { input, output, fp } = results[0]
+    if (results.length === 0) {
+      throw new Error('No results captured — all inputs failed')
+    }
 
-    // Write .regret file
-    const regretPath = join(outDir, `${id}.regret`)
-    const timestamp  = new Date().toISOString()
+    // Write one .regret file per input (multi-input support)
+    // If there's only one result, use the original single-file format for backward compat
+    // If there are multiple results, write them as separate .regret files with indexed names
+    const timestamp = new Date().toISOString()
 
-    // Convert TypedArrays to regular arrays for JSON serialization
-    // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
-    const serializableOutput = ArrayBuffer.isView(output) && !(output instanceof DataView)
-      ? Array.from(output)
-      : output
+    if (results.length === 1) {
+      // Single input — original format
+      const { input, output, fp, isError } = results[0]
+      const regretPath = join(outDir, `${id}.regret`)
+      const serializableOutput = ArrayBuffer.isView(output) && !(output instanceof DataView)
+        ? Array.from(output)
+        : output
 
-    const content = [
-      `cluster: ${id}`,
-      `version: 1`,
-      `fingerprint: ${fp}`,
-      `captured: ${timestamp}`,
-      `watches: [${watches.join(', ')}]`,
-      `entry: ${entry}`,
-      `stack: ${stack ?? 'js'}`,
-      `fingerprintLevel: ${fingerprintLevel}`,
-      fingerprintMode !== 'value' ? `fingerprintMode: ${fingerprintMode}` : null,
-      valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
-      normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
-      ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
-      `---`,
-      `INPUT  ${JSON.stringify(input)}`,
-      `OUTPUT ${JSON.stringify(serializableOutput)}`,
-      `HASH   ${fp}`,
-    ].filter(Boolean).join('\n')
+      const content = [
+        `cluster: ${id}`,
+        `version: 1`,
+        `fingerprint: ${fp}`,
+        `captured: ${timestamp}`,
+        `watches: [${watches.join(', ')}]`,
+        `entry: ${entry}`,
+        `stack: ${stack ?? 'js'}`,
+        `fingerprintLevel: ${fingerprintLevel}`,
+        fingerprintMode !== 'value' ? `fingerprintMode: ${fingerprintMode}` : null,
+        valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
+        normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
+        ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+        isError ? `errorPath: true` : null,
+        `---`,
+        `INPUT  ${JSON.stringify(input)}`,
+        `OUTPUT ${JSON.stringify(serializableOutput)}`,
+        `HASH   ${fp}`,
+      ].filter(Boolean).join('\n')
 
-    writeFileSync(regretPath, content, 'utf8')
+      writeFileSync(regretPath, content, 'utf8')
+      console.log(`   ✅ Fingerprint: ${fp}`)
+      console.log(`   📄 Saved: regrets/${id}.regret`)
+    } else {
+      // Multiple inputs — write canonical (first) + error-path .regret files
+      // The first successful result is the golden (backward compat)
+      // Error-path results get separate files with --error-N suffix
+      // Additional successful inputs get --input-N suffix
+      let successIdx = 0
+      let errorIdx = 0
+      for (let i = 0; i < results.length; i++) {
+        const { input, output, fp, isError } = results[i]
+        const serializableOutput = ArrayBuffer.isView(output) && !(output instanceof DataView)
+          ? Array.from(output)
+          : output
 
-    console.log(`   ✅ Fingerprint: ${fp}`)
-    console.log(`   📄 Saved: regrets/${id}.regret`)
+        let regretPath, clusterName
+        if (i === 0) {
+          // First result always gets canonical name (backward compat)
+          regretPath = join(outDir, `${id}.regret`)
+          clusterName = id
+        } else if (isError) {
+          errorIdx++
+          clusterName = `${id}--error-${errorIdx}`
+          regretPath = join(outDir, `${clusterName}.regret`)
+        } else {
+          successIdx++
+          clusterName = `${id}--input-${successIdx}`
+          regretPath = join(outDir, `${clusterName}.regret`)
+        }
+
+        const content = [
+          `cluster: ${clusterName}`,
+          `version: 1`,
+          `fingerprint: ${fp}`,
+          `captured: ${timestamp}`,
+          `watches: [${watches.join(', ')}]`,
+          `entry: ${entry}`,
+          `stack: ${stack ?? 'js'}`,
+          `fingerprintLevel: ${fingerprintLevel}`,
+          fingerprintMode !== 'value' ? `fingerprintMode: ${fingerprintMode}` : null,
+          valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
+          normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
+          ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+          isError ? `errorPath: true` : null,
+          `parentCluster: ${id}`,
+          `---`,
+          `INPUT  ${JSON.stringify(input)}`,
+          `OUTPUT ${JSON.stringify(serializableOutput)}`,
+          `HASH   ${fp}`,
+        ].filter(Boolean).join('\n')
+
+        writeFileSync(regretPath, content, 'utf8')
+        const icon = isError ? '⚠️' : '✅'
+        console.log(`   ${icon} Input #${i}: ${fp}${isError ? ' (error path)' : ''}`)
+        console.log(`   📄 Saved: regrets/${clusterName}.regret`)
+      }
+    }
+
     passed++
 
   } catch (err) {

@@ -214,37 +214,82 @@ async function runCluster(clusterDef, regret) {
       if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
       // multiArgs: spread input as separate arguments
       const args_ = multiArgs && Array.isArray(currentInput) ? currentInput : [currentInput]
-      const output   = await entryFn(...args_)
-      lastOutput     = output
       const fpInput  = multiArgs && Array.isArray(currentInput) ? currentInput : currentInput
 
-      // Determine fingerprint based on fingerprintMode (from .regret or manifest)
-      const mode = regret.fingerprintMode || fingerprintMode || 'value'
-      const paths = regret.valuePaths || valuePaths || []
-      let fp
-      if (mode === 'schema') {
-        const schema = extractSchema(output)
-        fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
-      } else if (mode === 'mixed') {
-        const schema = extractSchema(output)
-        const selectedValues = {}
-        for (const path of paths) {
-          const key = path.replace(/^\$\./, '')
-          const parts = key.split('.')
-          let val = output
-          for (const p of parts) {
-            val = val?.[p]
-          }
-          if (val !== undefined) selectedValues[path] = val
-        }
-        const combined = { schema, values: selectedValues }
-        fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
-      } else {
-        // Default: value mode
-        fp = fingerprintLevel === 'entry'
-          ? fingerprint(fpInput, output, { normalize, ignoreFields })
-          : fingerprintSequence(recorder, { normalize, ignoreFields })
+      // Check if this is an error-path .regret file
+      const isErrorPath = regret.errorPath === 'true'
+
+      let output, errorResult
+      try {
+        output = await entryFn(...args_)
+      } catch (err) {
+        errorResult = err instanceof Error ? err.message : String(err)
       }
+
+      let fp
+      if (errorResult !== undefined) {
+        // Error path: fingerprint the error message
+        const errorOutput = { __error: errorResult }
+        fp = fingerprint(fpInput, errorOutput, { normalize, ignoreFields })
+        lastOutput = errorOutput
+      } else if (isErrorPath) {
+        // .regret expects an error, but the function succeeded — this is a regression
+        // (the error was "fixed" but the .regret file still expects it)
+        // We still fingerprint the successful output, which will mismatch
+        const mode = regret.fingerprintMode || fingerprintMode || 'value'
+        const paths = regret.valuePaths || valuePaths || []
+        if (mode === 'schema') {
+          const schema = extractSchema(output)
+          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+        } else if (mode === 'mixed') {
+          const schema = extractSchema(output)
+          const selectedValues = {}
+          for (const path of paths) {
+            const key = path.replace(/^\$\./, '')
+            const parts = key.split('.')
+            let val = output
+            for (const p of parts) {
+              val = val?.[p]
+            }
+            if (val !== undefined) selectedValues[path] = val
+          }
+          const combined = { schema, values: selectedValues }
+          fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
+        } else {
+          fp = fingerprintLevel === 'entry'
+            ? fingerprint(fpInput, output, { normalize, ignoreFields })
+            : fingerprintSequence(recorder, { normalize, ignoreFields })
+        }
+        lastOutput = output
+      } else {
+        // Normal path
+        const mode = regret.fingerprintMode || fingerprintMode || 'value'
+        const paths = regret.valuePaths || valuePaths || []
+        if (mode === 'schema') {
+          const schema = extractSchema(output)
+          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+        } else if (mode === 'mixed') {
+          const schema = extractSchema(output)
+          const selectedValues = {}
+          for (const path of paths) {
+            const key = path.replace(/^\$\./, '')
+            const parts = key.split('.')
+            let val = output
+            for (const p of parts) {
+              val = val?.[p]
+            }
+            if (val !== undefined) selectedValues[path] = val
+          }
+          const combined = { schema, values: selectedValues }
+          fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
+        } else {
+          fp = fingerprintLevel === 'entry'
+            ? fingerprint(fpInput, output, { normalize, ignoreFields })
+            : fingerprintSequence(recorder, { normalize, ignoreFields })
+        }
+        lastOutput = output
+      }
+
       hashes.push(fp)
 
       // Track per-input hashes for drift detection
@@ -312,7 +357,11 @@ for (const file of regretFiles) {
   const id         = basename(file, '.regret')
   const regretPath = join(regretDir, file)
   const regret     = parseRegret(readFileSync(regretPath, 'utf8'))
-  const def        = manifest.clusters.find(c => c.id === id)
+  // Look up cluster by ID, or by parentCluster for multi-input/error-path files
+  let def = manifest.clusters.find(c => c.id === id)
+  if (!def && regret.parentCluster) {
+    def = manifest.clusters.find(c => c.id === regret.parentCluster)
+  }
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {

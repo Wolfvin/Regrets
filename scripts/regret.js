@@ -192,6 +192,27 @@ switch (command) {
     break
   }
 
+  case 'list': {
+    const manifestPath = resolve(process.cwd(), 'regrets/manifest.json')
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      console.log(`\n📋 ${manifest.clusters.length} cluster(s) in regrets/manifest.json:\n`)
+      console.log('  ID'.padEnd(40) + 'Stack'.padEnd(10) + 'Entry'.padEnd(25) + 'Inputs')
+      console.log('─'.repeat(90))
+      for (const c of manifest.clusters) {
+        const inputCount = c.inputs ? c.inputs.length : 1
+        console.log(
+          `  ${c.id.padEnd(38)} ${(c.stack || 'js').padEnd(10)} ${c.entry.padEnd(25)} ${inputCount}`
+        )
+      }
+      console.log()
+    } catch {
+      console.error('❌ Could not read regrets/manifest.json')
+      success = false
+    }
+    break
+  }
+
   case 'help':
   default:
     console.log(`
@@ -207,6 +228,7 @@ Usage:
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows)
   node scripts/regret.js guard                         Pre-build gate
+  node scripts/regret.js list                          List clusters in manifest
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js
