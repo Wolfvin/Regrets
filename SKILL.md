@@ -295,6 +295,8 @@ Add these to the target project's `package.json`:
 - `regret:diff` — show output diff (what changed when a cluster goes RED)
 - `regret:coverage` — branch coverage analysis (detects under-covered clusters)
 - `regret:scan` — scan project for cluster suggestions (useful for new projects)
+- `regret:list` — list all clusters with status, stack, and fingerprints
+- `regret:verify-kebenaran` — verify KEBENARAN 1 vs KEBENARAN 2 identity
 - The unified runner (`regret.js`) auto-detects stack from manifest and dispatches to the right handler. You can also call individual scripts directly (see Decision Tree below).
 - Install globally with `npm link` (from the skill directory) to use `regret capture` directly
 - Programmatic API: `import { fingerprint, createGhost } from 'regret-testing'`

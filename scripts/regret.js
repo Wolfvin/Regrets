@@ -229,6 +229,16 @@ switch (command) {
     break
   }
 
+  case 'list': {
+    success = run('node', [`${SCRIPTS_DIR}/list.js`, ...passThroughArgs])
+    break
+  }
+
+  case 'verify-kebenaran': {
+    success = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs])
+    break
+  }
+
   case 'chain': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -311,6 +321,8 @@ Usage:
   node scripts/regret.js ci                            CI mode (fail-fast)
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
+  node scripts/regret.js list                       List all clusters with status
+  node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
