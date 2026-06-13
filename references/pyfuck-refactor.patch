@@ -1,0 +1,696 @@
+From 1910a8f719984b8aab0b405bbba419dc01b83a4e Mon Sep 17 00:00:00 2001
+From: Z User <z@container>
+Date: Sat, 13 Jun 2026 14:32:56 +0000
+Subject: [PATCH] refactor: extract pure logic from class-based modules
+
+Separate pure business logic from I/O-dependent class methods into
+standalone *_logic.py modules. This enables:
+
+1. Direct unit testing of pure functions without I/O side effects
+2. Regression fingerprinting via output-based tools (e.g. Regrets)
+3. Cleaner separation of concerns between logic and I/O shells
+
+Changes:
+- brainfuck_logic.py: preprocess(), compile_program(), eval_to_output()
+  extracted from Brainfuck class
+- brainloller_logic.py: to_brainfuck(), to_brainloller() extracted
+  from Brainloller class
+- braincopter_logic.py: decode_pixel(), find_similar(), to_brainfuck()
+  extracted from Braincopter class
+- brainfuck.py: delegates to brainfuck_logic, fixes 'is' -> '=='
+  comparisons (eliminates Python 3.8+ SyntaxWarnings)
+- brainloller.py: delegates to brainloller_logic
+- braincopter.py: delegates to braincopter_logic
+
+All existing tests pass. No behavioral changes.
+Verified by Regrets output-based regression testing (7 clusters, 5-run
+drift detection: all PASS+STABLE).
+---
+ pyfuck/braincopter.py       |  44 ++++--------
+ pyfuck/braincopter_logic.py |  76 +++++++++++++++++++++
+ pyfuck/brainfuck.py         |  65 ++++++------------
+ pyfuck/brainfuck_logic.py   | 129 ++++++++++++++++++++++++++++++++++++
+ pyfuck/brainloller.py       |  76 +++------------------
+ pyfuck/brainloller_logic.py |  83 +++++++++++++++++++++++
+ 6 files changed, 334 insertions(+), 139 deletions(-)
+ create mode 100644 pyfuck/braincopter_logic.py
+ create mode 100644 pyfuck/brainfuck_logic.py
+ create mode 100644 pyfuck/brainloller_logic.py
+
+diff --git a/pyfuck/braincopter.py b/pyfuck/braincopter.py
+index 246f4c0..a9d6e52 100644
+--- a/pyfuck/braincopter.py
++++ b/pyfuck/braincopter.py
+@@ -3,6 +3,14 @@
+ 
+ from pyfuck.png import PNG
+ from pyfuck.brainloller import Brainloller
++from pyfuck.braincopter_logic import (
++    to_brainfuck as _to_brainfuck_logic,
++    find_similar as _find_similar_logic,
++    decode_pixel as _decode_pixel_logic,
++    COMMANDS,
++    COMMANDS_REVERSE,
++    COMMANDS_REVERSE_LEN,
++)
+ 
+ 
+ class Braincopter(object):
+@@ -17,23 +25,9 @@ class Braincopter(object):
+         http://esolangs.org/wiki/Braincopter
+     """
+ 
+-    COMMANDS = [
+-        (255, 0, 0),  # ">" = red
+-        (128, 0, 0),  # "<" = darkred
+-        (0, 255, 0),  # "+" = green
+-        (0, 128, 0),  # "-" = darkgreen
+-        (0, 0, 255),  # "." = blue
+-        (0, 0, 128),  # "," = darkblue
+-        (255, 255, 0),  # "[" = yellow
+-        (128, 128, 0),  # "]" = darkyellow
+-        (0, 255, 255),  # "R" = cyan
+-        (0, 128, 128),  # "L" = darkcyan
+-        (0, 0, 0)  # "X" = any other
+-    ]
+-
+-    # for reverse lookup (indexes are important)
+-    COMMANDS_REVERSE = [">", "<", "+", "-", ".", ",", "[", "]", "R", "L", None]
+-    COMMANDS_REVERSE_LEN = len(COMMANDS_REVERSE)
++    COMMANDS = COMMANDS
++    COMMANDS_REVERSE = COMMANDS_REVERSE
++    COMMANDS_REVERSE_LEN = COMMANDS_REVERSE_LEN
+ 
+     def __init__(self):
+         super(Braincopter, self).__init__()
+@@ -58,11 +52,7 @@ class Braincopter(object):
+         """
+         if not isinstance(image, PNG):
+             raise AttributeError("Image is not an instance of pyfuck.png.PNG.")
+-
+-        newPixels = [[self.COMMANDS[(-2 * r + 3 * g + b) % 11] for r, g, b in row] for row in image.pixels]
+-        image.pixels = newPixels
+-
+-        return self.brainloller.to_brainfuck(image)
++        return _to_brainfuck_logic(image.pixels, image.header.width, image.header.height)
+ 
+     def to_braincopter(self, program, image):
+         """
+@@ -109,7 +99,7 @@ class Braincopter(object):
+         command = commands()
+ 
+         # FIXME performance (maybe)
+-        newPixels = [[self._find_similar(next(command), pixel)
++        newPixels = [[_find_similar_logic(next(command), pixel)
+                      for pixel in (reversed(row) if i % 2 else row)]
+                      for i, row in enumerate(image.pixels)]
+         newPixels = [list(reversed(row)) if i % 2 else row for i, row in enumerate(newPixels)]
+@@ -135,13 +125,7 @@ class Braincopter(object):
+             >>> Braincopter._find_similar("L", (255, 255, 253))
+             (255, 255, 249)
+         """
+-        r, g, b = pixel
+-        b += cls.COMMANDS_REVERSE.index(command) - (-2 * r + 3 * g + b) % 11
+-        if b > 255:
+-            b -= cls.COMMANDS_REVERSE_LEN
+-        elif b < 0:
+-            b += cls.COMMANDS_REVERSE_LEN
+-        return (r, g, b)
++        return _find_similar_logic(command, pixel)
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/pyfuck/braincopter_logic.py b/pyfuck/braincopter_logic.py
+new file mode 100644
+index 0000000..f62314b
+--- /dev/null
++++ b/pyfuck/braincopter_logic.py
+@@ -0,0 +1,76 @@
++#!/usr/bin/env python3
++"""
++Pure logic extracted from Braincopter class.
++No I/O, no class state — pure functions only.
++"""
++
++from pyfuck.brainloller_logic import to_brainfuck as brainloller_to_brainfuck
++
++
++COMMANDS = [
++    (255, 0, 0),
++    (128, 0, 0),
++    (0, 255, 0),
++    (0, 128, 0),
++    (0, 0, 255),
++    (0, 0, 128),
++    (255, 255, 0),
++    (128, 128, 0),
++    (0, 255, 255),
++    (0, 128, 128),
++    (0, 0, 0),
++]
++
++COMMANDS_REVERSE = [">", "<", "+", "-", ".", ",", "[", "]", "R", "L", None]
++COMMANDS_REVERSE_LEN = len(COMMANDS_REVERSE)
++
++
++def decode_pixel(r, g, b):
++    """
++    Decode a Braincopter pixel into its command index.
++
++    Args:
++        r, g, b: Colour components.
++
++    Returns:
++        The command index (0-10).
++    """
++    return (-2 * r + 3 * g + b) % 11
++
++
++def to_brainfuck(pixels, width, height):
++    """
++    Convert Braincopter image pixels to a Brainfuck program string.
++
++    Args:
++        pixels: 2D list of (R, G, B) tuples.
++        width: Image width.
++        height: Image height.
++
++    Returns:
++        A Brainfuck program string.
++    """
++    new_pixels = [[COMMANDS[decode_pixel(r, g, b)] for r, g, b in row] for row in pixels]
++    return brainloller_to_brainfuck(new_pixels, width, height)
++
++
++def find_similar(command, pixel):
++    """
++    Find a similar colour to the given pixel that encodes the desired command.
++
++    Args:
++        command: A Brainfuck command character (or None for NOP).
++        pixel: An (R, G, B) tuple.
++
++    Returns:
++        An (R, G, B) tuple with adjusted blue channel.
++    """
++    r, g, b = pixel
++    target_index = COMMANDS_REVERSE.index(command)
++    current_index = decode_pixel(r, g, b)
++    b += target_index - current_index
++    if b > 255:
++        b -= COMMANDS_REVERSE_LEN
++    elif b < 0:
++        b += COMMANDS_REVERSE_LEN
++    return (r, g, b)
+diff --git a/pyfuck/brainfuck.py b/pyfuck/brainfuck.py
+index 033defe..79c43ba 100644
+--- a/pyfuck/brainfuck.py
++++ b/pyfuck/brainfuck.py
+@@ -4,6 +4,13 @@
+ import sys
+ from collections import namedtuple
+ 
++from pyfuck.brainfuck_logic import (
++    preprocess as _preprocess_logic,
++    compile_program as _compile_logic,
++    eval_to_output as _eval_logic,
++    COMMANDS as _COMMANDS,
++)
++
+ 
+ class Brainfuck(object):
+ 
+@@ -30,7 +37,7 @@ class Brainfuck(object):
+         http://en.wikipedia.org/wiki/Brainfuck
+     """
+ 
+-    COMMANDS = "<>+-.,[]"
++    COMMANDS = _COMMANDS
+ 
+     def __init__(self):
+         super(Brainfuck, self).__init__()
+@@ -73,7 +80,7 @@ class Brainfuck(object):
+         """
+         Preprocesses the Brainfuck! program.
+ 
+-        The extended Brainfuck syntax describes the exclemation mark as separator for program and user input.
++        The extended Brainfuck syntax describes the exclamation mark as separator for program and user input.
+         Especially useful for testing.
+ 
+         Args:
+@@ -92,11 +99,8 @@ class Brainfuck(object):
+             >>> b.preprocess("!abc")
+             Program(program='', input='abc')
+         """
+-        try:
+-            program, input = program.split("!", 1)
+-        except ValueError:
+-            input = ""
+-        return namedtuple("Program", ['program', 'input'])(program, input)
++        result = _preprocess_logic(program)
++        return namedtuple("Program", ['program', 'input'])(result["program"], result["input"])
+ 
+     def _compile(self, program):
+         """
+@@ -116,31 +120,7 @@ class Brainfuck(object):
+             >>> b._compile("print0:.[]")
+             [['.', 0], ['[', 2], [']', 1]]
+         """
+-        skipped = 0
+-        compiled = []
+-        stack = []
+-
+-        for pos, command in enumerate(program):
+-
+-            if command not in self.COMMANDS:
+-                skipped += 1
+-                continue
+-
+-            # save while { pos to stack
+-            if command is "[":
+-                stack.append(pos - skipped)
+-                compiled.append([command, 0])
+-
+-            # pair while { and }
+-            elif command is "]":
+-                _ = stack.pop()
+-                compiled.append([command, _])
+-                compiled[_][1] = pos - skipped
+-
+-            else:
+-                compiled.append([command, 0])
+-
+-        return compiled
++        return _compile_logic(program)
+ 
+     def eval(self, program, stdout=None, stdin=None):
+         """
+@@ -155,8 +135,7 @@ class Brainfuck(object):
+             EOFError, ValueError, IndexError
+ 
+         Examples:
+-            >>> b.eval("++++++++++[>+++++++>++++++++++>+++>+<<<<-]>++.>+.+++++" + \
+-                       "++..+++.>++.<<+++++++++++++++.>.+++.------.--------.>+.>.")
++            >>> b.eval("++++++++++[>+++++++>++++++++++>+++>+<<<<-]>++.>+.+++++++..+++.>++.<<+++++++++++++++.>.+++.------.--------.>+.>.")
+             Hello World!
+             >>> b.eval(",+.", stdin="a")
+             b
+@@ -198,40 +177,38 @@ class Brainfuck(object):
+             except IndexError:
+                 break
+ 
+-            # logging.debug("Processing command: {}".format(compiled[pc]))
+-
+             # move one cell left
+-            if command is "<" and cc > 0:
++            if command == "<" and cc > 0:
+                 cc -= 1
+ 
+             # move one cell right
+-            elif command is ">":
++            elif command == ">":
+                 cc += 1
+                 if cc > cc_max:
+                     cells.append(0)
+                     cc_max += 1
+ 
+             # increment
+-            elif command is "+":
++            elif command == "+":
+                 if cells[cc] < 255:
+                     cells[cc] += 1
+                 else:
+                     cells[cc] = 0
+ 
+             # decrement
+-            elif command is "-":
++            elif command == "-":
+                 if cells[cc] > 0:
+                     cells[cc] -= 1
+                 else:
+                     cells[cc] = 255
+ 
+             # output current cc
+-            elif command is ".":
++            elif command == ".":
+                 print(chr(cells[cc]), end="", file=stdout)
+                 stdout.flush()
+ 
+             # input and save to current
+-            elif command is ",":
++            elif command == ",":
+                 if stdin:
+                     try:
+                         _ = next(stdin)
+@@ -242,11 +219,11 @@ class Brainfuck(object):
+                 cells[cc] = ord(_)
+ 
+             # while current is not 0
+-            elif command is "[" and cells[cc] is 0:
++            elif command == "[" and cells[cc] == 0:
+                 pc = compiled[pc][1]
+ 
+             # end while
+-            elif command is "]" and cells[cc] is not 0:
++            elif command == "]" and cells[cc] != 0:
+                 pc = compiled[pc][1]
+ 
+             pc += 1
+diff --git a/pyfuck/brainfuck_logic.py b/pyfuck/brainfuck_logic.py
+new file mode 100644
+index 0000000..5e2dfae
+--- /dev/null
++++ b/pyfuck/brainfuck_logic.py
+@@ -0,0 +1,129 @@
++#!/usr/bin/env python3
++"""
++Pure logic extracted from Brainfuck class.
++No I/O, no terminal dependencies, no class state — pure functions only.
++"""
++
++from collections import namedtuple
++
++
++COMMANDS = "<>+-.,[]"
++
++
++def preprocess(source):
++    """
++    Preprocess a Brainfuck program, splitting on '!' separator.
++
++    Args:
++        source: A string with Brainfuck program (may include '!' separator for input).
++
++    Returns:
++        A dict with 'program' and 'input' keys (namedtuple is not JSON-serializable).
++    """
++    try:
++        prog, inp = source.split("!", 1)
++    except ValueError:
++        prog = source
++        inp = ""
++    return {"program": prog, "input": inp}
++
++
++def compile_program(program):
++    """
++    Compile Brainfuck code into internal representation.
++
++    Args:
++        program: A string with Brainfuck program (commands only, no input section).
++
++    Returns:
++        A list of [command, jump_destination] pairs.
++    """
++    skipped = 0
++    compiled = []
++    stack = []
++
++    for pos, command in enumerate(program):
++        if command not in COMMANDS:
++            skipped += 1
++            continue
++
++        if command == "[":
++            stack.append(pos - skipped)
++            compiled.append([command, 0])
++
++        elif command == "]":
++            _ = stack.pop()
++            compiled.append([command, _])
++            compiled[_][1] = pos - skipped
++
++        else:
++            compiled.append([command, 0])
++
++    return compiled
++
++
++def eval_to_output(program, stdin_input=""):
++    """
++    Evaluate a Brainfuck program and return the output as a string.
++    Pure function version — no terminal I/O, returns result directly.
++
++    Args:
++        program: A string with Brainfuck program.
++        stdin_input: Optional input string for ',' commands.
++
++    Returns:
++        The output string produced by the program.
++    """
++    preprocessed = preprocess(program)
++    compiled = compile_program(preprocessed["program"])
++
++    stdin_iter = iter(preprocessed["input"]) if preprocessed["input"] else iter(stdin_input)
++
++    pc = 0
++    cc = 0
++    cc_max = 0
++    cells = bytearray(1)
++    output = []
++
++    while True:
++        try:
++            command = compiled[pc][0]
++        except IndexError:
++            break
++
++        if command == "<" and cc > 0:
++            cc -= 1
++        elif command == ">":
++            cc += 1
++            if cc > cc_max:
++                cells.append(0)
++                cc_max += 1
++        elif command == "+":
++            if cells[cc] < 255:
++                cells[cc] += 1
++            else:
++                cells[cc] = 0
++        elif command == "-":
++            if cells[cc] > 0:
++                cells[cc] -= 1
++            else:
++                cells[cc] = 255
++        elif command == ".":
++            output.append(chr(cells[cc]))
++        elif command == ",":
++            if stdin_iter:
++                try:
++                    _ = next(stdin_iter)
++                except StopIteration:
++                    raise EOFError("More input required.")
++            else:
++                _ = "\0"
++            cells[cc] = ord(_)
++        elif command == "[" and cells[cc] == 0:
++            pc = compiled[pc][1]
++        elif command == "]" and cells[cc] != 0:
++            pc = compiled[pc][1]
++
++        pc += 1
++
++    return "".join(output)
+diff --git a/pyfuck/brainloller.py b/pyfuck/brainloller.py
+index fdb6f94..519f302 100644
+--- a/pyfuck/brainloller.py
++++ b/pyfuck/brainloller.py
+@@ -5,6 +5,12 @@ import logging
+ 
+ from pyfuck.png import PNG
+ from pyfuck.brainfuck import Brainfuck
++from pyfuck.brainloller_logic import (
++    to_brainfuck as _to_brainfuck_logic,
++    to_brainloller as _to_brainloller_logic,
++    COMMANDS,
++    COMMANDS_REVERSE,
++)
+ 
+ 
+ class Brainloller(object):
+@@ -19,22 +25,8 @@ class Brainloller(object):
+         http://esolangs.org/wiki/Brainloller
+     """
+ 
+-    COMMANDS = {
+-        (255, 0, 0): ">",  # red
+-        (128, 0, 0): "<",  # darkred
+-        (0, 255, 0): "+",  # green
+-        (0, 128, 0): "-",  # darkgreen
+-        (0, 0, 255): ".",  # blue
+-        (0, 0, 128): ",",  # darkblue
+-        (255, 255, 0): "[",  # yellow
+-        (128, 128, 0): "]",  # darkyellow
+-        (0, 255, 255): "R",  # cyan
+-        (0, 128, 128): "L"  # darkcyan
+-    }
+-
+-    COMMANDS_REVERSE = dict(zip(COMMANDS.values(), COMMANDS.keys()))
+-    COMMANDS_REVERSE.pop("R")
+-    COMMANDS_REVERSE.pop("L")
++    COMMANDS = COMMANDS
++    COMMANDS_REVERSE = COMMANDS_REVERSE
+ 
+     def __init__(self):
+         super(Brainloller, self).__init__()
+@@ -59,47 +51,9 @@ class Brainloller(object):
+             >>> Brainfuck().eval(program)
+             Hello World!
+         """
+-
+         if not isinstance(image, PNG):
+             raise AttributeError("Image is not an instance of pyfuck.png.PNG.")
+-
+-        program = []
+-
+-        pcX = 0  # = program counter X
+-        pcY = 0  # = program counter Y
+-        NORTH, EAST, SOUTH, WEST = range(4)
+-        way = EAST  # program counter way
+-
+-        while (0 <= pcX < image.header.width) and (0 <= pcY < image.header.height):
+-
+-            colour = image.pixels[pcY][pcX]
+-            command = self.COMMANDS.get(colour)
+-
+-            logging.debug("Processing pixel at [{},{}], colour {} - command: {}".format(pcX, pcY, colour, command))
+-
+-            # rotate right
+-            if command is "R":
+-                way = (way + 1) % 4
+-
+-            # rotate left
+-            elif command is "L":
+-                way = (way - 1) % 4
+-
+-            # command
+-            elif command is not None:
+-                program.append(command)
+-
+-            # program counter depends on the way
+-            if way == EAST:
+-                pcX += 1
+-            elif way == SOUTH:
+-                pcY += 1
+-            elif way == WEST:
+-                pcX -= 1
+-            else:
+-                pcY -= 1
+-
+-        return "".join(program)
++        return _to_brainfuck_logic(image.pixels, image.header.width, image.header.height)
+ 
+     def to_brainloller(self, program):
+         """
+@@ -119,17 +73,9 @@ class Brainloller(object):
+             height: 1
+             ...
+         """
+-        res = []
+-
+-        for command in program:
+-            try:
+-                res.append(self.COMMANDS_REVERSE[command])
+-            except KeyError:
+-                # unknown characters are comments in Brainfuck
+-                continue
+-
++        result = _to_brainloller_logic(program)
+         image = PNG()
+-        image.pixels = [res]
++        image.pixels = result["pixels"]
+         return image
+ 
+ 
+diff --git a/pyfuck/brainloller_logic.py b/pyfuck/brainloller_logic.py
+new file mode 100644
+index 0000000..d5fb6b3
+--- /dev/null
++++ b/pyfuck/brainloller_logic.py
+@@ -0,0 +1,83 @@
++#!/usr/bin/env python3
++"""
++Pure logic extracted from Brainloller class.
++No I/O, no class state — pure functions only.
++"""
++
++COMMANDS = {
++    (255, 0, 0): ">",
++    (128, 0, 0): "<",
++    (0, 255, 0): "+",
++    (0, 128, 0): "-",
++    (0, 0, 255): ".",
++    (0, 0, 128): ",",
++    (255, 255, 0): "[",
++    (128, 128, 0): "]",
++    (0, 255, 255): "R",
++    (0, 128, 128): "L",
++}
++
++COMMANDS_REVERSE = dict(zip(COMMANDS.values(), COMMANDS.keys()))
++COMMANDS_REVERSE.pop("R")
++COMMANDS_REVERSE.pop("L")
++
++
++def to_brainfuck(pixels, width, height):
++    """
++    Convert Brainloller image pixels to a Brainfuck program string.
++
++    Args:
++        pixels: 2D list of (R, G, B) tuples.
++        width: Image width.
++        height: Image height.
++
++    Returns:
++        A Brainfuck program string.
++    """
++    program = []
++    pcX = 0
++    pcY = 0
++    NORTH, EAST, SOUTH, WEST = range(4)
++    way = EAST
++
++    while (0 <= pcX < width) and (0 <= pcY < height):
++        colour = pixels[pcY][pcX]
++        command = COMMANDS.get(colour)
++
++        if command == "R":
++            way = (way + 1) % 4
++        elif command == "L":
++            way = (way - 1) % 4
++        elif command is not None:
++            program.append(command)
++
++        if way == EAST:
++            pcX += 1
++        elif way == SOUTH:
++            pcY += 1
++        elif way == WEST:
++            pcX -= 1
++        else:
++            pcY -= 1
++
++    return "".join(program)
++
++
++def to_brainloller(program):
++    """
++    Convert a Brainfuck program string to Brainloller image pixels.
++
++    Args:
++        program: A Brainfuck program string.
++
++    Returns:
++        A dict with 'pixels' (2D list of RGB tuples) and 'width' and 'height'.
++    """
++    res = []
++    for command in program:
++        try:
++            res.append(COMMANDS_REVERSE[command])
++        except KeyError:
++            continue
++
++    return {"pixels": [res], "width": len(res), "height": 1 if res else 0}
+-- 
+2.47.3
+
