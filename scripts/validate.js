@@ -164,7 +164,9 @@ async function runReactCluster(clusterDef, regret) {
     lastOutput = html
   }
 
-  return { hashes, lastOutput }
+  // Build hashesByInput for React: single input (golden), so wrap in array
+  const hashesByInput = [hashes]
+  return { hashes, hashesByInput, lastOutput }
 }
 
 // ─── Run cluster N times ──────────────────────────────────────────────────────
@@ -176,15 +178,15 @@ async function runCluster(clusterDef, regret) {
   // Skip stacks not handled by this validator
   if (stack === 'python') {
     console.log(`  ⏭️  ${clusterDef.id}: stack=python — use validate.py`)
-    return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
+    return { hashes: [regret.goldenHash], hashesByInput: [[regret.goldenHash]], lastOutput: null, skipped: true }
   }
   if (stack === 'rust') {
     console.log(`  ⏭️  ${clusterDef.id}: stack=rust — use capture_rust.sh validate`)
-    return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
+    return { hashes: [regret.goldenHash], hashesByInput: [[regret.goldenHash]], lastOutput: null, skipped: true }
   }
   if (stack === 'go') {
     console.log(`  ⏭️  ${clusterDef.id}: stack=go — use capture_go.sh validate`)
-    return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
+    return { hashes: [regret.goldenHash], hashesByInput: [[regret.goldenHash]], lastOutput: null, skipped: true }
   }
 
   // React stack: re-render component and compare
@@ -193,7 +195,8 @@ async function runCluster(clusterDef, regret) {
   }
 
   const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
-  const hashes = []
+  const hashes = []            // flat array of all fingerprints (backward compat)
+  const hashesByInput = []     // per-input array: hashesByInput[inputIdx] = [fp_run1, fp_run2, ...]
   let lastOutput = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
@@ -205,8 +208,14 @@ async function runCluster(clusterDef, regret) {
     }
   }
 
+  // Initialize per-input fingerprint arrays
+  for (let inputIdx = 0; inputIdx < inputsToValidate.length; inputIdx++) {
+    hashesByInput.push([])
+  }
+
   for (let i = 0; i < runs; i++) {
-    for (const currentInput of inputsToValidate) {
+    for (let inputIdx = 0; inputIdx < inputsToValidate.length; inputIdx++) {
+      const currentInput = inputsToValidate[inputIdx]
       const recorder = []
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
       const entryFn  = ghost[entry] ?? mod[entry]
@@ -245,9 +254,10 @@ async function runCluster(clusterDef, regret) {
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
       hashes.push(fp)
+      hashesByInput[inputIdx].push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+  return { hashes, hashesByInput, lastOutput }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +316,22 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, hashesByInput, lastOutput, skipped } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    // Drift detection: check per-input stability across runs.
+    // Different inputs producing different fingerprints is NOT drift — it's expected.
+    // Real drift = same input producing different fingerprints across runs.
+    let isDrift = false
+    if (driftMode) {
+      for (const inputHashes of hashesByInput) {
+        if (new Set(inputHashes).size > 1) {
+          isDrift = true
+          break
+        }
+      }
+    }
 
     if (updateMode) {
       if (isMatch) {
@@ -323,7 +344,12 @@ for (const file of regretFiles) {
       }
     } else if (driftMode) {
       if (isDrift) {
-        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+        // Show per-input drift details for debugging
+        const driftDetails = hashesByInput
+          .map((ih, idx) => ih.length > 1 && new Set(ih).size > 1 ? `input#${idx}: [${ih.join('/')}]` : null)
+          .filter(Boolean)
+          .join('; ')
+        console.log(`  ❌ ${id.padEnd(35)} DRIFT  ${driftDetails || `[${hashes.join(' / ')}]`}`)
         results.push({ id, pass: false, drift: true })
       } else {
         const icon = isMatch ? '✅' : '❌'
