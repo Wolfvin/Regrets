@@ -296,3 +296,43 @@ fp := fingerprint(input, result)
 3. When the same function is re-exported from the barrel file with an alias (e.g., `export { cariKurupTaun as cariKurupTahunJawa }`), use the **original** name from the sub-module, not the alias.
 4. This approach actually provides better isolation — each cluster only loads what it needs, avoiding side effects from unrelated module initialization.
 5. After refactoring, if you extract new functions into their own modules, add new clusters pointing to those modules directly.
+
+---
+
+## Capture fails for zero-argument functions
+
+**Problem:** Running `npm run regret:capture` on a function that takes no arguments produces `❌ Capture failed: Cannot destructure property 'input' of 'results[0]' as it is undefined`.
+
+**Cause:** When `inputs` is set to `[]` (empty array) in the manifest, the capture script iterates over zero inputs and produces no results. It then tries to access `results[0]` which is undefined.
+
+**Solution:**
+1. Use `"inputs": [null]` instead of `"inputs": []` for zero-argument functions.
+2. The capture script will call the function with no arguments (null is treated as undefined in the args).
+3. This pattern is common for table generators, constant factories, and other functions that produce output without input.
+
+---
+
+## Circular dependency after module extraction
+
+**Problem:** After extracting a module during refactoring, `npm run regret:validate` fails with `Cannot access 'X' before initialization` for all clusters.
+
+**Cause:** When you extract code from module A into module B, but module B still imports from module A (which also imports from B), you create a circular dependency. ES module live bindings cause "temporal dead zone" errors — the import is accessed before the module has finished initializing.
+
+**Solution:**
+1. Identify shared state (constants, types, configuration objects) that both modules need.
+2. Extract the shared state into a **zero-dependency module** (e.g., `constants.js`).
+3. Have both the original and extracted module import from the zero-dependency module.
+4. The original module can still re-export from the new module for backward compatibility.
+5. Pattern: `constants.js ← [pelok.js, direct.js, jh.js]` (all arrows point to constants, no cycles).
+
+**Example from petungan refactor:**
+```
+BEFORE (circular):
+  pelok.js → direct.js → pelok.js  ← CIRCULAR!
+
+AFTER (clean):
+  constants.js ← pelok.js
+  constants.js ← direct.js
+  constants.js ← jh.js
+  pelok.js → direct.js (re-export only, no circular import)
+```
