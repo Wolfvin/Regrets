@@ -1,0 +1,596 @@
+{
+  "spa-transliterate": {
+    "entry": "transliterate",
+    "outputs": [
+      {
+        "input": "hola",
+        "output": "ola"
+      },
+      {
+        "input": "queso",
+        "output": "keso"
+      },
+      {
+        "input": "general",
+        "output": "xeneɾal"
+      },
+      {
+        "input": "cuestión",
+        "output": "kwestjon"
+      },
+      {
+        "input": "sábado",
+        "output": "sabado"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "deu-transliterate": {
+    "entry": "transliterate",
+    "outputs": [
+      {
+        "input": "hallo",
+        "output": "haloː"
+      },
+      {
+        "input": "Über",
+        "output": "yːbɐ"
+      },
+      {
+        "input": "Straße",
+        "output": "ʃtraːsə"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "fra-transliterate": {
+    "entry": "transliterate",
+    "outputs": [
+      {
+        "input": "bonjour",
+        "output": "bɔ̃ʒuʀ"
+      },
+      {
+        "input": "café",
+        "output": "kafe"
+      },
+      {
+        "input": "résumé",
+        "output": "ʀezyme"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "spa-strict-trans": {
+    "entry": "strict_trans",
+    "outputs": [
+      {
+        "input": "hola",
+        "output": "ola"
+      },
+      {
+        "input": "queso123",
+        "output": "keso"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "spa-word-to-tuples": {
+    "entry": "word_to_tuples",
+    "outputs": [
+      {
+        "input": "hola",
+        "output": [
+          [
+            "L",
+            0,
+            "h",
+            "",
+            [
+              [
+                "",
+                [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "L",
+            0,
+            "o",
+            "o",
+            [
+              [
+                "o",
+                [
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  0,
+                  -1,
+                  0,
+                  -1,
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "L",
+            0,
+            "l",
+            "l",
+            [
+              [
+                "l",
+                [
+                  -1,
+                  1,
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  0,
+                  -1,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "L",
+            0,
+            "a",
+            "a",
+            [
+              [
+                "a",
+                [
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  0,
+                  -1,
+                  0,
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ]
+        ]
+      },
+      {
+        "input": "¡Hola!",
+        "output": [
+          [
+            "P",
+            0,
+            "¡",
+            "",
+            [
+              [
+                "",
+                [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "L",
+            1,
+            "H",
+            "",
+            [
+              [
+                "",
+                [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "L",
+            0,
+            "o",
+            "o",
+            [
+              [
+                "o",
+                [
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  0,
+                  -1,
+                  0,
+                  -1,
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "L",
+            0,
+            "l",
+            "l",
+            [
+              [
+                "l",
+                [
+                  -1,
+                  1,
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  0,
+                  -1,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "L",
+            0,
+            "a",
+            "a",
+            [
+              [
+                "a",
+                [
+                  1,
+                  1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  -1,
+                  0,
+                  -1,
+                  0,
+                  -1,
+                  -1,
+                  1,
+                  1,
+                  -1,
+                  -1,
+                  1,
+                  -1,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ],
+          [
+            "P",
+            0,
+            "!",
+            "",
+            [
+              [
+                "",
+                [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              ]
+            ]
+          ]
+        ]
+      },
+      {
+        "input": "",
+        "output": []
+      }
+    ]
+  },
+  "ligaturize": {
+    "entry": "ligaturize",
+    "outputs": [
+      {
+        "input": "t͡s",
+        "output": "ʦ"
+      },
+      {
+        "input": "t͡ʃ",
+        "output": "ʧ"
+      },
+      {
+        "input": "t͡t͡ɕ",
+        "output": "t͡ʨ"
+      },
+      {
+        "input": "d͡z",
+        "output": "ʣ"
+      },
+      {
+        "input": "d͡ʒ",
+        "output": "ʤ"
+      },
+      {
+        "input": "d͡ʑ",
+        "output": "ʥ"
+      },
+      {
+        "input": "abc",
+        "output": "abc"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "puncnorm": {
+    "entry": "norm",
+    "outputs": [
+      {
+        "input": "«hello»",
+        "output": "«hello»"
+      },
+      {
+        "input": "—",
+        "output": "—"
+      },
+      {
+        "input": "…",
+        "output": "…"
+      },
+      {
+        "input": "abc",
+        "output": "abc"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "strip-diacritics": {
+    "entry": "process",
+    "outputs": [
+      {
+        "input": "hola",
+        "output": "hola"
+      },
+      {
+        "input": "áéíóú",
+        "output": "áéíóú"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "ipa-to-xsampa": {
+    "entry": "ipa2xs",
+    "outputs": [
+      {
+        "input": "ola",
+        "output": "ola"
+      },
+      {
+        "input": "haloː",
+        "output": "halo:"
+      },
+      {
+        "input": "bɔ̃ʒuʁ",
+        "output": "bO~ZuR"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  },
+  "rules-apply": {
+    "entry": "apply",
+    "outputs": [
+      {
+        "input": "hello",
+        "output": "hello"
+      },
+      {
+        "input": "test",
+        "output": "test"
+      },
+      {
+        "input": "",
+        "output": ""
+      }
+    ]
+  }
+}

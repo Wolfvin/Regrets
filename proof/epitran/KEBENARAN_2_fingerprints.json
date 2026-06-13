@@ -1,0 +1,21 @@
+{
+  "cluster_fingerprints": {
+    "deu-transliterate": "5j37svh",
+    "fra-transliterate": "3f8syig",
+    "ipa-to-xsampa": "5u5264e",
+    "ligaturize": "5pxpkk6",
+    "puncnorm": "1z6dwyb",
+    "rules-apply": "4mcbm7s",
+    "spa-strict-trans": "5x4d98i",
+    "spa-transliterate": "5x4d98i",
+    "spa-word-to-tuples": "6724o1o",
+    "strip-diacritics": "2daij2n"
+  },
+  "chain_hashes": {
+    "french-pipeline": "4ue8mxi",
+    "german-pipeline": "9ljbs80",
+    "preprocess-transliterate-postprocess": "2slbp3y",
+    "spanish-to-ligatures": "6w1sy7s",
+    "spanish-to-xsampa": "389p9re"
+  }
+}
