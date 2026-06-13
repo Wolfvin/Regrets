@@ -81,7 +81,22 @@ for (const cluster of clusters) {
     // Dynamic import of target module
     const absPath = resolve(process.cwd(), file)
     const moduleUrl = pathToFileURL(absPath).href
-    const rawModule = await import(moduleUrl)
+    let rawModule = await import(moduleUrl)
+
+    // Handle CJS modules: when a CommonJS module is imported via ESM dynamic import,
+    // named exports may not be available — instead they're on `mod.default`.
+    // The ESM namespace object is frozen (not extensible), so we must create a new
+    // plain object that merges both the namespace and the default export.
+    if (rawModule.default && typeof rawModule.default === 'object' && !Array.isArray(rawModule.default)) {
+      const merged = { ...rawModule }
+      for (const key of Object.keys(rawModule.default)) {
+        if (!(key in merged)) {
+          merged[key] = rawModule.default[key]
+        }
+      }
+      // Replace the frozen namespace with the extensible merged object
+      rawModule = merged
+    }
 
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder)
