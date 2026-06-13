@@ -13,9 +13,10 @@ import { createHash } from 'crypto'
 export function stableStringify(obj) {
   if (obj === null || obj === undefined) return String(obj)
   // Handle BigInt — serialize as tagged string for deterministic representation
-  // e.g., 18n → "BigInt:18" — preserves value without JSON.stringify error
+  // e.g., 18n → "__bigint__:18" — collision-resistant tag prevents confusion with
+  // real strings that happen to start with "BigInt:"
   if (typeof obj === 'bigint') {
-    return 'BigInt:' + obj.toString()
+    return '__bigint__:' + obj.toString()
   }
   // Handle Map — convert to sorted array of entries for deterministic serialization
   if (obj instanceof Map) {

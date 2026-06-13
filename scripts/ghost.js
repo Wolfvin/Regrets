@@ -24,7 +24,11 @@ export function deepClone(val) {
   // Handle TypedArrays — convert to regular array before cloning
   // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
   if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
-    return Array.from(val)
+    return Array.from(val).map(v => deepClone(v))
+  }
+  // Handle arrays — recurse to catch nested BigInt/TypedArray values
+  if (Array.isArray(val)) {
+    return val.map(v => deepClone(v))
   }
   // Handle Map → plain object with entries as key-value pairs
   if (val instanceof Map) {
@@ -46,7 +50,24 @@ export function deepClone(val) {
   if (val instanceof Date) {
     return val.toISOString()
   }
-  try { return JSON.parse(JSON.stringify(val)) } catch { return val }
+  // Handle plain objects — recurse to catch nested BigInt values
+  // JSON round-trip silently drops BigInt, so we must walk manually
+  if (val !== null && typeof val === 'object') {
+    try {
+      // Fast path: if JSON.stringify succeeds, no BigInt inside
+      const serialized = JSON.stringify(val)
+      return JSON.parse(serialized)
+    } catch {
+      // Slow path: BigInt or other non-serializable values detected
+      const obj = {}
+      for (const k of Object.keys(val)) {
+        obj[k] = deepClone(val[k])
+      }
+      return obj
+    }
+  }
+  // Primitives: return as-is
+  return val
 }
 
 /**
