@@ -344,6 +344,7 @@ def main():
                     abs_path = os.path.join(os.getcwd(), python_path)
                     if abs_path not in sys.path:
                         sys.path.insert(0, abs_path)
+                        print(f"  📂 pythonPath resolved: {python_path} → {abs_path}")
 
     update_mode = bool(cli['update'])
     drift_mode = cli['runs'] > 1 and not update_mode
@@ -384,6 +385,10 @@ def main():
         try:
             module_path = cluster_def.get('module', cluster_def.get('file', ''))
             entry_name = cluster_def['entry']
+
+            # Warn about private entry functions with fingerprintLevel=full
+            if fp_level == 'full' and entry_name.startswith('_'):
+                print(f"  ⚠️  {cluster_id}: Entry '{entry_name}' is private — ghost proxy cannot wrap it. fingerprintLevel='full' will produce empty-sequence fingerprint. Consider 'entry'.")
             norm_rules = cluster_def.get('normalize', [])
             ign_fields = cluster_def.get('ignoreFields', [])
             fp_level = cluster_def.get('fingerprintLevel', 'entry')
