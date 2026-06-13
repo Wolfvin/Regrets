@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 
@@ -45,6 +45,138 @@ if (!clusters.length) {
 }
 
 // Ghost Proxy and deepClone imported from ghost.js
+
+// ─── Output Transform Helper ──────────────────────────────────────────────────
+// Centralized transform logic shared between classMethod and function-based paths.
+// Supports: 'str', 'json', 'keys', 'toString', 'toJSON', 'pojo', 'repr', 'len', 'type',
+//           and custom "module.function" syntax.
+
+function applyOutputTransform(output, transform) {
+  if (!transform) return output
+
+  if (transform === 'str') {
+    if (Array.isArray(output)) return output.map(item => String(item))
+    return String(output)
+  }
+
+  if (transform === 'json') {
+    if (Array.isArray(output)) return output.map(item => JSON.parse(JSON.stringify(item)))
+    return JSON.parse(JSON.stringify(output))
+  }
+
+  if (transform === 'keys') {
+    if (output && typeof output === 'object') return Object.keys(output)
+    return output
+  }
+
+  // toString: call .toString() on objects (e.g., mathjs Complex, Unit, Matrix)
+  // Useful for libraries where the string representation is the canonical output.
+  if (transform === 'toString') {
+    if (Array.isArray(output)) return output.map(item => (item && typeof item.toString === 'function') ? item.toString() : String(item))
+    if (output && typeof output.toString === 'function' && typeof output !== 'string') return output.toString()
+    return String(output)
+  }
+
+  // toJSON: call .toJSON() on objects that implement it (e.g., mathjs Complex.toJSON())
+  // Returns a plain object suitable for fingerprinting.
+  if (transform === 'toJSON') {
+    if (Array.isArray(output)) return output.map(item => (item && typeof item.toJSON === 'function') ? item.toJSON() : deepClone(item))
+    if (output && typeof output.toJSON === 'function') return output.toJSON()
+    return deepClone(output)
+  }
+
+  // pojo: recursively convert class instances to plain old JavaScript objects.
+  // Calls .toJSON() if available, .toString() if the value is a primitive wrapper,
+  // or recursively walks the object to strip class identity.
+  // This is essential for libraries like mathjs that return custom class instances
+  // (Complex, Unit, Matrix, BigNumber, Fraction) that need deep serialization.
+  if (transform === 'pojo') {
+    return toPojo(output)
+  }
+
+  // repr: use JSON.stringify for a string representation of the full value
+  if (transform === 'repr') {
+    return JSON.stringify(output)
+  }
+
+  // len: return the length/size of the output (arrays, strings, objects)
+  if (transform === 'len') {
+    if (Array.isArray(output)) return output.length
+    if (typeof output === 'string') return output.length
+    if (output && typeof output === 'object') return Object.keys(output).length
+    return 0
+  }
+
+  // type: return the type of the output (useful for schema-level fingerprinting)
+  if (transform === 'type') {
+    if (output === null) return 'null'
+    if (output === undefined) return 'undefined'
+    if (Array.isArray(output)) return 'array'
+    if (output && output.constructor && output.constructor.name !== 'Object') return output.constructor.name
+    return typeof output
+  }
+
+  // Custom: "module.function" — dynamic import
+  if (transform.includes('.')) {
+    // Will be handled async in the caller — this is a sync helper,
+    // so we return output unchanged; async custom transforms
+    // are handled directly in the capture loop.
+    return output
+  }
+
+  return output
+}
+
+/**
+ * Recursively convert class instances to plain objects for fingerprinting.
+ * Handles nested class instances, arrays, Maps, Sets, and primitives.
+ * Calls .toJSON() if available, otherwise strips class identity.
+ */
+function toPojo(val) {
+  if (val === null || val === undefined) return val
+  if (typeof val !== 'object') return val
+  if (typeof val === 'bigint') return val.toString() + 'n'
+
+  // Arrays: recurse
+  if (Array.isArray(val)) return val.map(toPojo)
+
+  // Map → sorted entries
+  if (val instanceof Map) {
+    const entries = [...val.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    return Object.fromEntries(entries.map(([k, v]) => [k, toPojo(v)]))
+  }
+
+  // Set → array
+  if (val instanceof Set) return [...val].map(toPojo)
+
+  // Date → ISO string
+  if (val instanceof Date) return val.toISOString()
+
+  // RegExp → string
+  if (val instanceof RegExp) return val.toString()
+
+  // TypedArray → regular array
+  if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
+    return Array.from(val).map(toPojo)
+  }
+
+  // If object has .toJSON(), use it (covers BigNumber, Fraction, Complex, etc.)
+  if (typeof val.toJSON === 'function') {
+    return toPojo(val.toJSON())
+  }
+
+  // Plain object or class instance: recurse into own enumerable properties
+  const result = {}
+  for (const key of Object.keys(val)) {
+    try {
+      const v = val[key]
+      if (typeof v !== 'function') {
+        result[key] = toPojo(v)
+      }
+    } catch { /* skip non-accessible properties */ }
+  }
+  return result
+}
 
 // ─── Run clusters ─────────────────────────────────────────────────────────────
 
@@ -174,36 +306,12 @@ for (const cluster of clusters) {
         }
 
         // Apply outputTransform if specified in manifest
-        let transformedOutput = consumedOutput
-        if (outputTransform) {
-          if (outputTransform === 'str') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => String(item))
-            } else {
-              transformedOutput = String(consumedOutput)
-            }
-          } else if (outputTransform === 'json') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
-            } else {
-              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
-            }
-          } else if (outputTransform === 'keys') {
-            if (consumedOutput && typeof consumedOutput === 'object') {
-              transformedOutput = Object.keys(consumedOutput)
-            }
-          } else if (outputTransform.includes('.')) {
-            // Custom: "module.function" — dynamic import
-            const lastDot = outputTransform.lastIndexOf('.')
-            const modPath = outputTransform.slice(0, lastDot)
-            const fnName = outputTransform.slice(lastDot + 1)
-            try {
-              const customMod = await import(resolve(process.cwd(), modPath))
-              transformedOutput = customMod[fnName](consumedOutput)
-            } catch (e) {
-              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-            }
-          }
+        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
+
+        // trackMutation: snapshot input state before/after call to detect mutations
+        let inputAfterCall = null
+        if (cluster.trackMutation) {
+          inputAfterCall = deepClone(inputForArgs)
         }
 
         const output = deepClone(transformedOutput)
@@ -231,7 +339,20 @@ for (const cluster of clusters) {
             : fingerprintSequence(recorder, { normalize, ignoreFields })
         }
 
-        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+        const resultEntry = { input: inputForRecord, output, fp, calls: [...recorder] }
+
+        // Detect input mutation if trackMutation is enabled
+        if (cluster.trackMutation && inputAfterCall !== null) {
+          const inputBefore = inputForRecord
+          const beforeStr = stableStringify(inputBefore)
+          const afterStr = stableStringify(inputAfterCall)
+          resultEntry.inputMutated = beforeStr !== afterStr
+          if (resultEntry.inputMutated) {
+            console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+          }
+        }
+
+        results.push(resultEntry)
       }
     } else {
       // ── Function-based entry (original behavior) ───────────────────────
@@ -290,36 +411,25 @@ for (const cluster of clusters) {
         }
 
         // Apply outputTransform if specified in manifest
-        let transformedOutput = consumedOutput
-        if (outputTransform) {
-          if (outputTransform === 'str') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => String(item))
-            } else {
-              transformedOutput = String(consumedOutput)
-            }
-          } else if (outputTransform === 'json') {
-            if (Array.isArray(consumedOutput)) {
-              transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
-            } else {
-              transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
-            }
-          } else if (outputTransform === 'keys') {
-            if (consumedOutput && typeof consumedOutput === 'object') {
-              transformedOutput = Object.keys(consumedOutput)
-            }
-          } else if (outputTransform.includes('.')) {
-            // Custom: "module.function" — dynamic import
-            const lastDot = outputTransform.lastIndexOf('.')
-            const modPath = outputTransform.slice(0, lastDot)
-            const fnName = outputTransform.slice(lastDot + 1)
-            try {
-              const customMod = await import(resolve(process.cwd(), modPath))
-              transformedOutput = customMod[fnName](consumedOutput)
-            } catch (e) {
-              throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-            }
+        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
+
+        // Handle async custom outputTransform (module.function pattern)
+        if (outputTransform && outputTransform.includes('.')) {
+          const lastDot = outputTransform.lastIndexOf('.')
+          const modPath = outputTransform.slice(0, lastDot)
+          const fnName = outputTransform.slice(lastDot + 1)
+          try {
+            const customMod = await import(resolve(process.cwd(), modPath))
+            transformedOutput = customMod[fnName](consumedOutput)
+          } catch (e) {
+            throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
           }
+        }
+
+        // trackMutation: snapshot input state after call to detect mutations
+        let inputAfterCall = null
+        if (cluster.trackMutation) {
+          inputAfterCall = deepClone(inputForArgs)
         }
 
         const output = deepClone(transformedOutput)
@@ -348,6 +458,18 @@ for (const cluster of clusters) {
         }
 
         results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+
+        // Detect input mutation if trackMutation is enabled
+        if (cluster.trackMutation && inputAfterCall !== null) {
+          const lastResult = results[results.length - 1]
+          const inputBefore = inputForRecord
+          const beforeStr = stableStringify(inputBefore)
+          const afterStr = stableStringify(inputAfterCall)
+          lastResult.inputMutated = beforeStr !== afterStr
+          if (lastResult.inputMutated) {
+            console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+          }
+        }
       }
     }
 
@@ -416,6 +538,8 @@ for (const cluster of clusters) {
       Object.keys(instanceMethods).length ? `instanceMethods: ${JSON.stringify(instanceMethods)}` : null,
       kwargs ? `kwargs: ${kwargs}` : null,
       materializeOutput ? `materializeOutput: true` : null,
+      cluster.trackMutation ? `trackMutation: true` : null,
+      results.some(r => r.inputMutated) ? `inputMutated: true` : null,
       outputEncoding ? `outputEncoding: ${outputEncoding}` : null,
       `env: ${JSON.stringify(getEnvSnapshot())}`,
       `---`,
