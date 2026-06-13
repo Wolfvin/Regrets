@@ -324,7 +324,13 @@ switch (command) {
   }
 
   case 'audit': {
-    success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
+    const stacksForAudit = detectStacks()
+    if (stacksForAudit.includes('python')) {
+      success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
+    } else {
+      // JS/TS audit — uses the new audit.js
+      success = run('node', [`${SCRIPTS_DIR}/audit.js`, ...passThroughArgs])
+    }
     break
   }
 
