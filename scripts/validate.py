@@ -294,8 +294,16 @@ def main():
 
             mod = importlib.import_module(module_path)
 
-            hashes = []
+            hashes = []           # flat list of all hashes (for backward compat)
+            hashes_per_input = {}  # { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
             last_output = None
+
+            # Determine which inputs to validate: golden from .regret + all from manifest
+            all_inputs = cluster_def.get('inputs', [regret.get('input')])
+            inputs_to_validate = [regret.get('input')]
+            for inp in all_inputs:
+                if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
+                    inputs_to_validate.append(inp)
 
             for _ in range(cli['runs']):
                 recorder = []
@@ -309,20 +317,16 @@ def main():
                 effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
                 effective_value_paths = regret.get('valuePaths') or value_paths or []
 
-                # Determine which inputs to validate: golden from .regret + all from manifest
-                all_inputs = cluster_def.get('inputs', [regret.get('input')])
-                inputs_to_validate = [regret.get('input')]
-                for inp in all_inputs:
-                    if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
-                        inputs_to_validate.append(inp)
-
                 for current_input in inputs_to_validate:
-                    if multi_args and isinstance(current_input, list):
-                        output = entry_fn(*current_input)
-                        fp_input = current_input
+                    # Deep-clone input before calling to prevent mutation from corrupting fingerprint
+                    input_for_fp = deep_clone(current_input)
+                    input_for_args = deep_clone(current_input)
+                    if multi_args and isinstance(input_for_args, list):
+                        output = entry_fn(*input_for_args)
+                        fp_input = input_for_fp
                     else:
-                        output = entry_fn(current_input) if current_input is not None else entry_fn()
-                        fp_input = current_input
+                        output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                        fp_input = input_for_fp
 
                     last_output = output
 
@@ -351,9 +355,21 @@ def main():
 
                     hashes.append(fp)
 
+                    # Track per-input hashes for drift detection
+                    input_key = json.dumps(current_input, sort_keys=True)
+                    if input_key not in hashes_per_input:
+                        hashes_per_input[input_key] = []
+                    hashes_per_input[input_key].append(fp)
+
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
-            is_drift = drift_mode and len(set(hashes)) > 1
+            # Per-input drift detection: each input must produce the same hash across all runs.
+            # Previous logic used `len(set(hashes)) > 1` which was wrong — it compared
+            # fingerprints from DIFFERENT inputs against each other, causing false drift reports.
+            is_drift = drift_mode and any(
+                len(set(input_hashes)) > 1
+                for input_hashes in hashes_per_input.values()
+            )
 
             if update_mode:
                 if is_match:
