@@ -4,14 +4,41 @@
 
 /**
  * Deep clone a value via JSON round-trip.
- * Handles most JSON-compatible values. Non-JSON values pass through unchanged.
- * TypedArrays are converted to regular arrays so they serialize deterministically.
+ * Handles most JSON-compatible values. Non-JSON values are converted to
+ * serializable representations before cloning:
+ *   - TypedArrays → regular arrays
+ *   - Map → plain object (entries become key-value pairs)
+ *   - Set → array of values
+ *   - RegExp → string pattern (e.g. "/^abc$/i")
+ *   - Date → ISO string
+ * Unknown types that can't be serialized fall through to JSON round-trip,
+ * which silently drops non-serializable values (backward-compatible behavior).
  */
 export function deepClone(val) {
   // Handle TypedArrays — convert to regular array before cloning
   // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
   if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
     return Array.from(val)
+  }
+  // Handle Map → plain object with entries as key-value pairs
+  if (val instanceof Map) {
+    const obj = {}
+    for (const [k, v] of val) {
+      obj[k] = deepClone(v)
+    }
+    return obj
+  }
+  // Handle Set → array of values
+  if (val instanceof Set) {
+    return Array.from(val).map(v => deepClone(v))
+  }
+  // Handle RegExp → string representation (e.g. "/^abc$/i")
+  if (val instanceof RegExp) {
+    return val.toString()
+  }
+  // Handle Date → ISO string
+  if (val instanceof Date) {
+    return val.toISOString()
   }
   try { return JSON.parse(JSON.stringify(val)) } catch { return val }
 }
