@@ -1,0 +1,182 @@
+{
+  "clusters": [
+    {
+      "id": "encode-ita2-standard",
+      "entry": "encode_ita2_standard",
+      "watches": ["encode_ita2_standard"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode strings to hex bytes using ITA2 STANDARD codec",
+      "inputs": [
+        "HELLO WORLD",
+        "SOS",
+        "TEST 123",
+        "A",
+        ""
+      ]
+    },
+    {
+      "id": "decode-ita2-standard",
+      "entry": "decode_ita2_standard",
+      "watches": ["decode_ita2_standard"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode hex bytes to string using ITA2 STANDARD codec",
+      "inputs": [
+        "1f14011212180413180a1209",
+        "1f051805",
+        "1f03",
+        ""
+      ]
+    },
+    {
+      "id": "encode-ita2-us",
+      "entry": "encode_ita2_us",
+      "watches": ["encode_ita2_us"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode strings to hex bytes using ITA2 US variant codec",
+      "inputs": [
+        "HELLO WORLD",
+        "TEST 123",
+        "A",
+        ""
+      ]
+    },
+    {
+      "id": "decode-ita2-us",
+      "entry": "decode_ita2_us",
+      "watches": ["decode_ita2_us"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode hex bytes to string using ITA2 US variant codec",
+      "inputs": [
+        "1f14011212180413180a1209",
+        "1f03",
+        ""
+      ]
+    },
+    {
+      "id": "encode-ita1-continental",
+      "entry": "encode_ita1_continental",
+      "watches": ["encode_ita1_continental"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode strings to hex bytes using ITA1 Continental codec",
+      "inputs": [
+        "HELLO",
+        "TEST",
+        "A",
+        ""
+      ]
+    },
+    {
+      "id": "decode-ita1-continental",
+      "entry": "decode_ita1_continental",
+      "watches": ["decode_ita1_continental"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode hex bytes to string using ITA1 Continental codec",
+      "inputs": [
+        "100b021b1b07",
+        "10",
+        ""
+      ]
+    },
+    {
+      "id": "codec-encode-char",
+      "entry": "codec_encode_char",
+      "watches": ["codec_encode_char"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "multiArgs": true,
+      "fingerprintLevel": "entry",
+      "description": "Encode a single character with a given codec and state",
+      "inputs": [
+        ["E", "ITA2_STANDARD", null],
+        ["3", "ITA2_STANDARD", null],
+        ["A", "ITA2_STANDARD", null],
+        [" ", "ITA2_STANDARD", null]
+      ]
+    },
+    {
+      "id": "codec-decode-code",
+      "entry": "codec_decode_code",
+      "watches": ["codec_decode_code"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "multiArgs": true,
+      "fingerprintLevel": "entry",
+      "description": "Decode a single 5-bit code with a given codec and state",
+      "inputs": [
+        [1, "ITA2_STANDARD", "Letters"],
+        [1, "ITA2_STANDARD", "Figures"],
+        [4, "ITA2_STANDARD", "Letters"],
+        [27, "ITA2_STANDARD", "Letters"],
+        [31, "ITA2_STANDARD", "Letters"]
+      ]
+    },
+    {
+      "id": "roundtrip-ita2-standard",
+      "entry": "roundtrip_ita2_standard",
+      "watches": ["roundtrip_ita2_standard"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Roundtrip: encode then decode with ITA2 STANDARD — must return original string",
+      "inputs": [
+        "HELLO WORLD",
+        "SOS",
+        "TEST 123",
+        "A",
+        "ZYXWV"
+      ]
+    },
+    {
+      "id": "roundtrip-ita2-us",
+      "entry": "roundtrip_ita2_us",
+      "watches": ["roundtrip_ita2_us"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Roundtrip: encode then decode with ITA2 US — must return original string",
+      "inputs": [
+        "HELLO WORLD",
+        "TEST 123",
+        "A",
+        "ZYXWV"
+      ]
+    },
+    {
+      "id": "roundtrip-ita1-continental",
+      "entry": "roundtrip_ita1_continental",
+      "watches": ["roundtrip_ita1_continental"],
+      "module": "baudot_test_helpers",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Roundtrip: encode then decode with ITA1 Continental — must return original string",
+      "inputs": [
+        "HELLO",
+        "TEST",
+        "A"
+      ]
+    }
+  ]
+}

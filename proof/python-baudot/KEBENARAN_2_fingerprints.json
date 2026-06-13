@@ -1,0 +1,13 @@
+{
+  "codec-decode-code": "37m8285",
+  "codec-encode-char": "58irgya",
+  "decode-ita1-continental": "3m5sbq3",
+  "decode-ita2-standard": "3un3ov9",
+  "decode-ita2-us": "3un3ov9",
+  "encode-ita1-continental": "1287jiv",
+  "encode-ita2-standard": "4sx2nsu",
+  "encode-ita2-us": "4sx2nsu",
+  "roundtrip-ita1-continental": "480fcig",
+  "roundtrip-ita2-standard": "55n3xxh",
+  "roundtrip-ita2-us": "55n3xxh"
+}
