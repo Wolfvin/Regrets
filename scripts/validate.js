@@ -224,11 +224,14 @@ async function runCluster(clusterDef, regret) {
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
       const entryFn  = ghost[entry] ?? mod[entry]
       if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
-      // multiArgs: spread input as separate arguments
-      const args_ = multiArgs && Array.isArray(currentInput) ? currentInput : [currentInput]
+      // Deep-clone input before calling to prevent mutation from corrupting fingerprint
+      const inputForFp = deepClone(currentInput)
+      const inputForArgs = deepClone(currentInput)
+      // multiArgs: spread input as separate arguments (use separate clone for args)
+      const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const output   = await entryFn(...args_)
       lastOutput     = output
-      const fpInput  = multiArgs && Array.isArray(currentInput) ? currentInput : currentInput
+      const fpInput  = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
 
       // Determine fingerprint based on fingerprintMode (from .regret or manifest)
       const mode = regret.fingerprintMode || fingerprintMode || 'value'
