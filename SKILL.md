@@ -457,6 +457,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
+| Next.js | Adapter modules (pure logic extraction) | Value (default) | See `references/nextjs.md` |
 
 ---
 
@@ -644,6 +645,8 @@ What stack is the target project?
 │   └── Health → bash scripts/capture_go.sh health
 └── Browser Extension
     └── Extract pure logic first → then use JS/TS scripts
+└── Next.js
+    └── Extract pure logic into adapter modules → then use JS scripts (see references/nextjs.md)
 ```
 
 ### Manifest Cluster: Complete Example with All Fields
