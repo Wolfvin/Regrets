@@ -66,10 +66,23 @@ function parseRegret(content) {
   const inputLine  = lines.find(l => l.startsWith('INPUT '))
   const outputLine = lines.find(l => l.startsWith('OUTPUT '))
   const hashLine   = lines.find(l => l.startsWith('HASH '))
+  // Parse INPUT/OUTPUT lines — handle undefined output gracefully
+  // (JSON.stringify(undefined) produces the literal string "undefined", not valid JSON)
+  let parsedInput = null
+  let parsedOutput = null
+  if (inputLine) {
+    const inputStr = inputLine.replace(/^INPUT\s+/, '')
+    parsedInput = inputStr === 'undefined' ? undefined : JSON.parse(inputStr)
+  }
+  if (outputLine) {
+    const outputStr = outputLine.replace(/^OUTPUT\s+/, '')
+    parsedOutput = outputStr === 'undefined' ? undefined : JSON.parse(outputStr)
+  }
+
   return {
     ...meta,
-    input:      inputLine  ? JSON.parse(inputLine.replace(/^INPUT\s+/, ''))   : null,
-    output:     outputLine ? JSON.parse(outputLine.replace(/^OUTPUT\s+/, '')) : null,
+    input:      parsedInput,
+    output:     parsedOutput,
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
     raw:        content
   }
@@ -164,10 +177,8 @@ async function runReactCluster(clusterDef, regret) {
     lastOutput = html
   }
 
-  return { hashes, lastOutput }
+  return { hashes, lastOutput, hasDrift: new Set(hashes).size > 1 }
 }
-
-// ─── Run cluster N times ──────────────────────────────────────────────────────
 
 async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
@@ -204,6 +215,10 @@ async function runCluster(clusterDef, regret) {
       inputsToValidate.push(inp)
     }
   }
+
+  // Track hashes per-input for proper drift detection
+  // (different inputs naturally produce different hashes — that's not drift)
+  const perInputHashes = new Map()
 
   for (let i = 0; i < runs; i++) {
     for (const currentInput of inputsToValidate) {
@@ -245,9 +260,18 @@ async function runCluster(clusterDef, regret) {
           : fingerprintSequence(recorder, { normalize, ignoreFields })
       }
       hashes.push(fp)
+
+      // Track per-input hashes for drift detection
+      const inputKey = JSON.stringify(currentInput)
+      if (!perInputHashes.has(inputKey)) perInputHashes.set(inputKey, [])
+      perInputHashes.get(inputKey).push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, lastOutput }
+
+  // Check drift per-input: same input should produce same hash across all runs
+  const hasDrift = [...perInputHashes.values()].some(inputHashes => new Set(inputHashes).size > 1)
+
+  return { hashes, lastOutput, hasDrift }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -306,11 +330,11 @@ for (const file of regretFiles) {
   if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
 
   try {
-    const { hashes, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, lastOutput, skipped, hasDrift } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    const isDrift  = driftMode && new Set(hashes).size > 1
+    const isDrift  = driftMode && hasDrift
 
     if (updateMode) {
       if (isMatch) {

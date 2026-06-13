@@ -155,8 +155,8 @@ for (const cluster of clusters) {
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
       `---`,
-      `INPUT  ${JSON.stringify(input)}`,
-      `OUTPUT ${JSON.stringify(output)}`,
+      `INPUT  ${JSON.stringify(input ?? null)}`,
+      `OUTPUT ${JSON.stringify(output ?? null)}`,
       `HASH   ${fp}`,
     ].filter(Boolean).join('\n')
 
