@@ -54,7 +54,7 @@ let passed = 0
 let failed = 0
 
 for (const cluster of clusters) {
-  const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
+  const { id, entry, entryPath, watches, file, stack, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
@@ -86,10 +86,28 @@ for (const cluster of clusters) {
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder)
 
-    // Entry function from ghost module
-    const entryFn = ghostModule[entry] ?? rawModule[entry]
+    // Entry function resolution — supports three patterns:
+    // 1. Direct export: entry="myFn" → rawModule.myFn
+    // 2. Dot-path (entryPath): entryPath="instance.methodName" → resolves object chain
+    // 3. Ghost-wrapped: entry="myFn" → ghostModule.myFn (if watched)
+    let entryFn
+    if (entryPath) {
+      // Dot-path resolution: "pangu.spacingText" → rawModule.pangu.spacingText
+      const parts = entryPath.split('.')
+      let obj = rawModule
+      for (let i = 0; i < parts.length - 1; i++) {
+        obj = obj?.[parts[i]]
+      }
+      const methodName = parts[parts.length - 1]
+      const target = ghostModule[parts[0]] ?? obj
+      entryFn = typeof target?.[methodName] === 'function'
+        ? target[methodName].bind(target)
+        : obj?.[methodName]?.bind(obj)
+    } else {
+      entryFn = ghostModule[entry] ?? rawModule[entry]
+    }
     if (typeof entryFn !== 'function') {
-      throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
+      throw new Error(`Entry "${entryPath ?? entry}" not found or not a function in ${file}`)
     }
 
     // Run with provided inputs, or with no args if none specified

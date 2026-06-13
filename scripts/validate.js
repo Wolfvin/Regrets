@@ -182,7 +182,7 @@ async function runReactCluster(clusterDef, regret) {
 // ─── Run cluster N times ──────────────────────────────────────────────────────
 
 async function runCluster(clusterDef, regret) {
-  const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
+  const { entry, entryPath, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack } = clusterDef
 
   // Skip stacks not handled by this validator
@@ -222,8 +222,23 @@ async function runCluster(clusterDef, regret) {
     for (const currentInput of inputsToValidate) {
       const recorder = []
       const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder)
-      const entryFn  = ghost[entry] ?? mod[entry]
-      if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
+      // Entry function resolution — supports entryPath for method-on-instance patterns
+      let entryFn
+      if (entryPath) {
+        const parts = entryPath.split('.')
+        let obj = mod
+        for (let i = 0; i < parts.length - 1; i++) {
+          obj = obj?.[parts[i]]
+        }
+        const methodName = parts[parts.length - 1]
+        const target = ghost[parts[0]] ?? obj
+        entryFn = typeof target?.[methodName] === 'function'
+          ? target[methodName].bind(target)
+          : obj?.[methodName]?.bind(obj)
+      } else {
+        entryFn = ghost[entry] ?? mod[entry]
+      }
+      if (typeof entryFn !== 'function') throw new Error(`Entry "${entryPath ?? entry}" not found in ${file}`)
       // Deep-clone input before calling to prevent mutation from corrupting fingerprint
       const inputForFp = deepClone(currentInput)
       const inputForArgs = deepClone(currentInput)
