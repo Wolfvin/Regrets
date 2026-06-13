@@ -213,8 +213,10 @@ Non-deterministic values are normalized before hashing:
 | `epochs` | Unix epoch numbers (1B–10T) | `<EPOCH>` |
 | `absPaths` | Absolute file paths | `<ROOT>/...` |
 | `dynamicDates` | Embedded MMYYYY/YYYY in strings | `<MMYYYY>`/`<YYYY>` |
+| `floatPrecision` | Float numbers that are whole values (e.g., `1500000.0` → `1500000`), or differ in decimal precision | Rounded to 2dp / int coercion |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
+Use `floatPrecision` for OCR/parsing pipelines where the same value may appear as `1500000` or `1500000.0` depending on the parsing path — common in financial OCR where integer amounts are sometimes stored as floats.
 
 Read `references/fingerprint-spec.md` for edge cases (timestamps, random IDs, etc).
 
@@ -461,6 +463,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Next.js | Adapter modules (pure logic extraction) | Value (default) | See `references/nextjs.md` |
 | Tauri apps | esbuild transpile + adapter modules | Value (default) | See `references/tauri-apps.md` |
 | Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
+| OCR/Parsing pipeline | Pure logic extraction + fixtures | Value (default) | See `references/ocr-parsing-pipeline.md` — handles OCR I/O boundary + float precision |
 
 ---
 
@@ -602,6 +605,7 @@ regression-testing/
     ├── nextjs.md                ← Next.js integration — adapter modules for noEmit projects
     ├── tauri-apps.md            ← Tauri app integration — esbuild transpile + adapter modules
     ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
+    ├── ocr-parsing-pipeline.md ← OCR & parsing pipeline pattern (pure logic extraction + float precision)
     ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
