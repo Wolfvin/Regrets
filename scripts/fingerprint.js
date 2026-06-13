@@ -63,6 +63,18 @@ export function normalize(obj, rules = []) {
         .replace(/(0[1-9]|1[0-2])\d{4}/g, '<MMYYYY>')   // MMYYYY with valid month (01-12)
         .replace(/(?<![0-9])(20\d{2}|19\d{2})(?![0-9])/g, '<YYYY>')  // 4-digit year
     }
+    // normalizeNow: replace current-date-derived strings in output with placeholders.
+    // For functions that call new Date() internally and produce date-based output
+    // (e.g., filenameFallback generating "FPK-062026" from current month).
+    // Replaces MMYYYY patterns AND standalone YYYY patterns — same as dynamicDates
+    // but also handles the common case where the ENTIRE output is a date-derived string.
+    // This is semantically different from dynamicDates (which is for embedded dates in
+    // larger strings): normalizeNow signals "this function's output IS a current-time value".
+    if (rules.includes('normalizeNow')) {
+      return obj
+        .replace(/(0[1-9]|1[0-2])\d{4}/g, '<NOW_MMYYYY>')   // MMYYYY
+        .replace(/(?<![0-9])(20\d{2}|19\d{2})(?![0-9])/g, '<NOW_YYYY>')  // YYYY
+    }
     // floatPrecision: normalize float-like strings that differ only in trailing zeros
     // Common in OCR output where "1500000.0" and "1500000" should be equivalent.
     // Strips trailing ".0" from number-like strings (including negative).
