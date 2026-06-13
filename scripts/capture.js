@@ -125,8 +125,14 @@ for (const cluster of clusters) {
       const inputForRecord = deepClone(input)
       const inputForArgs = deepClone(input)
       const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
-      const output = await entryFn(...args_)
-      
+      const rawOutput = await entryFn(...args_)
+      // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
+      // from the same serializable data that will be stored in the .regret file.
+      // Without this, non-serializable properties (functions, circular refs) would be
+      // present during fingerprinting but absent in the stored OUTPUT — causing the
+      // .regret file's data to be irreproducible from its own hash.
+      const output = deepClone(rawOutput)
+
       const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
       // Determine fingerprint based on fingerprintMode
@@ -180,12 +186,7 @@ for (const cluster of clusters) {
     const regretPath = join(outDir, `${id}.regret`)
     const timestamp  = new Date().toISOString()
 
-    // Convert TypedArrays to regular arrays for JSON serialization
-    // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
-    const serializableOutput = ArrayBuffer.isView(output) && !(output instanceof DataView)
-      ? Array.from(output)
-      : output
-
+    // Output is already deepClone'd (serializable), no further conversion needed
     const content = [
       `cluster: ${id}`,
       `version: 1`,
@@ -201,7 +202,7 @@ for (const cluster of clusters) {
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
-      `OUTPUT ${JSON.stringify(serializableOutput ?? null)}`,
+      `OUTPUT ${JSON.stringify(output ?? null)}`,
       `HASH   ${fp}`,
     ].filter(Boolean).join('\n')
 

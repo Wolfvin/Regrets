@@ -246,7 +246,11 @@ async function runCluster(clusterDef, regret) {
       const inputForArgs = deepClone(currentInput)
       // multiArgs: spread input as separate arguments (use separate clone for args)
       const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
-      const output   = await entryFn(...args_)
+      const rawOutput = await entryFn(...args_)
+      // Deep-clone output BEFORE fingerprinting to match capture.js behavior.
+      // Ensures fingerprints are computed from serializable data only, making
+      // .regret file data reproducible from its own hash.
+      const output   = deepClone(rawOutput)
       lastOutput     = output
       const fpInput  = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
 

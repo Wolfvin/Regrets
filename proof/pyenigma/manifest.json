@@ -1,0 +1,123 @@
+{
+  "clusters": [
+    {
+      "id": "encipher-default",
+      "entry": "encipher_default",
+      "watches": ["encipher_default"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encipher with default Enigma I settings: Reflector B, Rotors I-II-III, key AAA, no plugs",
+      "inputs": [
+        "HELLO",
+        "ATTACK AT DAWN",
+        "A",
+        "Z"
+      ]
+    },
+    {
+      "id": "encipher-plugboard",
+      "entry": "encipher_with_plugboard",
+      "watches": ["encipher_with_plugboard"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encipher with full plugboard: Reflector B, Rotors I-II-III, key ABC, 10 plug pairs",
+      "inputs": [
+        "Hello World",
+        "SECRET MESSAGE",
+        "A",
+        "Z"
+      ]
+    },
+    {
+      "id": "encipher-rotor-iv-v",
+      "entry": "encipher_rotor_iv_v",
+      "watches": ["encipher_rotor_iv_v"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encipher with Rotors IV-V-I, key XYZ, no plugs",
+      "inputs": [
+        "HELLO",
+        "TESTING",
+        "A"
+      ]
+    },
+    {
+      "id": "encipher-reflector-c",
+      "entry": "encipher_reflector_c",
+      "watches": ["encipher_reflector_c"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encipher with Reflector C instead of B, Rotors I-II-III, key AAA",
+      "inputs": [
+        "HELLO",
+        "REFLECTOR C TEST"
+      ]
+    },
+    {
+      "id": "encipher-ring-setting",
+      "entry": "encipher_ring_setting",
+      "watches": ["encipher_ring_setting"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encipher with ring setting BBB: changes rotor internal wiring offset",
+      "inputs": [
+        "HELLO",
+        "RING SETTING TEST"
+      ]
+    },
+    {
+      "id": "roundtrip-encipher",
+      "entry": "roundtrip_encipher",
+      "watches": ["roundtrip_encipher"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Roundtrip test: encipher then decipher with same config must return original",
+      "inputs": [
+        "HELLO WORLD",
+        "ENIGMA",
+        "A"
+      ]
+    },
+    {
+      "id": "encipher-naval-rotors",
+      "entry": "encipher_naval_rotors",
+      "watches": ["encipher_naval_rotors"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encipher with M3/M4 naval rotors VI-VII-VIII, Reflector B, key ZZZ",
+      "inputs": [
+        "NAVAL OPERATIONS",
+        "U BOAT"
+      ]
+    },
+    {
+      "id": "encipher-special-chars",
+      "entry": "encipher_special_chars",
+      "watches": ["encipher_special_chars"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encipher text containing non-alpha characters (spaces, numbers, punctuation pass through)",
+      "inputs": [
+        "HELLO WORLD 123",
+        "TEST 42!",
+        "A B C 1 2 3"
+      ]
+    }
+  ]
+}

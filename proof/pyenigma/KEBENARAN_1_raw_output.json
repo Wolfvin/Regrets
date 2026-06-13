@@ -1,0 +1,56 @@
+{
+  "encipher-default": {
+    "HELLO": "MFNCZ",
+    "ATTACK AT DAWN": "FAEMDM SP QPTO",
+    "A": "F",
+    "Z": "T"
+  },
+  "encipher-plugboard": {
+    "Hello World": "Khung Evpns",
+    "SECRET MESSAGE": "EHFIRQ ICKDTSG",
+    "A": "M",
+    "Z": "F"
+  },
+  "encipher-rotor-iv-v": {
+    "HELLO": "JDTHE",
+    "TESTING": "IDVQULV",
+    "A": "W"
+  },
+  "encipher-reflector-c": {
+    "HELLO": "WOXSY",
+    "REFLECTOR C TEST": "BOMSDFUES O XUYO"
+  },
+  "encipher-ring-setting": {
+    "HELLO": "VKHWQ",
+    "RING SETTING TEST": "QVPU KTDPUDY OXUF"
+  },
+  "roundtrip-encipher": {
+    "HELLO WORLD": {
+      "original": "HELLO WORLD",
+      "cipher": "MFNGZ SSFZM",
+      "decrypted": "HELLO WORLD",
+      "roundtrip_ok": true
+    },
+    "ENIGMA": {
+      "original": "ENIGMA",
+      "cipher": "AWJLFB",
+      "decrypted": "ENIGMA",
+      "roundtrip_ok": true
+    },
+    "A": {
+      "original": "A",
+      "cipher": "E",
+      "decrypted": "A",
+      "roundtrip_ok": true
+    }
+  },
+  "encipher-naval-rotors": {
+    "NAVAL OPERATIONS": "ULQSK NUXXTALMJH",
+    "U BOAT": "N KISH"
+  },
+  "encipher-special-chars": {
+    "HELLO WORLD 123": "MFNCZ BBFZM 123",
+    "TEST 42!": "ZFDU 42!",
+    "A B C 1 2 3": "F U V 1 2 3"
+  }
+}
