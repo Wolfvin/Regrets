@@ -603,6 +603,7 @@ regression-testing/
     ├── base1.md                ← Case study: qntm/base1 (unary encoding, BigInt)
     ├── stateful-encoding.md    ← Stateful encoding libraries (Baudot, Morse, shift states)
     ├── case-study-ogham.md     ← Case study: evanshortiss/ogham (CJS wrapper pattern)
+    ├── case-study-pyenigma.md  ← Case study: cedricbonhomme/pyEnigma (stateful class adapter pattern)
     ├── esoteric-language.md    ← Esoteric language interpreter testing pattern
     └── single-file-python.md   ← Single-file Python module integration pattern
 ```
