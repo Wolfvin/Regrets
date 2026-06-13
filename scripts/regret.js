@@ -313,6 +313,11 @@ switch (command) {
     break
   }
 
+  case 'analyze': {
+    success = run('python3', [`${SCRIPTS_DIR}/analyze.py`, ...passThroughArgs])
+    break
+  }
+
   case 'audit': {
     success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
     break
@@ -359,6 +364,7 @@ Usage:
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
+  node scripts/regret.js analyze [dir] [--json]        Deep structural analysis (god functions, duplicates, cross-module deps)
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
