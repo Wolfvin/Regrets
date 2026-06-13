@@ -10,8 +10,38 @@ import json
 import re
 
 
+def _numpy_to_native(obj):
+    """Convert numpy types to native Python types for JSON serialization.
+
+    Handles: ndarray -> list, numpy scalars (int64, float64, etc.) -> Python int/float,
+    numpy bool_ -> Python bool.
+    This is a no-op if numpy is not installed.
+    """
+    try:
+        import numpy as np
+        if isinstance(obj, np.ndarray):
+            return _numpy_to_native(obj.tolist())
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, (list, tuple)):
+            return [_numpy_to_native(v) for v in obj]
+        if isinstance(obj, dict):
+            return {k: _numpy_to_native(v) for k, v in obj.items()}
+    except ImportError:
+        pass
+    return obj
+
+
 def stable_dumps(obj):
-    """Stable JSON serialization — keys sorted recursively (mirrors JS stableStringify)."""
+    """Stable JSON serialization — keys sorted recursively (mirrors JS stableStringify).
+
+    Handles numpy arrays and scalars by converting to native Python types first.
+    """
+    obj = _numpy_to_native(obj)
     return json.dumps(obj, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 
 
@@ -24,9 +54,21 @@ def normalize(obj, rules=None):
     - absPaths: Absolute file paths -> <ROOT>/...
     - dynamicDates: Embedded MMYYYY/YYYY in strings -> <MMYYYY>/<YYYY>
     - epochs: Unix epoch numbers (1B-10T) -> <EPOCH>
+
+    Handles numpy arrays by converting to list before normalizing.
     """
     if rules is None:
         rules = []
+
+    # Handle numpy arrays — convert to list before recursing
+    try:
+        import numpy as np
+        if isinstance(obj, np.ndarray):
+            return normalize(obj.tolist(), rules)
+        if isinstance(obj, (np.integer, np.floating)):
+            obj = obj.item()  # Convert numpy scalar to Python native
+    except ImportError:
+        pass
 
     if isinstance(obj, str):
         if 'timestamps' in rules and re.match(r'^\d{4}-\d{2}-\d{2}T[\d:.Z+\-]+$', obj):
@@ -61,11 +103,20 @@ def normalize(obj, rules=None):
 
 
 def strip_fields(obj, fields=None):
-    """Strip ignored fields from output before hashing."""
+    """Strip ignored fields from output before hashing. Handles numpy arrays."""
     if fields is None:
         fields = []
     if not fields:
-        return obj
+        # Still need to convert numpy arrays to native types even if no fields to strip
+        return _numpy_to_native(obj) if obj is not None else obj
+
+    # Handle numpy arrays — convert to list before stripping
+    try:
+        import numpy as np
+        if isinstance(obj, np.ndarray):
+            return strip_fields(obj.tolist(), fields)
+    except ImportError:
+        pass
 
     if isinstance(obj, list):
         return [strip_fields(v, fields) for v in obj]
@@ -93,7 +144,8 @@ def to_base36(n):
 
 
 def deep_clone(val):
-    """Deep clone via JSON round-trip."""
+    """Deep clone via JSON round-trip. Handles numpy arrays by converting to native types."""
+    val = _numpy_to_native(val)
     try:
         return json.loads(json.dumps(val))
     except (TypeError, ValueError):
@@ -155,8 +207,20 @@ def extract_schema(obj):
     For arrays with mixed types, each unique schema is captured
     (up to 5 elements to avoid infinite schemas).
 
+    Handles numpy arrays by converting to list first.
+
     Cross-stack consistent with fingerprint.js extractSchema().
     """
+    # Handle numpy arrays — convert to list before extracting schema
+    try:
+        import numpy as np
+        if isinstance(obj, np.ndarray):
+            return extract_schema(obj.tolist())
+        if isinstance(obj, (np.integer, np.floating)):
+            return extract_schema(obj.item())
+    except ImportError:
+        pass
+
     if obj is None:
         return 'null'
     if isinstance(obj, list):
