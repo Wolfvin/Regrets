@@ -34,6 +34,9 @@ class FunctionInfo(NamedTuple):
     calls: list[str]  # functions called within this function
     branch_count: int  # estimated number of branches
     is_pure: bool  # heuristic: no global/nonlocal/IO
+    line_count: int  # number of lines in function body
+    mutates_args: bool  # whether function mutates its input arguments in-place
+    mutation_details: list[str]  # which args are mutated and how
 
 
 class ScanResult(NamedTuple):
@@ -42,6 +45,8 @@ class ScanResult(NamedTuple):
     functions: list[FunctionInfo]
     classes: dict[str, list[FunctionInfo]]
     suggested_clusters: list[dict]
+    dead_imports: list[tuple[str, int]]  # (import_name, line_number) of unused imports
+    oversized_functions: list[tuple[str, int, int]]  # (name, lineno, line_count) for fns > 30 lines
 
 
 # ─── AST Analysis ───────────────────────────────────────────────────────────
@@ -57,6 +62,8 @@ class FunctionCollector(ast.NodeVisitor):
         self._current_calls = []
         self._current_branches = 0
         self._current_impurities = 0
+        self._imported_names: dict[str, int] = {}  # name → line_number
+        self._used_names: set[str] = set()
 
     def _count_branches(self, node):
         """Estimate the number of execution paths through a function."""
@@ -114,6 +121,125 @@ class FunctionCollector(ast.NodeVisitor):
                     calls.append(child.func.attr)
         return list(set(calls))
 
+    def _detect_arg_mutations(self, node, arg_names):
+        """Detect in-place mutations of function arguments.
+
+        Catches patterns like:
+          - arg[key] = value       (Subscript assignment)
+          - arg.append(...)        (list mutation)
+          - arg.extend(...)        (list mutation)
+          - arg.insert(...)        (list mutation)
+          - arg.pop(...)           (list/dict mutation)
+          - arg.update(...)        (dict mutation)
+          - arg[key].append(...)   (nested mutation)
+          - arg.setdefault(...)    (dict mutation)
+          - for x in arg: x[key] = value  (iterated element mutation)
+
+        Returns (mutates: bool, details: list[str])
+        """
+        if not arg_names:
+            return False, []
+
+        mutations = []
+        arg_set = set(arg_names)
+
+        # First pass: find loop variables that iterate over arguments
+        # e.g., "for x in arg:" means x is a proxy for arg items
+        loop_vars_over_args = {}  # loop_var → arg_name
+        for child in ast.walk(node):
+            if isinstance(child, ast.For):
+                # Check if iterating over an argument
+                if isinstance(child.iter, ast.Name) and child.iter.id in arg_set:
+                    if isinstance(child.target, ast.Name):
+                        loop_vars_over_args[child.target.id] = child.iter.id
+                # Also catch enumerate(arg) and arg.items() etc.
+                elif isinstance(child.iter, ast.Call):
+                    if isinstance(child.iter.func, ast.Name) and child.iter.func.id == 'enumerate':
+                        if child.iter.args and isinstance(child.iter.args[0], ast.Name):
+                            if child.iter.args[0].id in arg_set:
+                                # for i, x in enumerate(arg):
+                                if isinstance(child.target, ast.Tuple):
+                                    for elt in child.target.elts:
+                                        if isinstance(elt, ast.Name):
+                                            loop_vars_over_args[elt.id] = child.iter.args[0].id
+
+        # Extend arg_set with loop variables (they are proxies for arg items)
+        effective_arg_set = arg_set | set(loop_vars_over_args.keys())
+
+        for child in ast.walk(node):
+            # Pattern 1: arg[key] = value  (Subscript assignment on an argument)
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    if isinstance(target, ast.Subscript):
+                        if isinstance(target.value, ast.Name) and target.value.id in effective_arg_set:
+                            var_name = target.value.id
+                            # Map loop variable back to the original arg
+                            original_arg = loop_vars_over_args.get(var_name, var_name)
+                            mutations.append(f"{original_arg}[...] = ... (via {var_name})")
+
+            # Pattern 2: arg.append/extend/insert/pop/update/setdefault/clear/remove
+            if isinstance(child, ast.Call):
+                if isinstance(child.func, ast.Attribute):
+                    method_name = child.func.attr
+                    mutating_methods = {
+                        'append', 'extend', 'insert', 'pop', 'remove',
+                        'update', 'setdefault', 'clear', 'sort', 'reverse',
+                    }
+                    if method_name in mutating_methods:
+                        if isinstance(child.func.value, ast.Name):
+                            obj_name = child.func.value.id
+                            if obj_name in effective_arg_set:
+                                original_arg = loop_vars_over_args.get(obj_name, obj_name)
+                                mutations.append(f"{original_arg}.{method_name}(...)")
+
+                        # Also catch arg[key].mutating_method(...)
+                        if isinstance(child.func.value, ast.Subscript):
+                            if isinstance(child.func.value.value, ast.Name):
+                                obj_name = child.func.value.value.id
+                                if obj_name in effective_arg_set:
+                                    original_arg = loop_vars_over_args.get(obj_name, obj_name)
+                                    mutations.append(f"{original_arg}[...].{method_name}(...)")
+
+        # Deduplicate
+        mutations = list(dict.fromkeys(mutations))
+        return bool(mutations), mutations
+
+    def _collect_imports(self, tree):
+        """Collect all import names and their line numbers."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.asname if alias.asname else alias.name
+                    self._imported_names[name] = node.lineno
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    name = alias.asname if alias.asname else alias.name
+                    self._imported_names[name] = node.lineno
+
+    def _collect_used_names(self, tree):
+        """Collect all names that are actually used (referenced) in the module."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                self._used_names.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                # For module.function calls, mark the module name as used
+                if isinstance(node.value, ast.Name):
+                    self._used_names.add(node.value.id)
+            elif isinstance(node, ast.Call):
+                # For decorated functions or direct calls
+                if isinstance(node.func, ast.Name):
+                    self._used_names.add(node.func.id)
+
+    def get_dead_imports(self):
+        """Return imported names that are never used in the module."""
+        dead = []
+        # Don't flag these common "used by tooling" imports
+        allowed_unused = {'__all__', '__version__'}
+        for name, lineno in self._imported_names.items():
+            if name not in self._used_names and name not in allowed_unused:
+                dead.append((name, lineno))
+        return sorted(dead, key=lambda x: x[1])
+
     def visit_ClassDef(self, node):
         old_class = self._current_class
         self._current_class = node.name
@@ -140,6 +266,14 @@ class FunctionCollector(ast.NodeVisitor):
         is_pure = self._check_purity(node)
         has_return = node.returns is not None
 
+        # Compute line count
+        line_count = 0
+        if hasattr(node, 'end_lineno') and node.end_lineno:
+            line_count = node.end_lineno - node.lineno + 1
+
+        # Detect argument mutations
+        mutates_args, mutation_details = self._detect_arg_mutations(node, args)
+
         func_info = FunctionInfo(
             name=node.name,
             lineno=node.lineno,
@@ -151,6 +285,9 @@ class FunctionCollector(ast.NodeVisitor):
             calls=calls,
             branch_count=branches,
             is_pure=is_pure,
+            line_count=line_count,
+            mutates_args=mutates_args,
+            mutation_details=mutation_details,
         )
 
         if self._current_class:
@@ -227,6 +364,11 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
             'args': func.args,
             'suggestedInputs': input_note,
             'coverageNote': branch_note if branch_note else 'All paths covered with single input',
+            'lineCount': func.line_count,
+            'mutatesArgs': func.mutates_args,
+            'mutationDetails': func.mutation_details,
+            'sizeWarning': f"Function is {func.line_count} lines — consider extracting sub-functions before clustering" if func.line_count > 30 else None,
+            'mutationWarning': f"Mutates args in-place: {', '.join(func.mutation_details)} — wrap with deep_copy before fingerprinting" if func.mutates_args else None,
         }
         suggestions.append(suggestion)
 
@@ -277,11 +419,25 @@ def scan_file(filepath: str, base_dir: str = '') -> ScanResult:
     collector = FunctionCollector()
     collector.visit(tree)
 
+    # Collect imports and usage for dead import detection
+    collector._collect_imports(tree)
+    collector._collect_used_names(tree)
+
     # Compute module path from file path
     rel_path = os.path.relpath(filepath, base_dir) if base_dir else filepath
     module = os.path.splitext(rel_path)[0].replace(os.sep, '.')
     if module.startswith('.'):
         module = module[1:]
+
+    # Find oversized functions (> 30 lines)
+    oversized = []
+    for func in collector.functions:
+        if func.line_count > 30:
+            oversized.append((func.name, func.lineno, func.line_count))
+    for class_name, methods in collector.classes.items():
+        for method in methods:
+            if method.line_count > 30:
+                oversized.append((f"{class_name}.{method.name}", method.lineno, method.line_count))
 
     result = ScanResult(
         file=filepath,
@@ -289,6 +445,8 @@ def scan_file(filepath: str, base_dir: str = '') -> ScanResult:
         functions=collector.functions,
         classes=collector.classes,
         suggested_clusters=[],
+        dead_imports=collector.get_dead_imports(),
+        oversized_functions=oversized,
     )
     result.suggested_clusters.extend(suggest_clusters(result))
     return result
@@ -332,7 +490,11 @@ def render_result(result: ScanResult):
         branches = f"{func.branch_count} branch(es)" if func.branch_count else "straight-line"
         args_str = ', '.join(func.args) if func.args else "no args"
         calls_str = f" → calls: {', '.join(func.calls)}" if func.calls else ""
-        print(f"     {func.name}({args_str})  [{purity}]  [{branches}]{calls_str}")
+        size_flag = f" 📏{func.line_count}L" if func.line_count > 30 else ""
+        mutation_flag = ""
+        if func.mutates_args:
+            mutation_flag = f" 🔄mutates({', '.join(func.mutation_details[:3])})"
+        print(f"     {func.name}({args_str})  [{purity}]  [{branches}]{size_flag}{mutation_flag}{calls_str}")
 
     # Show classes
     for class_name, methods in result.classes.items():
@@ -341,7 +503,11 @@ def render_result(result: ScanResult):
             purity = "✅ pure" if method.is_pure else "⚠️  impure"
             branches = f"{method.branch_count} branch(es)" if method.branch_count else "straight-line"
             args_str = ', '.join(method.args) if method.args else "no args"
-            print(f"     {method.name}({args_str})  [{purity}]  [{branches}]")
+            size_flag = f" 📏{method.line_count}L" if method.line_count > 30 else ""
+            mutation_flag = ""
+            if method.mutates_args:
+                mutation_flag = f" 🔄mutates({', '.join(method.mutation_details[:3])})"
+            print(f"     {method.name}({args_str})  [{purity}]  [{branches}]{size_flag}{mutation_flag}")
 
     # Show suggested clusters
     if result.suggested_clusters:
@@ -357,6 +523,18 @@ def render_result(result: ScanResult):
             if s.get('args'):
                 print(f"     │  args: {s['args']}")
             print(f"     └─ input hint: {s['suggestedInputs']}")
+
+    # Show dead imports
+    if result.dead_imports:
+        print(f"\n   🧹 Dead imports ({len(result.dead_imports)}):")
+        for name, lineno in result.dead_imports:
+            print(f"     ⚠️  Line {lineno}: '{name}' imported but never used")
+
+    # Show oversized functions
+    if result.oversized_functions:
+        print(f"\n   📏 Oversized functions >30 lines ({len(result.oversized_functions)}):")
+        for name, lineno, line_count in result.oversized_functions:
+            print(f"     ⚠️  {name} at line {lineno}: {line_count} lines — consider extracting sub-functions before clustering")
 
 
 def render_manifest_json(results: list[ScanResult]) -> str:
