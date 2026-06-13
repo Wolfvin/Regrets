@@ -173,6 +173,11 @@ switch (command) {
     break
   }
 
+  case 'verify': {
+    success = run('node', [`${SCRIPTS_DIR}/verify-truths.js`, ...passThroughArgs])
+    break
+  }
+
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -207,6 +212,7 @@ Usage:
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows)
   node scripts/regret.js guard                         Pre-build gate
+  node scripts/regret.js verify                        Dual-truth verification (KEBENARAN 1 + 2)
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js
