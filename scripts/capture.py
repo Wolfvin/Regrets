@@ -188,12 +188,18 @@ def main():
                 recorder_local = []
                 ghost = create_ghost(mod, watches, recorder_local)
 
-                if multi_args and isinstance(input_val, list):
-                    output = entry_fn(*input_val)
-                    fp_input = input_val
+                # Deep-clone input BEFORE calling the function to prevent mutation from
+                # corrupting the stored fingerprint. Two clones: one for the .regret file
+                # (immutable record), one for the args (may be mutated by the function)
+                input_for_record = deep_clone(input_val)
+                input_for_args = deep_clone(input_val)
+
+                if multi_args and isinstance(input_for_args, list):
+                    output = entry_fn(*input_for_args)
+                    fp_input = input_for_record
                 else:
-                    output = entry_fn(input_val) if input_val is not None else entry_fn()
-                    fp_input = input_val
+                    output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                    fp_input = input_for_record
 
                 if fingerprint_mode == 'schema':
                     schema = extract_schema(output)
