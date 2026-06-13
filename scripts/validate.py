@@ -318,6 +318,15 @@ def main():
 
     # Add pythonPath to sys.path if specified in any Python cluster
     # Supports both single string ("src") and array of strings (["src", "lib"])
+    # Also supports manifest-level pythonPath as default for all clusters
+    manifest_python_path = manifest.get('pythonPath', '')
+    if isinstance(manifest_python_path, str):
+        manifest_python_paths = [manifest_python_path] if manifest_python_path else []
+    elif isinstance(manifest_python_path, list):
+        manifest_python_paths = manifest_python_path
+    else:
+        manifest_python_paths = []
+
     for cluster in manifest.get('clusters', []):
         if cluster.get('stack') == 'python':
             raw_python_path = cluster.get('pythonPath', '')
@@ -327,6 +336,9 @@ def main():
                 python_paths = raw_python_path
             else:
                 python_paths = []
+            # If no cluster-level pythonPath, fall back to manifest-level
+            if not python_paths:
+                python_paths = manifest_python_paths
             for python_path in python_paths:
                 if python_path:
                     abs_path = os.path.join(os.getcwd(), python_path)
