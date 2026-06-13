@@ -106,6 +106,26 @@ Functions that take multiple arguments use `"multiArgs": true`:
 }
 ```
 
+### ESM Import Resolution Issue
+
+When creating adapters that re-export from source modules, you may encounter this error:
+
+```
+Cannot find module '/path/to/module' imported from '/path/to/source.js'
+```
+
+This happens when the source module uses imports without `.js` extensions (e.g., `import { foo } from './graph'` instead of `import { foo } from './graph.js'`). In pure ESM (used by Regrets' capture/validate scripts), extensions are required.
+
+**Solutions:**
+
+1. **Self-contained adapter** — Copy the pure logic into the adapter file instead of re-exporting. This avoids the import chain entirely. Use this when the source has extension-less imports you can't modify.
+
+2. **Fix the source** — Add `.js` extensions to imports in the source module. This is the cleanest solution but requires modifying the original code.
+
+3. **Re-export with different import path** — If the source only imports from modules that DO have extensions, you can safely re-export.
+
+The self-contained adapter approach is recommended for initial Regrets setup on Next.js projects — you can fix the source imports as part of the refactoring work.
+
 ### The Adapter Synchronization Problem
 
 When refactoring the TypeScript source, the adapter may drift from the source. To prevent this:

@@ -42,7 +42,8 @@ const rawOutputs = {}
 for (const cluster of manifest.clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [],
-          inputs, classMethod, constructor: constructorName, constructorArgs, setup } = cluster
+          inputs, classMethod, constructor: constructorName, constructorArgs, setup,
+          resetState, deepCloneInput = true, seed } = cluster
 
   if (stack && stack !== 'js' && stack !== 'ts') {
     console.log(`  ⏭️  ${id}: stack=${stack} — skipping (use truth.py for Python)`)
@@ -94,9 +95,31 @@ for (const cluster of manifest.clusters) {
 
       const outputs = []
       for (const input of testInputs) {
-        const inputForArgs = deepClone(input)
+        // Seed RNG for deterministic output if configured
+        const origRandom = Math.random
+        if (seed != null) {
+          let s = seed | 0
+          Math.random = () => {
+            s |= 0; s = s + 0x6D2B79F5 | 0
+            let t = Math.imul(s ^ s >>> 15, 1 | s)
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
+            return ((t ^ t >>> 14) >>> 0) / 4294967296
+          }
+        }
+
+        // Reset module-level state if configured
+        if (resetState) {
+          const resetFn = rawModule[resetState] ?? rawModule.default?.[resetState]
+          if (typeof resetFn === 'function') resetFn()
+        }
+
+        const inputForArgs = deepCloneInput ? deepClone(input) : input
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
+
+        // Restore RNG
+        if (seed != null) Math.random = origRandom
+
         outputs.push({ input: deepClone(input), output: deepClone(rawOutput) })
       }
       rawOutputs[id] = outputs
