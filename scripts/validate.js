@@ -204,7 +204,22 @@ async function runCluster(clusterDef, regret) {
     return await runReactCluster(clusterDef, regret)
   }
 
-  const mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
+  let mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
+
+  // Handle CJS modules: when a CommonJS module is imported via ESM dynamic import,
+  // named exports may not be available — instead they're on `mod.default`.
+  // The ESM namespace object is frozen (not extensible), so we must create a new
+  // plain object that merges both the namespace and the default export.
+  if (mod.default && typeof mod.default === 'object' && !Array.isArray(mod.default)) {
+    const merged = { ...mod }
+    for (const key of Object.keys(mod.default)) {
+      if (!(key in merged)) {
+        merged[key] = mod.default[key]
+      }
+    }
+    mod = merged
+  }
+
   const hashes = []           // flat list of all hashes (for backward compat)
   const hashesPerInput = {}   // { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
   let lastOutput = null

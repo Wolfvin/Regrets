@@ -29,6 +29,12 @@ export function deepClone(val) {
 export function createGhost(targetModule, watchList, recorder) {
   const proxied = {}
 
+  // Build the ghost module object first (before creating proxies) so that
+  // proxied functions can bind `this` to it. This is needed for CJS modules
+  // where functions use `this.siblingMethod()` — when called without a
+  // receiver (e.g., entryFn(...args)), `this` would be undefined.
+  const ghostModule = { ...targetModule }
+
   for (const fnName of watchList) {
     if (typeof targetModule[fnName] !== 'function') {
       console.warn(`  ⚠️  Watch target "${fnName}" is not a function — skipping`)
@@ -38,9 +44,15 @@ export function createGhost(targetModule, watchList, recorder) {
     const original = targetModule[fnName]
     proxied[fnName] = new Proxy(original, {
       apply(target, thisArg, args) {
+        // If `this` is undefined or not the module object (e.g., called as
+        // entryFn(...args) instead of module.method(...args)), bind to the
+        // ghost module so that `this.siblingMethod()` still works.
+        const effectiveThis = (thisArg && typeof thisArg === 'object' && fnName in thisArg)
+          ? thisArg
+          : ghostModule
         let result
         try {
-          result = target.apply(thisArg, args)
+          result = target.apply(effectiveThis, args)
         } catch (err) {
           recorder.push({ fn: fnName, args: deepClone(args), error: String(err) })
           throw err
@@ -61,8 +73,9 @@ export function createGhost(targetModule, watchList, recorder) {
     })
   }
 
-  // Return spread: non-watched fns pass through, watched are proxied
-  return { ...targetModule, ...proxied }
+  // Merge proxied into the ghost module (proxied overrides originals)
+  Object.assign(ghostModule, proxied)
+  return ghostModule
 }
 
 /**
