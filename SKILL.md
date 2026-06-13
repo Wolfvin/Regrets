@@ -597,6 +597,9 @@ regression-testing/
     ├── class-based.md           ← Class-based library wrapper pattern
     ├── esoteric-language.md     ← Esoteric language interpreter testing pattern
     ├── contest.md              ← Chain testing — multi-step flow validation
+    ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
+    ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
+    ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
     ├── TROUBLESHOOTING.md      ← Common problems and solutions
     ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
     ├── braille-encode.md       ← Case study: qntm/braille-encode (binary↔Braille)
