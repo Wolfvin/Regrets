@@ -146,7 +146,12 @@ def main():
             print('\n❌ Regret guard FAILED — some clusters are red.')
 
     elif command == 'chain':
-        success = run(f'node {SCRIPTS_DIR}/contest.mjs {extra_args}')
+        stacks = detect_stacks()
+        for stack in stacks:
+            if stack == 'python':
+                success = run(f'python3 {SCRIPTS_DIR}/contest.py {extra_args}') and success
+            else:
+                success = run(f'node {SCRIPTS_DIR}/contest.mjs {extra_args}') and success
 
     elif command == 'scan':
         success = run(f'python3 {SCRIPTS_DIR}/scan.py {extra_args}')
