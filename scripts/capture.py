@@ -264,6 +264,11 @@ def main():
         print(f"   Entry:   {entry}")
         print(f"   Watches: {', '.join(watches)}")
 
+        # Read classMethod-related fields early for display
+        class_method = cluster.get('classMethod', None)
+        if class_method:
+            print(f"   Class:   {cluster.get('constructor', entry)} → {class_method}()")
+
         try:
             # Dynamic import of target module
             # module uses dot notation: "src.invoice.processor"
@@ -454,6 +459,14 @@ def main():
 
     print(f"\n{'─' * 50}")
     print(f"Capture complete: {passed} captured, {failed} failed")
+
+    # Warn about stateful class clusters
+    class_clusters = [c for c in manifest.get('clusters', []) if c.get('classMethod')]
+    if class_clusters:
+        print(f"\n⚠️  {len(class_clusters)} class-based cluster(s) detected.")
+        print(f"   These use fresh instances per input to avoid state leakage.")
+        print(f"   When verifying raw output manually, create a new instance per call.")
+        print(f"   Stateful methods (num, classical, gender) affect subsequent calls.")
 
     if failed > 0:
         print(f"\n⚠️  Fix failed captures before proceeding to PHASE 2.")
