@@ -370,7 +370,11 @@ async function runCluster(clusterDef, regret) {
       } else {
         // ── Function-based entry (original behavior) ──────────────────────
         const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder, regret.instanceMethods || instanceMethods)
-        const entryFn  = ghost[entry] ?? mod[entry] ?? mod.default?.[entry]
+        // Resolve entry function with CJS module.exports = function support
+        const entryFn  = ghost[entry]
+          ?? mod[entry]
+          ?? mod.default?.[entry]
+          ?? ((entry === 'default' || entry === 'module.exports') && typeof mod.default === 'function' ? mod.default : null)
         if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
         const inputForFp = deepClone(currentInput)
         const inputForArgs = deepClone(currentInput)

@@ -235,7 +235,15 @@ for (const cluster of clusters) {
       }
     } else {
       // ── Function-based entry (original behavior) ───────────────────────
-      const entryFn = ghostModule[entry] ?? rawModule[entry] ?? rawModule.default?.[entry]
+      // Resolve entry function with CJS module.exports = function support:
+      // 1. Named export: mod.encode (ESM or CJS exports.encode)
+      // 2. Default object export: mod.default.encode (CJS default object)
+      // 3. Single function export: mod.default (CJS module.exports = function)
+      //    Accessible via entry="default" or entry="module.exports"
+      const entryFn = ghostModule[entry]
+        ?? rawModule[entry]
+        ?? rawModule.default?.[entry]
+        ?? ((entry === 'default' || entry === 'module.exports') && typeof rawModule.default === 'function' ? rawModule.default : null)
       if (typeof entryFn !== 'function') {
         throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
       }
