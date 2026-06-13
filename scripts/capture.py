@@ -13,6 +13,7 @@ import os
 import json
 import importlib
 import copy
+import types
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -51,6 +52,86 @@ def json_serialize(val):
     """Serialize value to JSON string for .regret file. Handles numpy types."""
     from fingerprint import _numpy_to_native
     return json.dumps(_numpy_to_native(val), ensure_ascii=False)
+
+
+def consume_generator(val):
+    """If val is a generator or iterator, consume it into a list.
+
+    This is critical for entry functions that return generators (e.g.,
+    FilterStack.run(), StatementSplitter.process()). Without this,
+    the ghost proxy would record the generator object itself, not
+    the values it yields.
+
+    Strings, bytes, dicts, and non-iterable objects are returned as-is.
+    """
+    if isinstance(val, (str, bytes, dict)):
+        return val
+    if isinstance(val, types.GeneratorType):
+        return list(val)
+    if hasattr(val, '__iter__') and hasattr(val, '__next__'):
+        # Generic iterator — consume but don't double-consume lists/tuples
+        if isinstance(val, (list, tuple)):
+            return val
+        return list(val)
+    return val
+
+
+def apply_output_transform(output, transform):
+    """Apply an outputTransform to convert complex objects to fingerprintable form.
+
+    Supported transforms:
+    - "str":     Convert each element to its string representation
+    - "repr":    Convert each element to its repr representation
+    - "dict":    Convert each element using dict(obj) or obj.__dict__
+    - "json":    Attempt obj.to_json() or json.dumps(obj)
+    - "len":     Return len(obj) — useful for large collections
+    - "type":    Return type names of elements
+    - "module.fn": Import and call module.fn(output) for custom transforms
+
+    When output is a tuple, it is first converted to a list.
+    When output is a list, the transform is applied to each element.
+    When output is a single object (not list/tuple), transform is applied to it.
+    """
+    if transform is None:
+        return output
+
+    # Convert tuples to lists for consistent serialization
+    if isinstance(output, tuple):
+        output = list(output)
+
+    # Handle custom callable path: "module.function"
+    if '.' in transform and transform not in ('json',):
+        parts = transform.rsplit('.', 1)
+        try:
+            mod = importlib.import_module(parts[0])
+            fn = getattr(mod, parts[1])
+            return fn(output)
+        except (ImportError, AttributeError) as e:
+            raise ValueError(f"Cannot resolve outputTransform '{transform}': {e}")
+
+    def transform_one(obj):
+        if transform == 'str':
+            return str(obj)
+        elif transform == 'repr':
+            return repr(obj)
+        elif transform == 'dict':
+            if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+                return obj.to_dict()
+            if hasattr(obj, '__dict__'):
+                return obj.__dict__
+            return dict(obj)
+        elif transform == 'len':
+            return len(obj)
+        elif transform == 'type':
+            return type(obj).__name__
+        else:
+            raise ValueError(f"Unknown outputTransform: '{transform}'")
+
+    # Apply to each element of lists, or to the single object
+    # Exception: "len" and "type" apply to the whole collection, not each element
+    if isinstance(output, list) and transform not in ('len',):
+        return [transform_one(item) for item in output]
+    return transform_one(output)
 
 
 # ─── Ghost decorator ──────────────────────────────────────────────────────────
@@ -164,6 +245,7 @@ def main():
         value_paths = cluster.get('valuePaths', [])
         multi_args = cluster.get('multiArgs', False)
         inputs = cluster.get('inputs', [None])
+        output_transform = cluster.get('outputTransform', None)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -202,16 +284,22 @@ def main():
                     output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                     fp_input = input_for_record
 
+                # Consume generators/iterators into lists for fingerprinting
+                output = consume_generator(output)
+
+                # Apply output transform if specified (e.g., "str" for Statement objects)
+                output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
                 if fingerprint_mode == 'schema':
-                    schema = extract_schema(output)
+                    schema = extract_schema(output_for_fp)
                     fp = fingerprint(fp_input, schema, normalize_rules, ignore_fields)
                 elif fingerprint_mode == 'mixed':
-                    schema = extract_schema(output)
+                    schema = extract_schema(output_for_fp)
                     selected_values = {}
                     for path in value_paths:
                         key = path.replace('$.', '')
                         parts = key.split('.')
-                        val = output
+                        val = output_for_fp
                         for p in parts:
                             val = val.get(p) if isinstance(val, dict) else None
                             if val is None:
@@ -221,11 +309,11 @@ def main():
                     combined = {'schema': schema, 'values': selected_values}
                     fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
                 elif fingerprint_level == 'entry':
-                    fp = fingerprint(fp_input, output, normalize_rules, ignore_fields)
+                    fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
                 else:
                     fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
 
-                results.append({'input': input_val, 'output': output, 'fp': fp, 'calls': list(recorder_local)})
+                results.append({'input': input_val, 'output': output_for_fp, 'fp': fp, 'calls': list(recorder_local)})
 
             # Use first result as golden
             golden = results[0]
@@ -257,6 +345,8 @@ def main():
                 lines.append(f"multiArgs: {multi_args}")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
+            if output_transform:
+                lines.append(f"outputTransform: {output_transform}")
 
             lines.append("---")
             lines.append(f"INPUT  {json_serialize(golden['input'])}")

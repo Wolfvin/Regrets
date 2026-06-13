@@ -13,6 +13,7 @@ import json
 import importlib
 import re
 import hashlib
+import types
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
@@ -56,6 +57,64 @@ def parse_args():
 
     return result
 
+# ─── Helpers (shared with capture.py) ─────────────────────────────────────────
+
+def consume_generator(val):
+    """If val is a generator or iterator, consume it into a list."""
+    if isinstance(val, (str, bytes, dict)):
+        return val
+    if isinstance(val, types.GeneratorType):
+        return list(val)
+    if hasattr(val, '__iter__') and hasattr(val, '__next__'):
+        if isinstance(val, (list, tuple)):
+            return val
+        return list(val)
+    return val
+
+
+def apply_output_transform(output, transform):
+    """Apply an outputTransform to convert complex objects to fingerprintable form.
+
+    See capture.py for full documentation.
+    """
+    if transform is None:
+        return output
+
+    if isinstance(output, tuple):
+        output = list(output)
+
+    if '.' in transform and transform not in ('json',):
+        parts = transform.rsplit('.', 1)
+        try:
+            mod = importlib.import_module(parts[0])
+            fn = getattr(mod, parts[1])
+            return fn(output)
+        except (ImportError, AttributeError) as e:
+            raise ValueError(f"Cannot resolve outputTransform '{transform}': {e}")
+
+    def transform_one(obj):
+        if transform == 'str':
+            return str(obj)
+        elif transform == 'repr':
+            return repr(obj)
+        elif transform == 'dict':
+            if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+                return obj.to_dict()
+            if hasattr(obj, '__dict__'):
+                return obj.__dict__
+            return dict(obj)
+        elif transform == 'len':
+            return len(obj)
+        elif transform == 'type':
+            return type(obj).__name__
+        else:
+            raise ValueError(f"Unknown outputTransform: '{transform}'")
+
+    if isinstance(output, list) and transform not in ('len',):
+        return [transform_one(item) for item in output]
+    return transform_one(output)
+
+
 # ─── Parse .regret file ──────────────────────────────────────────────────────
 
 def parse_regret(content):
@@ -81,6 +140,8 @@ def parse_regret(content):
             meta['fingerprintMode'] = val
         elif key == 'valuePaths':
             meta['valuePaths'] = [p.strip() for p in val.strip('[]').split(',') if p.strip()]
+        elif key == 'outputTransform':
+            meta['outputTransform'] = val
         else:
             meta[key] = val
 
@@ -292,6 +353,7 @@ def main():
             fp_mode = cluster_def.get('fingerprintMode', 'value')
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
+            output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
 
             mod = importlib.import_module(module_path)
 
@@ -329,18 +391,24 @@ def main():
                         output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
                         fp_input = input_for_fp
 
-                    last_output = output
+                    # Consume generators/iterators into lists for fingerprinting
+                    output = consume_generator(output)
+
+                    # Apply output transform if specified
+                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+                    last_output = output_for_fp
 
                     if effective_fp_mode == 'schema':
-                        schema = extract_schema(output)
+                        schema = extract_schema(output_for_fp)
                         fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
                     elif effective_fp_mode == 'mixed':
-                        schema = extract_schema(output)
+                        schema = extract_schema(output_for_fp)
                         selected_values = {}
                         for path in effective_value_paths:
                             key = path.replace('$.', '')
                             parts = key.split('.')
-                            val = output
+                            val = output_for_fp
                             for p in parts:
                                 val = val.get(p) if isinstance(val, dict) else None
                                 if val is None:
@@ -350,7 +418,7 @@ def main():
                         combined = {'schema': schema, 'values': selected_values}
                         fp = fingerprint(fp_input, combined, norm_rules, ign_fields)
                     elif fp_level == 'entry':
-                        fp = fingerprint(fp_input, output, norm_rules, ign_fields)
+                        fp = fingerprint(fp_input, output_for_fp, norm_rules, ign_fields)
                     else:
                         fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 

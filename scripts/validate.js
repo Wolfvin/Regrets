@@ -60,6 +60,7 @@ function parseRegret(content) {
     else if (key === 'ignoreFields') meta.ignoreFields = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
+    else if (key === 'outputTransform') meta.outputTransform = val
     else if (key === 'version') meta.version = Number(val)
     else meta[key] = val
   }
@@ -247,10 +248,39 @@ async function runCluster(clusterDef, regret) {
       // multiArgs: spread input as separate arguments (use separate clone for args)
       const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const rawOutput = await entryFn(...args_)
+      // Consume generators/iterators into arrays for fingerprinting
+      let consumedOutput = rawOutput
+      if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+          typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+          !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+        consumedOutput = [...rawOutput]
+      }
+      // Apply outputTransform if specified (from .regret or manifest)
+      const outputTransform = regret.outputTransform || clusterDef.outputTransform || null
+      let transformedOutput = consumedOutput
+      if (outputTransform) {
+        if (outputTransform === 'str') {
+          if (Array.isArray(consumedOutput)) {
+            transformedOutput = consumedOutput.map(item => String(item))
+          } else {
+            transformedOutput = String(consumedOutput)
+          }
+        } else if (outputTransform === 'json') {
+          if (Array.isArray(consumedOutput)) {
+            transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+          } else {
+            transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
+          }
+        } else if (outputTransform === 'keys') {
+          if (consumedOutput && typeof consumedOutput === 'object') {
+            transformedOutput = Object.keys(consumedOutput)
+          }
+        }
+      }
       // Deep-clone output BEFORE fingerprinting to match capture.js behavior.
       // Ensures fingerprints are computed from serializable data only, making
       // .regret file data reproducible from its own hash.
-      const output   = deepClone(rawOutput)
+      const output   = deepClone(transformedOutput)
       lastOutput     = output
       const fpInput  = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
 

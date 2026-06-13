@@ -126,12 +126,56 @@ for (const cluster of clusters) {
       const inputForArgs = deepClone(input)
       const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
       const rawOutput = await entryFn(...args_)
+
+      // Consume generators/iterators into arrays for fingerprinting.
+      // Entry functions that return generators (e.g., function*) would otherwise
+      // result in the generator object being recorded, not the values it yields.
+      let consumedOutput = rawOutput
+      if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+          typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+          !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+        // It's a generator or iterator — consume into array
+        consumedOutput = [...rawOutput]
+      }
+
+      // Apply outputTransform if specified in manifest
+      const outputTransform = cluster.outputTransform || null
+      let transformedOutput = consumedOutput
+      if (outputTransform) {
+        if (outputTransform === 'str') {
+          if (Array.isArray(consumedOutput)) {
+            transformedOutput = consumedOutput.map(item => String(item))
+          } else {
+            transformedOutput = String(consumedOutput)
+          }
+        } else if (outputTransform === 'json') {
+          if (Array.isArray(consumedOutput)) {
+            transformedOutput = consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+          } else {
+            transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
+          }
+        } else if (outputTransform === 'keys') {
+          if (consumedOutput && typeof consumedOutput === 'object') {
+            transformedOutput = Object.keys(consumedOutput)
+          }
+        } else if (outputTransform.includes('.')) {
+          // Custom: "module.function" — dynamic import
+          const [modPath, fnName] = outputTransform.rsplit('.', 1)
+          try {
+            const customMod = await import(resolve(process.cwd(), modPath))
+            transformedOutput = customMod[fnName](consumedOutput)
+          } catch (e) {
+            throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
+          }
+        }
+      }
+
       // Deep-clone output BEFORE fingerprinting to ensure the fingerprint is computed
       // from the same serializable data that will be stored in the .regret file.
       // Without this, non-serializable properties (functions, circular refs) would be
       // present during fingerprinting but absent in the stored OUTPUT — causing the
       // .regret file's data to be irreproducible from its own hash.
-      const output = deepClone(rawOutput)
+      const output = deepClone(transformedOutput)
 
       const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
@@ -200,6 +244,7 @@ for (const cluster of clusters) {
       valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+      cluster.outputTransform ? `outputTransform: ${cluster.outputTransform}` : null,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(output ?? null)}`,
