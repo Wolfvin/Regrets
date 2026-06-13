@@ -450,6 +450,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Stack | Capture method | Fingerprint target | Notes |
 |-------|---------------|-------------------|-------|
 | JS/TS | Proxy wrapping | Value / Schema / Mixed | Best support |
+| TypeScript (dual build) | CJS bridge wrapper | Value / Schema / Mixed | See `references/typescript.md` |
 | Python | Ghost decorator + `importlib` | Value / Schema / Mixed | Full support — see `references/python.md` |
 | Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
@@ -613,6 +614,7 @@ regression-testing/
    - React → `references/react.md`
    - Extension → `references/extension.md`
    - Go → `references/go.md`
+   - TypeScript (dual build) → `references/typescript.md`
 
 ### Decision Tree: Which Script to Use?
 
