@@ -1,0 +1,42 @@
+{
+  "description": "KEBENARAN 1 — Raw output dari semua entry function sebelum refactor. Ground truth yang tidak boleh berubah.",
+  "captured_at": "2026-06-13T00:00:00Z",
+  "clusters": {
+    "elder-futhark-letters-to-runes": {
+      "input": "wagagastiz alu wihgu sikijaz aiþalataz",
+      "output": "ᚹᚨᚷᚨᚷᚨᛋᛏᛁᛉ:ᚨᛚᚢ:ᚹᛁᚻᚷᚢ:ᛋᛁᚲᛁᛃᚨᛉ:ᚨᛁᚦᚨᛚᚨᛏᚨᛉ"
+    },
+    "elder-futhark-runes-to-letters": {
+      "input": "ᚹᚨᚷᚨᚷᚨᛋᛏᛁᛉ:ᚨᛚᚢ:ᚹᛁᚻᚷᚢ:ᛋᛁᚲᛁᛃᚨᛉ:ᚨᛁᚦᚨᛚᚨᛏᚨᛉ",
+      "output": "wagagastiz alu wihgu sikijaz aiþalataz"
+    },
+    "younger-futhark-long-branch": {
+      "input": "auk tani karþi kristna",
+      "output": "ᛅᚢᚴ:ᛏᛅᚾᛁ:ᚴᛅᚱᚦᛁ:ᚴᚱᛁᛋᛏᚾᛅ"
+    },
+    "younger-futhark-short-twig": {
+      "input": "aábcdðeéfghiíjklmnoópqrstþuúvwxyýzåäæœöøǫ",
+      "output": "ᛆᛆᛒᛌᛐᚦᛁᛁᚠᚴᚽᛁᛁᛁᚴᛚᛘᚿᚢᚢᛒᚴᚱᛌᛐᚦᚢᚢᚢᚢᛌᚢᚢᛌᚢᛆᛆᚢᚢᚢᚢ"
+    },
+    "younger-futhark-runes-to-letters": {
+      "input": "ᚠᚢᚦᚬᚱᚴᚼᚽᚾᚿᛁᛅᛆᛋᛌᛏᛐᛒᛘᛚᛦ:",
+      "output": "fuþorkhhnniaassttbmlR "
+    },
+    "futhorc-letters-to-runes": {
+      "input": "aábcdðeéfghiíïʒjklmnoópqrstþuúvwxyýzåäæœöø",
+      "output": "ᚪᚪᛒᚳᛞᛞᛖᛖᚠᚷᚻᛁᛇᛇᛇᛡᚳᛚᛗᚾᚩᚩᛈᚳᚱᛋᛏᚦᚢᚢᚹᚹᛉᚣᚣᛉᚩᚫᚫᛟᛟᛟ"
+    },
+    "futhorc-runes-to-letters": {
+      "input": "ᚠᚢᚦᚩᚱᚳᚷᚹᚻᚾᛁᛡᛇᛈᛉᛋᛏᛒᛖᛗᛚᛝᛟᛞᚪᚫᚣᛠ:",
+      "output": "fuþorcgwhnijïpxstbemlŋœdaæyea "
+    },
+    "medieval-futhork-letters-to-runes": {
+      "input": "aábcdðeéfghiíjklmnoóǫpqrstþuúüvwxyýzåäæœöø",
+      "output": "ᛆᛆᛒᚴᚦᚦᚽᚽᚠᚵᚼᛁᛁᛁᚴᛚᛘᚿᚮᚮᚰᛕᚴᚱᛋᛏᚦᚢᚢᚢᚠᚠᛋᛦᛦᛋᚮᛅᛅᚯᚯᚯ"
+    },
+    "medieval-futhork-runes-to-letters": {
+      "input": "ᚠᚢᚦᚮᚱᚴᚼᚿᛁᛆᛌᛋᛐᛏᛒᛘᛚᛦ:",
+      "output": "fuþorkhniassttbmly "
+    }
+  }
+}

@@ -1,0 +1,23 @@
+export type RuneDictionary = Map<string, string>;
+
+/**
+ * Transliterate content using a character mapping dictionary.
+ * Each character in content is looked up (case-insensitive) in the dictionary.
+ * Found characters are replaced; unfound characters pass through unchanged.
+ */
+export const transliterate = (
+  content: string,
+  dictionary: RuneDictionary,
+): string => {
+  return content
+    .split("")
+    .map((char) => dictionary.get(char.toLocaleLowerCase()) ?? char)
+    .join("");
+};
+
+/**
+ * @deprecated Use transliterate() instead. Kept for backward compatibility.
+ */
+export const transform = transliterate;
+
+export default transliterate;

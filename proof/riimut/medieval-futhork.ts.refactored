@@ -1,0 +1,18 @@
+import { transliterate } from "../transform";
+import { getLetterMapping } from "./mappings/futhork/letter-mapping";
+import { getRuneMapping } from "./mappings/futhork/rune-mapping";
+
+export const runesToLetters = (content: string): string => {
+  return transliterate(content, getRuneMapping());
+};
+
+export const lettersToRunes = (content: string): string => {
+  return transliterate(content, getLetterMapping());
+};
+
+export default {
+  runesToLetters,
+  lettersToRunes,
+  getRuneMapping,
+  getLetterMapping,
+};

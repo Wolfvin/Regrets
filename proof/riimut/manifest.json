@@ -1,0 +1,136 @@
+{
+  "clusters": [
+    {
+      "id": "elder-futhark-letters-to-runes",
+      "entry": "lettersToRunes",
+      "watches": ["lettersToRunes"],
+      "file": "dist/dialects/elder-futhark.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Elder Futhark: transform Latin letters to Elder Futhark runes",
+      "inputs": [
+        "wagagastiz alu wihgu sikijaz aiþalataz",
+        "aábcdðeéfghiíjklmnoópqrstþuúvwxyýzåäæœöø",
+        "WAGAGASTIZ",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "elder-futhark-runes-to-letters",
+      "entry": "runesToLetters",
+      "watches": ["runesToLetters"],
+      "file": "dist/dialects/elder-futhark.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Elder Futhark: transform Elder Futhark runes back to Latin letters",
+      "inputs": [
+        "ᚹᚨᚷᚨᚷᚨᛋᛏᛁᛉ:ᚨᛚᚢ:ᚹᛁᚻᚷᚢ:ᛋᛁᚲᛁᛃᚨᛉ:ᚨᛁᚦᚨᛚᚨᛏᚨᛉ",
+        "ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚻᚾᛁᛃᛇᛈᛉᛊᛋᛏᛒᛖᛗᛚᛜᛝᛟᛞ:",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "younger-futhark-long-branch",
+      "entry": "lettersToLongBranchRunes",
+      "watches": ["lettersToLongBranchRunes"],
+      "file": "dist/dialects/younger-futhark.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Younger Futhark Long Branch: Latin letters to Long Branch runes",
+      "inputs": [
+        "auk tani karþi kristna",
+        "aábcdðeéfghiíjklmnoópqrstþuúvwxyýzåäæœöøǫ",
+        "AUK tani Karþi kriSTnA",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "younger-futhark-short-twig",
+      "entry": "lettersToShortTwigRunes",
+      "watches": ["lettersToShortTwigRunes"],
+      "file": "dist/dialects/younger-futhark.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Younger Futhark Short Twig: Latin letters to Short Twig runes",
+      "inputs": [
+        "aábcdðeéfghiíjklmnoópqrstþuúvwxyýzåäæœöøǫ",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "younger-futhark-runes-to-letters",
+      "entry": "runesToLetters",
+      "watches": ["runesToLetters"],
+      "file": "dist/dialects/younger-futhark.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Younger Futhark: runes back to Latin letters (both variants)",
+      "inputs": [
+        "ᚠᚢᚦᚬᚱᚴᚼᚽᚾᚿᛁᛅᛆᛋᛌᛏᛐᛒᛘᛚᛦ:",
+        "ᛅᚢᚴ ᛏᛅᚾᛁ ᚴᛅᚱᚦᛁ ᚴᚱᛁᛋᛏᚾᛅ",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "futhorc-letters-to-runes",
+      "entry": "lettersToRunes",
+      "watches": ["lettersToRunes"],
+      "file": "dist/dialects/futhorc.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Anglo-Saxon Futhorc: Latin letters to Futhorc runes",
+      "inputs": [
+        "aábcdðeéfghiíïʒjklmnoópqrstþuúvwxyýzåäæœöø",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "futhorc-runes-to-letters",
+      "entry": "runesToLetters",
+      "watches": ["runesToLetters"],
+      "file": "dist/dialects/futhorc.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Anglo-Saxon Futhorc: runes back to Latin letters",
+      "inputs": [
+        "ᚠᚢᚦᚩᚱᚳᚷᚹᚻᚾᛁᛡᛇᛈᛉᛋᛏᛒᛖᛗᛚᛝᛟᛞᚪᚫᚣᛠ:",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "medieval-futhork-letters-to-runes",
+      "entry": "lettersToRunes",
+      "watches": ["lettersToRunes"],
+      "file": "dist/dialects/medieval-futhork.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Medieval Futhork: Latin letters to Medieval Futhork runes",
+      "inputs": [
+        "aábcdðeéfghiíjklmnoóǫpqrstþuúüvwxyýzåäæœöø",
+        "12345",
+        ""
+      ]
+    },
+    {
+      "id": "medieval-futhork-runes-to-letters",
+      "entry": "runesToLetters",
+      "watches": ["runesToLetters"],
+      "file": "dist/dialects/medieval-futhork.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Medieval Futhork: runes back to Latin letters",
+      "inputs": [
+        "ᚠᚢᚦᚮᚱᚴᚼᚿᛁᛆᛌᛋᛐᛏᛒᛘᛚᛦ:",
+        "12345",
+        ""
+      ]
+    }
+  ]
+}

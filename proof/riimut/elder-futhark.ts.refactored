@@ -1,0 +1,19 @@
+import { transliterate } from "../transform";
+import type { RuneDictionary } from "../transform";
+import { getLetterMapping } from "./mappings/elder-futhark/letter-mapping";
+import { getRuneMapping } from "./mappings/elder-futhark/rune-mapping";
+
+export const lettersToRunes = (content: string): string => {
+  return transliterate(content, getLetterMapping());
+};
+
+export const runesToLetters = (content: string): string => {
+  return transliterate(content, getRuneMapping());
+};
+
+export default {
+  getLetterMapping,
+  getRuneMapping,
+  lettersToRunes,
+  runesToLetters,
+};

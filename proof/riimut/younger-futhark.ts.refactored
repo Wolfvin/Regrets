@@ -1,0 +1,53 @@
+import {
+  getRuneMapping,
+  getLongBranchRuneMapping,
+  getShortTwigRuneMapping,
+} from "./mappings/younger-futhark/rune-mapping";
+import {
+  getLettersToLongBranchRunesMapping,
+  getLettersToShortTwigRunesMapping,
+} from "./mappings/younger-futhark/letter-mapping";
+import { transliterate } from "../transform";
+
+export enum Variant {
+  LongBranch = "LONG_BRANCH",
+  ShortTwig = "SHORTTWIG",
+}
+
+export const lettersToLongBranchRunes = (content: string): string => {
+  return transliterate(content, getLettersToLongBranchRunesMapping());
+};
+
+export const lettersToShortTwigRunes = (content: string): string => {
+  return transliterate(content, getLettersToShortTwigRunesMapping());
+};
+
+// For backwards compatibility & similar interface for other rune libs.
+export const lettersToRunes = (
+  content: string,
+  variant: Variant = Variant.LongBranch,
+): string => {
+  if (variant === Variant.ShortTwig) {
+    return lettersToShortTwigRunes(content);
+  }
+
+  return lettersToLongBranchRunes(content);
+};
+
+export const runesToLetters = (content: string): string => {
+  return transliterate(content, getRuneMapping());
+};
+
+export default {
+  lettersToRunes,
+  runesToLetters,
+  lettersToLongBranchRunes,
+  lettersToShortTwigRunes,
+  getRuneMapping,
+  getLongBranchRuneMapping,
+  getShortTwigRuneMapping,
+  getLetterMapping: getLettersToLongBranchRunesMapping,
+  getLettersToLongBranchRunesMapping,
+  getLettersToShortTwigRunesMapping,
+  Variant,
+};
