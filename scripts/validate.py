@@ -20,7 +20,8 @@ from pathlib import Path
 # Import shared fingerprint module (same directory)
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
-    deep_clone, fingerprint, fingerprint_sequence, extract_schema
+    deep_clone, fingerprint, fingerprint_sequence, extract_schema,
+    _numpy_to_native
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ def update_regret(regret_path, regret, new_hash, live_output, reason):
     raw = regret['raw']
     new_content = re.sub(r'^fingerprint: .+$', f'fingerprint: {new_hash}', raw, flags=re.MULTILINE)
     new_content = re.sub(r'^captured: .+$', f'captured: {now}', new_content, flags=re.MULTILINE)
-    new_content = re.sub(r'^OUTPUT .+$', f'OUTPUT {json.dumps(live_output, ensure_ascii=False)}', new_content, flags=re.MULTILINE)
+    new_content = re.sub(r'^OUTPUT .+$', f'OUTPUT {json.dumps(_numpy_to_native(live_output), ensure_ascii=False)}', new_content, flags=re.MULTILINE)
     new_content = re.sub(r'^HASH .+$', f'HASH   {new_hash}', new_content, flags=re.MULTILINE)
 
     with open(regret_path, 'w', encoding='utf-8') as f:
