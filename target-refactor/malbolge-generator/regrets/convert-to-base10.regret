@@ -1,0 +1,13 @@
+cluster: convert-to-base10
+version: 1
+fingerprint: 2963l3q
+captured: 2026-06-13T14:20:42.495008+00:00
+watches: [convert_to_base10]
+entry: convert_to_base10
+stack: python
+fingerprintLevel: entry
+module: malbolge.utils
+---
+INPUT  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+OUTPUT 0
+HASH   2963l3q
