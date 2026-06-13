@@ -213,8 +213,11 @@ Non-deterministic values are normalized before hashing:
 | `epochs` | Unix epoch numbers (1B–10T) | `<EPOCH>` |
 | `absPaths` | Absolute file paths | `<ROOT>/...` |
 | `dynamicDates` | Embedded MMYYYY/YYYY in strings | `<MMYYYY>`/`<YYYY>` |
+| `floatTolerance` | Floats rounded to 2dp before hashing | `round(n * 100) / 100` |
+| `floatTolerance:N` | Floats rounded to N decimal places | `round(n * 10^N) / 10^N` |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
+Use `floatTolerance` for financial/scientific computing where tiny floating-point differences (e.g., `123456.0` vs `123456.00000001`) should not trigger false negatives. `floatTolerance:0` rounds to integers — ideal for IDR amounts.
 
 Read `references/fingerprint-spec.md` for edge cases (timestamps, random IDs, etc).
 
@@ -269,7 +272,8 @@ Add these to the target project's `package.json`:
   "regret:test": "node ../../The-skill/regresion-testing/scripts/test.mjs",
   "regret:init": "node ../../The-skill/regresion-testing/scripts/init.js",
   "regret:rollback": "node ../../The-skill/regresion-testing/scripts/regret.js rollback",
-  "regret:chain": "node ../../The-skill/regresion-testing/scripts/regret.js chain"
+  "regret:chain": "node ../../The-skill/regresion-testing/scripts/regret.js chain",
+  "regret:diff": "node ../../The-skill/regresion-testing/scripts/regret.js diff"
 }
 ```
 
@@ -280,6 +284,7 @@ Add these to the target project's `package.json`:
 - `regret:init` — scaffold regrets/ directory with manifest template
 - `regret:rollback` — re-capture a specific cluster (undo bad update)
 - `regret:chain` — chain testing (multi-step flow validation)
+- `regret:diff` — show output diff (what changed when a cluster goes RED)
 - The unified runner (`regret.js`) auto-detects stack from manifest and dispatches to the right handler. You can also call individual scripts directly (see Decision Tree below).
 - Install globally with `npm link` (from the skill directory) to use `regret capture` directly
 - Programmatic API: `import { fingerprint, createGhost } from 'regret-testing'`
@@ -461,6 +466,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Next.js | Adapter modules (pure logic extraction) | Value (default) | See `references/nextjs.md` |
 | Tauri apps | esbuild transpile + adapter modules | Value (default) | See `references/tauri-apps.md` |
 | Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
+| Python pipeline | Pure logic extraction + adapter | Value / Schema / Mixed | See `references/python-pipeline.md` — OCR, NLP, and data processing pipelines |
 
 ---
 
@@ -516,6 +522,39 @@ node scripts/regret.js chain --validate   # Validate against golden
 Chain fingerprints are stored as `.chain` files in `regrets/chains/`.
 
 Read `references/contest.md` for the full specification.
+
+---
+
+## Diff — What Changed When a Cluster Goes RED
+
+When validation fails after refactoring, the only output is "expected X got Y" for the fingerprint hash. The `regret diff` command shows exactly WHAT changed in the output — field by field.
+
+```bash
+node scripts/regret.js diff                        # Diff all clusters
+node scripts/regret.js diff --cluster my-cluster   # Diff specific cluster
+```
+
+Output:
+```
+❌ my-cluster                              abc1234 → def5678
+  ≠ [2].saldo
+      golden:  9500000
+      live:    9500001
+  ≈ [3].debit
+      golden:  500000
+      live:    500000.0000001
+      diff:    1e-07 (within float tolerance)
+```
+
+Symbols:
+- `≠` value mismatch — likely a real regression
+- `≈` float tolerance difference — probably safe, add `floatTolerance` normalize rule
+- `+` key added in live output
+- `-` key removed from live output
+
+For Python clusters, use `python3 scripts/diff.py`.
+
+Read `references/python-pipeline.md` for diff usage in data pipeline projects.
 
 ---
 
@@ -585,6 +624,8 @@ regression-testing/
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
 │   ├── capture_go.sh           ← Go cluster capture runner (community preview)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation)
+│   ├── diff.js                 ← output diff — shows what changed when RED
+│   ├── diff.py                 ← output diff for Python clusters
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
 │   └── test.mjs                ← integration test suite (209 tests)
 └── references/
@@ -605,6 +646,7 @@ regression-testing/
     ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
+    ├── python-pipeline.md       ← Python pipeline pattern (OCR, NLP, data processing)
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
     ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
     ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor

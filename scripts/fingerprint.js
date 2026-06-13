@@ -67,6 +67,16 @@ export function normalize(obj, rules = []) {
     if (rules.includes('epochs') && obj > 1_000_000_000 && obj < 9_999_999_999_999) {
       return '<EPOCH>'
     }
+    // floatTolerance: round floating-point numbers to N decimal places before hashing.
+    // Prevents false negatives from tiny floating-point representation differences
+    // (e.g., 123456.0 vs 123456.00000001 in financial/scientific computing).
+    // Usage: "floatTolerance" (default 2 decimal places) or "floatTolerance:N" for N places.
+    if (rules.some(r => r.startsWith('floatTolerance'))) {
+      const rule = rules.find(r => r.startsWith('floatTolerance'))
+      const decimals = rule.includes(':') ? parseInt(rule.split(':')[1], 10) : 2
+      const factor = Math.pow(10, decimals)
+      return Math.round(obj * factor) / factor
+    }
   }
   if (Array.isArray(obj)) return obj.map(v => normalize(v, rules))
   // Handle TypedArrays — convert to regular arrays before recursing

@@ -91,6 +91,15 @@ def normalize(obj, rules=None):
     if isinstance(obj, (int, float)):
         if 'epochs' in rules and 1_000_000_000 < obj < 9_999_999_999_999:
             return '<EPOCH>'
+        # floatTolerance: round floating-point numbers to N decimal places before hashing.
+        # Prevents false negatives from tiny floating-point representation differences
+        # (e.g., 123456.0 vs 123456.00000001 in financial/scientific computing).
+        # Usage: "floatTolerance" (default 2 decimal places) or "floatTolerance:N" for N places.
+        ft_rule = next((r for r in rules if r.startswith('floatTolerance')), None)
+        if ft_rule:
+            decimals = int(ft_rule.split(':')[1]) if ':' in ft_rule else 2
+            factor = 10 ** decimals
+            return round(obj * factor) / factor
         return obj
 
     if isinstance(obj, list):

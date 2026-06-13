@@ -168,6 +168,11 @@ switch (command) {
     break
   }
 
+  case 'diff': {
+    success = run('node', [`${SCRIPTS_DIR}/diff.js`, ...passThroughArgs])
+    break
+  }
+
   case 'chain': {
     success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs])
     break
@@ -205,6 +210,7 @@ Usage:
   node scripts/regret.js drift [--cluster <id>]       Drift detection (5 runs)
   node scripts/regret.js ci                            CI mode (fail-fast)
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
+  node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows)
   node scripts/regret.js guard                         Pre-build gate
 
