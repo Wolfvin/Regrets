@@ -1,0 +1,130 @@
+{
+  "clusters": [
+    {
+      "id": "gematria-convert",
+      "entry": "_num_to_str",
+      "watches": ["_num_to_str", "_get_letters", "_stringify_gematria"],
+      "module": "pyluach.gematria",
+      "pythonPath": "src",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert integer to Hebrew gematria string representation",
+      "inputs": [
+        1,
+        15,
+        42,
+        100,
+        5783,
+        999,
+        7
+      ]
+    },
+    {
+      "id": "hebrew-leap",
+      "entry": "_is_leap",
+      "watches": ["_is_leap"],
+      "module": "pyluach.utils",
+      "pythonPath": "src",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Determine if a Hebrew year is a leap year",
+      "inputs": [
+        5783,
+        5784,
+        5785,
+        5786,
+        5787,
+        1
+      ]
+    },
+    {
+      "id": "month-length",
+      "entry": "_month_length",
+      "watches": ["_month_length", "_is_leap", "_long_cheshvan", "_short_kislev"],
+      "module": "pyluach.utils",
+      "pythonPath": "src",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Get the number of days in a Hebrew month for a given year",
+      "inputs": [
+        [5783, 1],
+        [5783, 7],
+        [5783, 8],
+        [5783, 9],
+        [5783, 12],
+        [5786, 12],
+        [5786, 13]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "month-name",
+      "entry": "_month_name",
+      "watches": ["_month_name", "_is_leap"],
+      "module": "pyluach.utils",
+      "pythonPath": "src",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Get the name of a Hebrew month in English or Hebrew",
+      "inputs": [
+        [5783, 7, false],
+        [5783, 7, true],
+        [5783, 1, false],
+        [5783, 1, true],
+        [5786, 12, false],
+        [5786, 13, true]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "elapsed-days",
+      "entry": "_elapsed_days",
+      "watches": ["_elapsed_days", "_elapsed_months", "_is_leap"],
+      "module": "pyluach.utils",
+      "pythonPath": "src",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate days elapsed from Hebrew year 1 to the start of a given year",
+      "inputs": [
+        5783,
+        5784,
+        1,
+        1000
+      ]
+    },
+    {
+      "id": "get-letters",
+      "entry": "_get_letters",
+      "watches": ["_get_letters"],
+      "module": "pyluach.gematria",
+      "pythonPath": "src",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Convert numbers under 1000 into raw Hebrew letters (no gershayim)",
+      "inputs": [
+        1,
+        15,
+        42,
+        100,
+        999,
+        16
+      ]
+    },
+    {
+      "id": "stringify-gematria",
+      "entry": "_stringify_gematria",
+      "watches": ["_stringify_gematria"],
+      "module": "pyluach.gematria",
+      "pythonPath": "src",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Insert geresh or gershayim symbols into gematria letter string",
+      "inputs": [
+        "א",
+        "יד",
+        "תשפ",
+        "טו"
+      ]
+    }
+  ]
+}

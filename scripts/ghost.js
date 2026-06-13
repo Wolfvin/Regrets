@@ -6,6 +6,7 @@
  * Deep clone a value via JSON round-trip.
  * Handles most JSON-compatible values. Non-JSON values are converted to
  * serializable representations before cloning:
+ *   - BigInt → string with "n" suffix (e.g., 18n → "18n")
  *   - TypedArrays → regular arrays
  *   - Map → plain object (entries become key-value pairs)
  *   - Set → array of values
@@ -15,6 +16,11 @@
  * which silently drops non-serializable values (backward-compatible behavior).
  */
 export function deepClone(val) {
+  // Handle BigInt → string with "n" suffix for round-trip fidelity
+  // BigInt cannot be JSON.stringify'd, so we convert to a tagged string
+  if (typeof val === 'bigint') {
+    return val.toString() + 'n'
+  }
   // Handle TypedArrays — convert to regular array before cloning
   // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
   if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
@@ -56,6 +62,12 @@ export function deepClone(val) {
 export function createGhost(targetModule, watchList, recorder) {
   const proxied = {}
 
+  // Build the ghost module object first (before creating proxies) so that
+  // proxied functions can bind `this` to it. This is needed for CJS modules
+  // where functions use `this.siblingMethod()` — when called without a
+  // receiver (e.g., entryFn(...args)), `this` would be undefined.
+  const ghostModule = { ...targetModule }
+
   for (const fnName of watchList) {
     if (typeof targetModule[fnName] !== 'function') {
       console.warn(`  ⚠️  Watch target "${fnName}" is not a function — skipping`)
@@ -65,9 +77,15 @@ export function createGhost(targetModule, watchList, recorder) {
     const original = targetModule[fnName]
     proxied[fnName] = new Proxy(original, {
       apply(target, thisArg, args) {
+        // If `this` is undefined or not the module object (e.g., called as
+        // entryFn(...args) instead of module.method(...args)), bind to the
+        // ghost module so that `this.siblingMethod()` still works.
+        const effectiveThis = (thisArg && typeof thisArg === 'object' && fnName in thisArg)
+          ? thisArg
+          : ghostModule
         let result
         try {
-          result = target.apply(thisArg, args)
+          result = target.apply(effectiveThis, args)
         } catch (err) {
           recorder.push({ fn: fnName, args: deepClone(args), error: String(err) })
           throw err

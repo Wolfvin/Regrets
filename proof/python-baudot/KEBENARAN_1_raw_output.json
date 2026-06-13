@@ -1,0 +1,84 @@
+{
+  "encode_ita2_standard": {
+    "HELLO WORLD": "1f14011212180413180a1209",
+    "SOS": "1f051805",
+    "TEST 123": "1f10010510041b171301",
+    "A": "1f03",
+    "": ""
+  },
+  "decode_ita2_standard": {
+    "1f14011212180413180a1209": "HELLO WORLD",
+    "1f051805": "SOS",
+    "1f03": "A",
+    "": ""
+  },
+  "encode_ita2_us": {
+    "HELLO WORLD": "1f14011212180413180a1209",
+    "TEST 123": "1f10010510041b171301",
+    "A": "1f03",
+    "": ""
+  },
+  "decode_ita2_us": {
+    "1f14011212180413180a1209": "HELLO WORLD",
+    "1f03": "A",
+    "": ""
+  },
+  "encode_ita1_continental": {
+    "HELLO": "100b021b1b07",
+    "TEST": "1015021415",
+    "A": "1001",
+    "": ""
+  },
+  "decode_ita1_continental": {
+    "100b021b1b07": "HELLO",
+    "10": "",
+    "": ""
+  },
+  "codec_encode_char": {
+    "[\"E\", \"ITA2_STANDARD\", null]": [
+      1,
+      "Letters"
+    ],
+    "[\"3\", \"ITA2_STANDARD\", null]": [
+      1,
+      "Figures"
+    ],
+    "[\"A\", \"ITA2_STANDARD\", null]": [
+      3,
+      "Letters"
+    ],
+    "[\" \", \"ITA2_STANDARD\", null]": [
+      4,
+      null
+    ]
+  },
+  "codec_decode_code": {
+    "[1, \"ITA2_STANDARD\", \"Letters\"]": "E",
+    "[1, \"ITA2_STANDARD\", \"Figures\"]": "3",
+    "[4, \"ITA2_STANDARD\", \"Letters\"]": " ",
+    "[27, \"ITA2_STANDARD\", \"Letters\"]": {
+      "shift": "Figures"
+    },
+    "[31, \"ITA2_STANDARD\", \"Letters\"]": {
+      "shift": "Letters"
+    }
+  },
+  "roundtrip_ita2_standard": {
+    "HELLO WORLD": "HELLO WORLD",
+    "SOS": "SOS",
+    "TEST 123": "TEST 123",
+    "A": "A",
+    "ZYXWV": "ZYXWV"
+  },
+  "roundtrip_ita2_us": {
+    "HELLO WORLD": "HELLO WORLD",
+    "TEST 123": "TEST 123",
+    "A": "A",
+    "ZYXWV": "ZYXWV"
+  },
+  "roundtrip_ita1_continental": {
+    "HELLO": "HELLO",
+    "TEST": "TEST",
+    "A": "A"
+  }
+}

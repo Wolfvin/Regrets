@@ -1,0 +1,93 @@
+{
+  "clusters": [
+    {
+      "id": "convert-default",
+      "entry": "convertDefault",
+      "watches": ["convertDefault"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert Latin text to Ogham with default options (addBoundary: true)",
+      "inputs": [
+        "eire",
+        "hello",
+        "is maith liom tae",
+        "",
+        "abc",
+        "dbca"
+      ]
+    },
+    {
+      "id": "convert-no-boundary",
+      "entry": "convertNoBoundary",
+      "watches": ["convertNoBoundary"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert Latin text to Ogham without boundary markers (addBoundary: false)",
+      "inputs": [
+        "eire",
+        "hello",
+        "is maith liom tae",
+        "",
+        "abc"
+      ]
+    },
+    {
+      "id": "convert-with-forfeda",
+      "entry": "convertWithForfeda",
+      "watches": ["convertWithForfeda"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert Latin text to Ogham with forfeda (extended) characters enabled",
+      "inputs": [
+        "is maith liom tae",
+        "eire",
+        "ea oi ui ia ae"
+      ]
+    },
+    {
+      "id": "convert-with-phonetics",
+      "entry": "convertWithPhonetics",
+      "watches": ["convertWithPhonetics"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert Latin text to Ogham using phonetic replacements for invalid chars (j,k,v,w,x,y)",
+      "inputs": [
+        "jkvwxy",
+        "keys",
+        "jolly van xray"
+      ]
+    },
+    {
+      "id": "convert-forfeda-phonetics",
+      "entry": "convertWithForfedaAndPhonetics",
+      "watches": ["convertWithForfedaAndPhonetics"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert Latin text to Ogham with both forfeda and phonetic replacements enabled",
+      "inputs": [
+        "keys",
+        "jkvwxy ea oi",
+        "jolly van xray"
+      ]
+    },
+    {
+      "id": "convert-phonetics-no-boundary",
+      "entry": "convertPhoneticsNoBoundary",
+      "watches": ["convertPhoneticsNoBoundary"],
+      "file": "regret-entry.mjs",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Convert Latin text to Ogham with phonetics but without boundary markers",
+      "inputs": [
+        "hello",
+        "jkvwxy",
+        "keys"
+      ]
+    }
+  ]
+}
