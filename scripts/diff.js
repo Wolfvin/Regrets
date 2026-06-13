@@ -12,6 +12,7 @@ import { resolve, join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
+import { mergeCjsModule } from './cjs-merge.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -203,14 +204,8 @@ for (const file of regretFiles) {
 
   try {
     let mod = await import(pathToFileURL(resolve(process.cwd(), moduleFile)).href)
-    // Handle CJS modules
-    if (mod.default && typeof mod.default === 'object' && !Array.isArray(mod.default)) {
-      const merged = { ...mod }
-      for (const key of Object.keys(mod.default)) {
-        if (!(key in merged)) merged[key] = mod.default[key]
-      }
-      mod = merged
-    }
+    // Handle CJS modules — merge default exports for consistent access
+    mod = mergeCjsModule(mod)
 
     const recorder = []
     const ghostModule = createGhost(mod, regret.watches ?? def.watches, recorder)

@@ -13,6 +13,7 @@ import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
+import { mergeCjsModule } from './cjs-merge.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -88,30 +89,8 @@ for (const cluster of clusters) {
     const moduleUrl = pathToFileURL(absPath).href
     let rawModule = await import(moduleUrl)
 
-    // Handle CJS modules: when a CommonJS module is imported via ESM dynamic import,
-    // named exports may not be available — instead they're on `mod.default`.
-    // The ESM namespace object is frozen (not extensible), so we must create a new
-    // plain object that merges both the namespace and the default export.
-    // Case 1: default is an object (multi-export CJS) — merge its keys
-    // Case 2: default is a function (single-class CJS export like AggressiveTokenizer)
-    //         — expose it under its own name for classMethod lookup
-    if (rawModule.default && typeof rawModule.default === 'object' && !Array.isArray(rawModule.default)) {
-      const merged = { ...rawModule }
-      for (const key of Object.keys(rawModule.default)) {
-        if (!(key in merged)) {
-          merged[key] = rawModule.default[key]
-        }
-      }
-      rawModule = merged
-    } else if (rawModule.default && typeof rawModule.default === 'function') {
-      // Single function/class export — expose under its name for classMethod/entry lookup
-      const merged = { ...rawModule }
-      const fnName = rawModule.default.name
-      if (fnName && !(fnName in merged)) {
-        merged[fnName] = rawModule.default
-      }
-      rawModule = merged
-    }
+    // Handle CJS modules — merge default exports for consistent access
+    rawModule = mergeCjsModule(rawModule)
 
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder)
