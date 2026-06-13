@@ -426,7 +426,7 @@ Usage:
   node scripts/regret.js scan --decompose <path>                    Detect god modules and suggest decomposition
   node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
-  node scripts/regret.js analyze [dir] [--json]        Deep structural analysis (god functions, duplicates)
+  node scripts/regret.js analyze [dir] [--json]        Deep structural analysis (god functions, duplicates, cross-module deps)
   node scripts/regret.js diagnose <file>                Diagnose module exports & recommend mode
   node scripts/regret.js compare --pre <dir> --post <dir>  Compare pre vs post truth baselines
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
