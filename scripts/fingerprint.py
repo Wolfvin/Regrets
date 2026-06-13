@@ -176,6 +176,115 @@ def deep_clone(val):
         return val
 
 
+def materialize_output(val):
+    """Materialize generator/iterator output into a list for fingerprinting.
+
+    When a function returns a generator, iterator, or other lazy sequence,
+    it cannot be JSON-serialized or fingerprinted directly. This function
+    detects lazy types and consumes them into a concrete list.
+
+    Handles:
+    - Generators (generator type)
+    - Iterators (has __next__ but is not str/bytes/dict/list)
+    - map/filter objects
+    - range objects
+
+    Does NOT materialize:
+    - str, bytes, dict, list, tuple, set (already concrete)
+    - numpy arrays (handled by _numpy_to_native)
+    - Numbers, booleans, None (primitives)
+
+    Returns a tuple: (materialized_value, was_materialized_bool)
+    """
+    # Primitives and already-concrete types — no materialization needed
+    if val is None or isinstance(val, (bool, int, float, str, bytes, dict, list, tuple, set)):
+        return val, False
+
+    # numpy arrays — handled by _numpy_to_native, not materialization
+    try:
+        import numpy as np
+        if isinstance(val, np.ndarray):
+            return val, False
+    except ImportError:
+        pass
+
+    # Detect lazy/iterable types that should be materialized
+    import types as _types
+    is_generator = isinstance(val, _types.GeneratorType)
+    is_map_filter = isinstance(val, (map, filter))
+    is_range = isinstance(val, range)
+    is_iterator = hasattr(val, '__next__') and not isinstance(val, (str, bytes, dict))
+    is_iterable_only = hasattr(val, '__iter__') and not hasattr(val, '__len__') and not isinstance(val, (str, bytes, dict))
+
+    if is_generator or is_map_filter or is_range or is_iterator or is_iterable_only:
+        try:
+            return list(val), True
+        except Exception:
+            # If materialization fails, return as-is
+            return val, False
+
+    return val, False
+
+
+def snapshot_state(obj):
+    """Create a JSON-serializable snapshot of an object's state.
+
+    Used by trackMutation to capture input state before and after
+    a function call, so mutations can be detected.
+
+    Handles:
+    - JSON-serializable types (dict, list, str, numbers)
+    - Objects with __dict__ (captures instance attributes)
+    - Objects with __slots__ (captures slot values)
+    - Nested objects (recurses)
+
+    Returns a JSON-serializable dict/list/value.
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    if isinstance(obj, (list, tuple)):
+        return [snapshot_state(v) for v in obj]
+
+    if isinstance(obj, dict):
+        return {k: snapshot_state(v) for k, v in obj.items()}
+
+    if isinstance(obj, set):
+        return sorted([snapshot_state(v) for v in obj], key=lambda x: str(x))
+
+    if isinstance(obj, bytes):
+        return obj.decode('utf-8', errors='replace')
+
+    # Object with __dict__ (most class instances)
+    if hasattr(obj, '__dict__'):
+        cls_name = type(obj).__name__
+        attrs = {}
+        for k, v in obj.__dict__.items():
+            if not k.startswith('_'):  # skip private attrs by default
+                try:
+                    attrs[k] = snapshot_state(v)
+                except Exception:
+                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+        return {'__class__': cls_name, **attrs}
+
+    # Object with __slots__
+    if hasattr(obj, '__slots__'):
+        cls_name = type(obj).__name__
+        attrs = {}
+        for slot in obj.__slots__:
+            try:
+                attrs[slot] = snapshot_state(getattr(obj, slot))
+            except AttributeError:
+                pass
+        return {'__class__': cls_name, **attrs}
+
+    # Fallback: try JSON serialization
+    try:
+        return json.loads(json.dumps(obj))
+    except (TypeError, ValueError):
+        return f'<unrepresentable:{type(obj).__name__}>'
+
+
 def fingerprint(input_data, output_data, rules=None, ignore_fields=None):
     """
     Core fingerprint function — IDENTICAL algorithm to fingerprint.js:

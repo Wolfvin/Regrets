@@ -20,7 +20,8 @@ from functools import wraps
 # Import shared fingerprint module (same directory)
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
-    deep_clone, fingerprint, fingerprint_sequence, extract_schema
+    deep_clone, fingerprint, fingerprint_sequence, extract_schema,
+    materialize_output, snapshot_state
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -247,6 +248,7 @@ def main():
         kwargs_mode = cluster.get('kwargs', False)
         inputs = cluster.get('inputs', [None])
         output_transform = cluster.get('outputTransform', None)
+        track_mutation = cluster.get('trackMutation', False)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -278,6 +280,11 @@ def main():
                 input_for_record = deep_clone(input_val)
                 input_for_args = deep_clone(input_val)
 
+                # Snapshot input state BEFORE call (for mutation tracking)
+                input_snapshot_before = None
+                if track_mutation:
+                    input_snapshot_before = snapshot_state(input_for_args)
+
                 if multi_args and isinstance(input_for_args, list):
                     output = entry_fn(*input_for_args)
                     fp_input = input_for_record
@@ -296,7 +303,22 @@ def main():
                     fp_input = input_for_record
 
                 # Consume generators/iterators into lists for fingerprinting
+                raw_type_name = type(output).__name__
                 output = consume_generator(output)
+                if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
+                    print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
+
+                # Snapshot input state AFTER call (for mutation tracking)
+                input_snapshot_after = None
+                input_mutation_fingerprint = None
+                if track_mutation:
+                    input_snapshot_after = snapshot_state(input_for_args)
+                    input_mutation_fingerprint = fingerprint(
+                        input_snapshot_before, input_snapshot_after,
+                        normalize_rules, ignore_fields
+                    )
+                    if input_snapshot_before != input_snapshot_after:
+                        print(f"   ⚠️  Input mutation detected! Fingerprint: {input_mutation_fingerprint}")
 
                 # Apply output transform if specified (e.g., "str" for Statement objects)
                 output_for_fp = apply_output_transform(deep_clone(output), output_transform)
@@ -324,7 +346,15 @@ def main():
                 else:
                     fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
 
-                results.append({'input': input_val, 'output': output_for_fp, 'fp': fp, 'calls': list(recorder_local)})
+                results.append({
+                    'input': input_val,
+                    'output': output_for_fp,
+                    'fp': fp,
+                    'calls': list(recorder_local),
+                    'input_snapshot_before': input_snapshot_before,
+                    'input_snapshot_after': input_snapshot_after,
+                    'input_mutation_fingerprint': input_mutation_fingerprint,
+                })
 
             # Warn about watched functions that were never called during capture
             called_fns = set()
@@ -371,11 +401,18 @@ def main():
                 lines.append(f"module: {module_path}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
+            if track_mutation:
+                lines.append("trackMutation: true")
+                if golden.get('input_mutation_fingerprint'):
+                    lines.append(f"mutationFingerprint: {golden['input_mutation_fingerprint']}")
 
             lines.append("---")
             lines.append(f"INPUT  {json_serialize(golden['input'])}")
             lines.append(f"OUTPUT {json_serialize(golden['output'])}")
             lines.append(f"HASH   {fp}")
+            if track_mutation and golden.get('input_snapshot_before') is not None:
+                lines.append(f"MUTATION_BEFORE {json_serialize(golden['input_snapshot_before'])}")
+                lines.append(f"MUTATION_AFTER  {json_serialize(golden['input_snapshot_after'])}")
 
             with open(regret_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
