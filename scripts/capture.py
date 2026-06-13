@@ -48,8 +48,9 @@ def parse_args():
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
 def json_serialize(val):
-    """Serialize value to JSON string for .regret file."""
-    return json.dumps(val, ensure_ascii=False)
+    """Serialize value to JSON string for .regret file. Handles numpy types."""
+    from fingerprint import _numpy_to_native
+    return json.dumps(_numpy_to_native(val), ensure_ascii=False)
 
 
 # ─── Ghost decorator ──────────────────────────────────────────────────────────

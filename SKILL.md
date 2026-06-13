@@ -601,6 +601,13 @@ regression-testing/
     ├── base1.md                ← Case study: qntm/base1 (unary encoding, BigInt)
     ├── stateful-encoding.md    ← Stateful encoding libraries (Baudot, Morse, shift states)
     ├── case-study-ogham.md     ← Case study: evanshortiss/ogham (CJS wrapper pattern)
+    ├── case-study-hebrew.md    ← Case study: Hebrew Gematria (class-based adapter)
+    ├── case-study-isbn3.md     ← Case study: isbn3 (ISBN utility library)
+    ├── case-study-korean-romanizer.md ← Case study: korean-romanizer (Python adapter pattern)
+    ├── case-study-petungan.md  ← Case study: petungan (Javanese calendar, circular dep)
+    ├── case-study-riimut.md    ← Case study: riimut (rune transliteration, dual-truth)
+    ├── dual-truth-verification.md ← Dual-truth verification pattern
+    ├── mapping-transliteration.md ← Mapping/transliteration library guide
     └── single-file-python.md   ← Single-file Python module integration pattern
 ```
 
