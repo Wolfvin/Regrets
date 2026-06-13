@@ -1,0 +1,12 @@
+cluster: fill-isbn-data
+version: 1
+fingerprint: 4b8gx8c
+captured: 2026-06-13T14:13:13.604Z
+watches: [fill]
+entry: fill
+stack: js
+fingerprintLevel: entry
+---
+INPUT  {"prefix":"978","group":"3","publisher":"16","article":"148410","check":"0"}
+OUTPUT {"prefix":"978","group":"3","publisher":"16","article":"148410","check":"0","groupname":"German language","check10":"X","check13":"0","isbn13":"9783161484100","isbn13h":"978-3-16-148410-0","isbn10":"316148410X","isbn10h":"3-16-148410-X"}
+HASH   4b8gx8c

@@ -1,0 +1,65 @@
+{
+  "as-isbn10": {
+    "fingerprint": "17j5801",
+    "entry": "asIsbn10",
+    "watches": "[asIsbn10]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "as-isbn13": {
+    "fingerprint": "4rnwieu",
+    "entry": "asIsbn13",
+    "watches": "[asIsbn13]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "audit-isbn": {
+    "fingerprint": "dvw9yhq",
+    "entry": "audit",
+    "watches": "[audit]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "calculate-check-digit": {
+    "fingerprint": "3o8el9b",
+    "entry": "calculateCheckDigit",
+    "watches": "[calculateCheckDigit]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "fill-isbn-data": {
+    "fingerprint": "4b8gx8c",
+    "entry": "fill",
+    "watches": "[fill]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "get-isbn-group": {
+    "fingerprint": "36mc1un",
+    "entry": "getGroup",
+    "watches": "[getGroup]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "hyphenate-isbn": {
+    "fingerprint": "1hvsb2v",
+    "entry": "hyphenate",
+    "watches": "[hyphenate]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "parse-isbn": {
+    "fingerprint": "43paijt",
+    "entry": "parse",
+    "watches": "[parse]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  },
+  "split-isbn-parts": {
+    "fingerprint": "1nrs6oe",
+    "entry": "splitIsbnParts",
+    "watches": "[splitIsbnParts]",
+    "stack": "js",
+    "fingerprintLevel": "entry"
+  }
+}

@@ -1,0 +1,12 @@
+cluster: audit-isbn
+version: 1
+fingerprint: dvw9yhq
+captured: 2026-06-13T14:13:13.608Z
+watches: [audit]
+entry: audit
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "978-3-16-148410-0"
+OUTPUT {"source":"978-3-16-148410-0","validIsbn":true,"groupname":"German language","clues":[]}
+HASH   dvw9yhq

@@ -1,0 +1,12 @@
+cluster: hyphenate-isbn
+version: 1
+fingerprint: 1hvsb2v
+captured: 2026-06-13T14:13:13.606Z
+watches: [hyphenate]
+entry: hyphenate
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "9783161484100"
+OUTPUT "978-3-16-148410-0"
+HASH   1hvsb2v

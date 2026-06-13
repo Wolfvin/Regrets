@@ -1,0 +1,147 @@
+{
+  "clusters": [
+    {
+      "id": "parse-isbn",
+      "entry": "parse",
+      "watches": ["parse"],
+      "file": "esm/parse.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Parse an ISBN string into its component parts (group, publisher, article, check, isbn13, isbn10, etc.)",
+      "inputs": [
+        "978-3-16-148410-0",
+        "978-0-306-40615-7",
+        "0-306-40615-2",
+        "979-10-91146-13-5",
+        "978-1-56619-909-4",
+        "invalid-isbn"
+      ]
+    },
+    {
+      "id": "calculate-check-digit",
+      "entry": "calculateCheckDigit",
+      "watches": ["calculateCheckDigit"],
+      "file": "esm/calculate_check_digit.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "multiArgs": false,
+      "description": "Calculate the ISBN check digit for a 9-digit (ISBN-10) or 12-digit (ISBN-13) base string",
+      "inputs": [
+        "316148410",
+        "978316148410",
+        "030640615",
+        "978030640615",
+        "000000000",
+        "123456789"
+      ]
+    },
+    {
+      "id": "split-isbn-parts",
+      "entry": "splitIsbnParts",
+      "watches": ["splitIsbnParts"],
+      "file": "esm/split_isbn_parts.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Split a raw ISBN digit string into group, publisher, article, and check parts using the ISBN group ranges",
+      "inputs": [
+        "9783161484100",
+        "9780306406157",
+        "0306406152",
+        "9791091146135",
+        "1234567890"
+      ]
+    },
+    {
+      "id": "fill-isbn-data",
+      "entry": "fill",
+      "watches": ["fill"],
+      "file": "esm/fill.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Fill in computed ISBN data: check digits, isbn13, isbn10, hyphenated forms, groupname",
+      "inputs": [
+        {"prefix": "978", "group": "3", "publisher": "16", "article": "148410", "check": "0"},
+        {"prefix": "978", "group": "0", "publisher": "306", "article": "40615", "check": "7"},
+        {"prefix": "979", "group": "10", "publisher": "91146", "article": "13", "check": "5"}
+      ]
+    },
+    {
+      "id": "get-isbn-group",
+      "entry": "getGroup",
+      "watches": ["getGroup"],
+      "file": "esm/get_group.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Look up the ISBN group (registration group) for a 13-digit ISBN prefix",
+      "inputs": [
+        "9783161484100",
+        "9780306406157",
+        "9791091146135",
+        "9787100000000"
+      ]
+    },
+    {
+      "id": "hyphenate-isbn",
+      "entry": "hyphenate",
+      "watches": ["hyphenate"],
+      "file": "esm/isbn.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Hyphenate an ISBN string — returns the properly hyphenated form (ISBN-13 or ISBN-10 depending on input)",
+      "inputs": [
+        "9783161484100",
+        "9780306406157",
+        "0306406152",
+        "9791091146135"
+      ]
+    },
+    {
+      "id": "as-isbn13",
+      "entry": "asIsbn13",
+      "watches": ["asIsbn13"],
+      "file": "esm/isbn.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Convert an ISBN to ISBN-13 format, optionally hyphenated",
+      "inputs": [
+        ["9783161484100", false],
+        ["9780306406157", true],
+        ["0306406152", false],
+        ["0306406152", true]
+      ]
+    },
+    {
+      "id": "as-isbn10",
+      "entry": "asIsbn10",
+      "watches": ["asIsbn10"],
+      "file": "esm/isbn.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Convert an ISBN to ISBN-10 format, optionally hyphenated. Returns null for 979-prefix ISBNs.",
+      "inputs": [
+        ["9783161484100", false],
+        ["9780306406157", true],
+        ["0306406152", false],
+        ["9791091146135", false]
+      ]
+    },
+    {
+      "id": "audit-isbn",
+      "entry": "audit",
+      "watches": ["audit"],
+      "file": "esm/audit.js",
+      "stack": "js",
+      "fingerprintLevel": "entry",
+      "description": "Audit an ISBN string — validate and provide clues about what might be wrong if invalid",
+      "inputs": [
+        "978-3-16-148410-0",
+        "978-3-16-148410-1",
+        "978-0-306-40615-7",
+        "0-306-40615-2",
+        "979-10-91146-13-5"
+      ]
+    }
+  ]
+}

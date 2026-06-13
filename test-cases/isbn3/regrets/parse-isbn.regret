@@ -1,0 +1,12 @@
+cluster: parse-isbn
+version: 1
+fingerprint: 43paijt
+captured: 2026-06-13T14:13:13.596Z
+watches: [parse]
+entry: parse
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "978-3-16-148410-0"
+OUTPUT {"group":"3","publisher":"16","article":"148410","check":"0","source":"978-3-16-148410-0","prefix":"978","isIsbn13":true,"isIsbn10":false,"groupname":"German language","check10":"X","check13":"0","isbn13":"9783161484100","isbn13h":"978-3-16-148410-0","isbn10":"316148410X","isbn10h":"3-16-148410-X","isValid":true}
+HASH   43paijt

@@ -1,0 +1,12 @@
+cluster: calculate-check-digit
+version: 1
+fingerprint: 3o8el9b
+captured: 2026-06-13T14:13:13.601Z
+watches: [calculateCheckDigit]
+entry: calculateCheckDigit
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "316148410"
+OUTPUT "X"
+HASH   3o8el9b

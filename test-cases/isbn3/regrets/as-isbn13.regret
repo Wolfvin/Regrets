@@ -1,0 +1,12 @@
+cluster: as-isbn13
+version: 1
+fingerprint: 4rnwieu
+captured: 2026-06-13T14:13:13.607Z
+watches: [asIsbn13]
+entry: asIsbn13
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["9783161484100",false]
+OUTPUT "9783161484100"
+HASH   4rnwieu

@@ -1,0 +1,12 @@
+cluster: split-isbn-parts
+version: 1
+fingerprint: 1nrs6oe
+captured: 2026-06-13T14:13:13.602Z
+watches: [splitIsbnParts]
+entry: splitIsbnParts
+stack: js
+fingerprintLevel: entry
+---
+INPUT  "9783161484100"
+OUTPUT {"group":"3","publisher":"16","article":"148410","check":"0"}
+HASH   1nrs6oe

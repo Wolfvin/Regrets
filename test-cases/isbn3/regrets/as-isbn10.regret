@@ -1,0 +1,12 @@
+cluster: as-isbn10
+version: 1
+fingerprint: 17j5801
+captured: 2026-06-13T14:13:13.607Z
+watches: [asIsbn10]
+entry: asIsbn10
+stack: js
+fingerprintLevel: entry
+---
+INPUT  ["9783161484100",false]
+OUTPUT "316148410X"
+HASH   17j5801
