@@ -59,7 +59,8 @@ for (const cluster of clusters) {
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, kwargs = false, outputTransform = null,
-          materializeOutput = false, outputEncoding } = cluster
+          materializeOutput = false, outputEncoding, resetState, deepCloneInput = true,
+          seed } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -116,6 +117,23 @@ for (const cluster of clusters) {
     //   2. For each setup: instance[setup.method](...setup.args)
     //   3. instance.classMethod(input) → output (fingerprint this)
     //   4. Watches are applied to instance methods via ghost proxy
+
+    // ─── Seed random number generator for deterministic output ────────────
+    // When `seed` is set in the manifest, Math.random is replaced with a
+    // seeded PRNG (simple mulberry32) so that functions using Math.random
+    // produce identical output across runs.
+    const origRandom = Math.random
+    if (seed != null) {
+      // mulberry32 — fast 32-bit seeded PRNG
+      let s = seed | 0
+      Math.random = () => {
+        s |= 0; s = s + 0x6D2B79F5 | 0
+        let t = Math.imul(s ^ s >>> 15, 1 | s)
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
+        return ((t ^ t >>> 14) >>> 0) / 4294967296
+      }
+      console.log(`   🎲 Seeded RNG with seed=${seed}`)
+    }
 
     const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
     const results = []
@@ -250,8 +268,27 @@ for (const cluster of clusters) {
 
       for (const input of testInputs) {
         recorder.length = 0  // clear between runs
-        const inputForRecord = deepClone(input)
-        const inputForArgs = deepClone(input)
+
+        // ─── resetState: reset module-level mutable state before each run ─────
+        // When a module uses global mutable variables (e.g., let counter = 0),
+        // calling the same function twice may produce different results because
+        // the counter has already been incremented. resetState allows specifying
+        // a function name exported by the same module that resets these variables.
+        if (resetState) {
+          const resetFn = rawModule[resetState] ?? rawModule.default?.[resetState]
+          if (typeof resetFn === 'function') {
+            resetFn()
+          } else {
+            console.warn(`   ⚠️  resetState function "${resetState}" not found in ${file}`)
+          }
+        }
+
+        // ─── deepCloneInput: clone inputs to prevent mutation ──────────────────
+        // When true (default), inputs are deep-cloned before each call so that
+        // functions that mutate their input objects don't corrupt the test data
+        // for subsequent runs or validations.
+        const inputForRecord = deepCloneInput ? deepClone(input) : input
+        const inputForArgs = deepCloneInput ? deepClone(input) : input
         // kwargs is a no-op for JS: JS has no **kwargs syntax, so dict inputs are
         // always passed as a single object argument regardless of the kwargs flag.
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
@@ -417,6 +454,9 @@ for (const cluster of clusters) {
       kwargs ? `kwargs: ${kwargs}` : null,
       materializeOutput ? `materializeOutput: true` : null,
       outputEncoding ? `outputEncoding: ${outputEncoding}` : null,
+      resetState ? `resetState: ${resetState}` : null,
+      !deepCloneInput ? `deepCloneInput: false` : null,
+      seed != null ? `seed: ${seed}` : null,
       `env: ${JSON.stringify(getEnvSnapshot())}`,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
@@ -433,6 +473,9 @@ for (const cluster of clusters) {
   } catch (err) {
     console.error(`   ❌ Capture failed: ${err.message}`)
     failed++
+  } finally {
+    // Restore original Math.random if we seeded it
+    if (seed != null) Math.random = origRandom
   }
 }
 

@@ -189,6 +189,10 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `len`, `type`, or `"module.fn"` for custom (Python & JS) |
 | `materializeOutput` | ❌ | `true` → auto-consume generators/iterators into lists before fingerprinting |
 | `trackMutation` | ❌ | `true` → snapshot input state before/after call, detect mutations |
+| `resetState` | ❌ | Function name to call before each capture/validate run to reset module-level mutable state (e.g., counters, accumulators). The function must be exported from the same `file`. |
+| `deepCloneInput` | ❌ | `true` (default) → deep-clone inputs before each call to prevent mutation. Set `false` only when you explicitly want mutated state to carry across calls. |
+| `seed` | ❌ | Integer seed for deterministic `Math.random()` — replaces Math.random with mulberry32 PRNG for the duration of the function call, then restores. Eliminates drift in functions using random numbers. |
+| `autoIncrement` | ❌ | Add to `normalize` array to replace auto-incrementing ID patterns: `"b1"` → `"b<ID>"`, small integers (1-9999) → `"<ID>"`. Use when `resetState` alone isn't sufficient. |
 
 ---
 
@@ -220,6 +224,7 @@ Non-deterministic values are normalized before hashing:
 | `floatTolerance` | Floats rounded to 2dp before hashing | `round(n * 100) / 100` |
 | `floatTolerance:N` | Floats rounded to N decimal places | `round(n * 10^N) / 10^N` |
 | `floatPrecision` | Whole-value floats → integers, decimal floats → 2dp, string floats stripped | `1500000.0` → `1500000` |
+| `autoIncrement` | String IDs with numeric suffix → placeholder, small integers (1-9999) → placeholder | `"b1"` → `"b<ID>"`, `42` → `"<ID>"` |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
 Use `floatTolerance` for financial/scientific computing where tiny floating-point differences (e.g., `123456.0` vs `123456.00000001`) should not trigger false negatives. `floatTolerance:0` rounds to integers — ideal for IDR amounts.
@@ -568,6 +573,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
 | Python pipeline | Pure logic extraction + adapter | Value / Schema / Mixed | See `references/python-pipeline.md` — OCR, NLP, and data processing pipelines |
 | OCR/Parsing pipeline | Pure logic extraction + fixtures | Value (default) | See `references/ocr-parsing-pipeline.md` — handles OCR I/O boundary + float precision |
+| Algorithm visualization | Adapter modules + `resetState` + `seed` | Value (default) | See `references/algorithm-visualization.md` — handles mutable globals, input mutation, auto-incrementing IDs |
 
 ---
 
