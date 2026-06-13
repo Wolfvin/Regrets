@@ -59,12 +59,15 @@ for (const cluster of clusters) {
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, kwargs = false, outputTransform = null,
-          materializeOutput = false, outputEncoding } = cluster
+          materializeOutput = false, outputEncoding,
+          singletonMethod, singletonName } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
   if (classMethod) {
     console.log(`   Class:   ${constructorName ?? entry} → ${classMethod}()`)
+  } else if (singletonMethod) {
+    console.log(`   Singleton: ${singletonName ?? entry} → ${singletonMethod}()`)
   } else {
     console.log(`   Entry:   ${entry}`)
   }
@@ -208,6 +211,88 @@ for (const cluster of clusters) {
 
         const output = deepClone(transformedOutput)
 
+        const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
+
+        let fp
+        if (fingerprintMode === 'schema') {
+          const schema = extractSchema(output)
+          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+        } else if (fingerprintMode === 'mixed') {
+          const schema = extractSchema(output)
+          const selectedValues = {}
+          for (const path of valuePaths) {
+            const key = path.replace(/^\$\./, '')
+            const parts = key.split('.')
+            let val = output
+            for (const p of parts) { val = val?.[p] }
+            if (val !== undefined) selectedValues[path] = val
+          }
+          fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
+        } else {
+          fp = fingerprintLevel === 'entry'
+            ? fingerprint(fpInput, output, { normalize, ignoreFields })
+            : fingerprintSequence(recorder, { normalize, ignoreFields })
+        }
+
+        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+      }
+    } else if (singletonMethod) {
+      // ── Singleton method entry ──────────────────────────────────────────────
+      // For CJS modules that export a singleton object with methods.
+      // Example: module.exports = new Stemmer() → PorterStemmer.stem("running")
+      //
+      // Manifest fields:
+      //   singletonMethod: "methodName"      — the method to call on the singleton
+      //   singletonName: "ExportedName"      — the exported name (default: entry)
+      //   entry: "PorterStemmer"             — used to locate the singleton in the module
+      //
+      // The flow is:
+      //   1. Get the singleton object from the module
+      //   2. Call singleton.singletonMethod(input) → output
+      //   3. Fingerprint the output
+      const singletonExportName = singletonName ?? entry
+      const singleton = rawModule[singletonExportName] ?? rawModule.default?.[singletonExportName]
+      if (!singleton || typeof singleton !== 'object') {
+        throw new Error(`Singleton "${singletonExportName}" not found or not an object in ${file}`)
+      }
+      if (typeof singleton[singletonMethod] !== 'function') {
+        throw new Error(`Method "${singletonMethod}" not found on singleton "${singletonExportName}" in ${file}`)
+      }
+
+      for (const input of testInputs) {
+        recorder.length = 0
+        const inputForRecord = deepClone(input)
+        const inputForArgs = deepClone(input)
+        const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const rawOutput = await singleton[singletonMethod](...args_)
+
+        // Consume generators/iterators into arrays for fingerprinting
+        let consumedOutput = rawOutput
+        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+          consumedOutput = [...rawOutput]
+        }
+
+        // Apply outputTransform if specified
+        let transformedOutput = consumedOutput
+        if (outputTransform) {
+          if (outputTransform === 'str') {
+            transformedOutput = Array.isArray(consumedOutput)
+              ? consumedOutput.map(item => String(item))
+              : String(consumedOutput)
+          } else if (outputTransform === 'json') {
+            transformedOutput = Array.isArray(consumedOutput)
+              ? consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+              : JSON.parse(JSON.stringify(consumedOutput))
+          } else if (outputTransform === 'keys') {
+            if (consumedOutput && typeof consumedOutput === 'object') {
+              transformedOutput = Object.keys(consumedOutput)
+            }
+          }
+        }
+
+        const output = deepClone(transformedOutput)
         const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
         let fp
@@ -404,6 +489,8 @@ for (const cluster of clusters) {
       `watches: [${watches.join(', ')}]`,
       classMethod ? `constructor: ${constructorName ?? entry}` : `entry: ${entry}`,
       classMethod ? `classMethod: ${classMethod}` : null,
+      singletonMethod ? `singletonName: ${singletonName ?? entry}` : null,
+      singletonMethod ? `singletonMethod: ${singletonMethod}` : null,
       `stack: ${stack ?? 'js'}`,
       `fingerprintLevel: ${fingerprintLevel}`,
       fingerprintMode !== 'value' ? `fingerprintMode: ${fingerprintMode}` : null,

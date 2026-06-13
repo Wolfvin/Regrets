@@ -74,6 +74,8 @@ function parseRegret(content) {
     else if (key === 'instanceMethods') {
       try { meta.instanceMethods = JSON.parse(val) } catch { meta.instanceMethods = {} }
     }
+    else if (key === 'singletonMethod') meta.singletonMethod = val
+    else if (key === 'singletonName') meta.singletonName = val
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
@@ -204,7 +206,8 @@ async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
           classMethod, constructor: constructorName, constructorArgs, setup,
-          instanceMethods = {}, outputTransform: manifestOutputTransform = null } = clusterDef
+          instanceMethods = {}, outputTransform: manifestOutputTransform = null,
+          singletonMethod, singletonName } = clusterDef
   const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
 
   // Check environment snapshot if present in .regret file
@@ -360,6 +363,54 @@ async function runCluster(clusterDef, regret) {
               transformedOutput = customMod[fnName](consumedOutput)
             } catch (e) {
               throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
+            }
+          }
+        }
+
+        output = deepClone(transformedOutput)
+        lastOutput = output
+        fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
+      } else if (singletonMethod || regret.singletonMethod) {
+        // ── Singleton method entry ────────────────────────────────────────────
+        // For CJS modules that export a singleton object with methods.
+        // Example: module.exports = new Stemmer() → PorterStemmer.stem("running")
+        const sMethod = regret.singletonMethod || singletonMethod
+        const sName = regret.singletonName || singletonName || entry
+        const singleton = mod[sName] ?? mod.default?.[sName]
+        if (!singleton || typeof singleton !== 'object') {
+          throw new Error(`Singleton "${sName}" not found or not an object in ${file}`)
+        }
+        if (typeof singleton[sMethod] !== 'function') {
+          throw new Error(`Method "${sMethod}" not found on singleton "${sName}" in ${file}`)
+        }
+        const inputForFp = deepClone(currentInput)
+        const inputForArgs = deepClone(currentInput)
+        const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const rawOutput = await singleton[sMethod](...args_)
+
+        // Consume generators/iterators
+        let consumedOutput = rawOutput
+        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+          consumedOutput = [...rawOutput]
+        }
+
+        // Apply outputTransform
+        const outputTransform = regret.outputTransform || manifestOutputTransform || null
+        let transformedOutput = consumedOutput
+        if (outputTransform) {
+          if (outputTransform === 'str') {
+            transformedOutput = Array.isArray(consumedOutput)
+              ? consumedOutput.map(item => String(item))
+              : String(consumedOutput)
+          } else if (outputTransform === 'json') {
+            transformedOutput = Array.isArray(consumedOutput)
+              ? consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+              : JSON.parse(JSON.stringify(consumedOutput))
+          } else if (outputTransform === 'keys') {
+            if (consumedOutput && typeof consumedOutput === 'object') {
+              transformedOutput = Object.keys(consumedOutput)
             }
           }
         }
