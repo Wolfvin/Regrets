@@ -76,19 +76,55 @@ class ContestRunner:
         norm_rules = cluster.get('normalize', [])
         ign_fields = cluster.get('ignoreFields', [])
         multi_args = cluster.get('multiArgs', False)
+        class_method = cluster.get('classMethod', None)
+        constructor_name = cluster.get('constructor', entry_name)
+        constructor_args = cluster.get('constructorArgs', [])
+        setup_steps = cluster.get('setup', [])
 
         mod = importlib.import_module(module_path)
-        entry_fn = getattr(mod, entry_name, None)
-        if entry_fn is None or not callable(entry_fn):
-            raise TypeError(f'Entry "{entry_name}" not found in {module_path}')
-
         input_val = step['input']
-        if multi_args and isinstance(input_val, list):
-            output = entry_fn(*input_val)
-        elif input_val is None:
-            output = entry_fn()
+
+        if class_method:
+            # ── classMethod mode: fresh instance ────────────────────────
+            Cls = getattr(mod, constructor_name, None)
+            if Cls is None or not isinstance(Cls, type):
+                raise TypeError(f'Constructor "{constructor_name}" not found or not a class in {module_path}')
+
+            c_args = deep_clone(constructor_args) if constructor_args else []
+            instance = Cls(*c_args)
+
+            # Run setup methods
+            for s in setup_steps:
+                setup_method = getattr(instance, s.get('method', ''), None)
+                if setup_method is not None and callable(setup_method):
+                    setup_args = s.get('args', [])
+                    if isinstance(setup_args, list):
+                        setup_method(*setup_args)
+                    elif isinstance(setup_args, dict):
+                        setup_method(**setup_args)
+
+            target_method = getattr(instance, class_method, None)
+            if target_method is None or not callable(target_method):
+                raise TypeError(f'Method "{class_method}" not found on instance')
+
+            if multi_args and isinstance(input_val, list):
+                output = target_method(*input_val)
+            elif input_val is None:
+                output = target_method()
+            else:
+                output = target_method(input_val)
         else:
-            output = entry_fn(input_val)
+            # ── Function-based entry ────────────────────────────────────
+            entry_fn = getattr(mod, entry_name, None)
+            if entry_fn is None or not callable(entry_fn):
+                raise TypeError(f'Entry "{entry_name}" not found in {module_path}')
+
+            if multi_args and isinstance(input_val, list):
+                output = entry_fn(*input_val)
+            elif input_val is None:
+                output = entry_fn()
+            else:
+                output = entry_fn(input_val)
 
         fp = fingerprint(deep_clone(input_val), deep_clone(output), norm_rules, ign_fields)
         return {

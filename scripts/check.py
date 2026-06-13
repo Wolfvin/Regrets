@@ -111,23 +111,121 @@ def main():
             except Exception as e:
                 errors.append(f'module "{module_path}" load error: {e}')
             else:
-                # Check entry function exists
-                entry_fn = getattr(mod, entry, None)
-                if entry_fn is None or not callable(entry_fn):
-                    # Check if it's a class that needs instantiation
-                    entry_cls = getattr(mod, entry, None)
-                    if entry_cls is not None and isinstance(entry_cls, type):
-                        warns.append(f'entry "{entry}" is a class, not a function — consider using outputTransform')
+                class_method = cluster.get('classMethod')
+                constructor_name = cluster.get('constructor', entry)
+                setup_steps = cluster.get('setup', [])
+                constructor_args = cluster.get('constructorArgs', [])
+
+                if class_method:
+                    # ── classMethod validation ─────────────────────────────
+                    Cls = getattr(mod, constructor_name, None)
+                    if Cls is None:
+                        errors.append(f'constructor "{constructor_name}" not found in {module_path}')
+                    elif not isinstance(Cls, type):
+                        errors.append(f'constructor "{constructor_name}" is not a class (type: {type(Cls).__name__})')
                     else:
-                        errors.append(f'entry "{entry}" not found or not callable in {module_path}')
-                
-                # Check watches exist in module
-                for watch in watches:
-                    watch_attr = getattr(mod, watch, None)
-                    if watch_attr is None:
-                        warns.append(f'watch "{watch}" not found in {module_path}')
-                    elif not callable(watch_attr) and not isinstance(watch_attr, type):
-                        warns.append(f'watch "{watch}" is not callable (type: {type(watch_attr).__name__})')
+                        # Check the target method exists on the class
+                        # (instantiate first to get bound methods)
+                        try:
+                            instance = Cls(*constructor_args)
+                            target = getattr(instance, class_method, None)
+                            if target is None or not callable(target):
+                                errors.append(f'classMethod "{class_method}" not found on {constructor_name} instance')
+                            else:
+                                warns.append(f'classMethod OK: {constructor_name}.{class_method}()')
+                        except Exception as e:
+                            errors.append(f'constructor {constructor_name}() failed: {e}')
+
+                        # Validate setup steps
+                        for i_step, step in enumerate(setup_steps):
+                            step_method_name = step.get('method', '')
+                            step_args = step.get('args', [])
+
+                            try:
+                                instance = Cls(*constructor_args)
+                            except Exception as e:
+                                errors.append(f'constructor {constructor_name}() failed during setup check: {e}')
+                                continue
+
+                            setup_fn = getattr(instance, step_method_name, None)
+                            if setup_fn is None or not callable(setup_fn):
+                                errors.append(f'setup[{i_step}].method "{step_method_name}" not found on {constructor_name}')
+                                continue
+
+                            # Validate args format: if the method only takes
+                            # keyword args (like classical(**kwargs)), args must be a dict
+                            try:
+                                import inspect
+                                sig = inspect.signature(setup_fn)
+                                params = list(sig.parameters.values())
+                                
+                                # Skip 'self' parameter
+                                params = [p for p in params if p.name != 'self']
+                                
+                                has_positional = any(
+                                    p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+                                    and p.default is p.empty
+                                    for p in params
+                                )
+                                has_keyword_only = any(p.kind == p.KEYWORD_ONLY for p in params)
+                                
+                                if isinstance(step_args, list) and len(step_args) > 0:
+                                    if has_keyword_only and not has_positional:
+                                        errors.append(
+                                            f'setup[{i_step}].args is a list but '
+                                            f'{step_method_name}() only accepts keyword args — '
+                                            f'change args to a dict: {{"key": value}}'
+                                        )
+                                    else:
+                                        # Try calling with the args to validate
+                                        try:
+                                            setup_fn(*step_args)
+                                        except TypeError as te:
+                                            errors.append(
+                                                f'setup[{i_step}].args failed on {step_method_name}(): {te}'
+                                            )
+                                elif isinstance(step_args, dict):
+                                    # Try calling with kwargs
+                                    try:
+                                        setup_fn(**step_args)
+                                    except TypeError as te:
+                                        errors.append(
+                                            f'setup[{i_step}].args failed on {step_method_name}(**{step_args}): {te}'
+                                        )
+                            except Exception as e:
+                                warns.append(f'setup[{i_step}] validation error: {e}')
+
+                        # Check watches exist on the class (not module level)
+                        for watch in watches:
+                            watch_on_class = getattr(Cls, watch, None)
+                            watch_on_instance = None
+                            try:
+                                inst = Cls(*constructor_args)
+                                watch_on_instance = getattr(inst, watch, None)
+                            except Exception:
+                                pass
+                            if watch_on_class is None and watch_on_instance is None:
+                                warns.append(f'watch "{watch}" not found on {constructor_name} class or instance')
+                            elif watch_on_instance is not None and not callable(watch_on_instance):
+                                warns.append(f'watch "{watch}" on {constructor_name} is not callable')
+
+                else:
+                    # ── Function-based entry validation ───────────────────
+                    entry_fn = getattr(mod, entry, None)
+                    if entry_fn is None or not callable(entry_fn):
+                        entry_cls = getattr(mod, entry, None)
+                        if entry_cls is not None and isinstance(entry_cls, type):
+                            warns.append(f'entry "{entry}" is a class, not a function — consider using classMethod')
+                        else:
+                            errors.append(f'entry "{entry}" not found or not callable in {module_path}')
+                    
+                    # Check watches exist in module
+                    for watch in watches:
+                        watch_attr = getattr(mod, watch, None)
+                        if watch_attr is None:
+                            warns.append(f'watch "{watch}" not found in {module_path}')
+                        elif not callable(watch_attr) and not isinstance(watch_attr, type):
+                            warns.append(f'watch "{watch}" is not callable (type: {type(watch_attr).__name__})')
         
         # Check outputTransform validity
         output_transform = cluster.get('outputTransform')
