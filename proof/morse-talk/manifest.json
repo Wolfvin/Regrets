@@ -1,0 +1,112 @@
+{
+  "clusters": [
+    {
+      "id": "encode-default",
+      "entry": "encode",
+      "watches": ["encode", "_encode_morse", "_encode_to_morse_string"],
+      "module": "morse_talk.encoding",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to default morse code representation",
+      "inputs": [
+        "SOS",
+        "MORSE CODE",
+        "HELLO WORLD",
+        ""
+      ]
+    },
+    {
+      "id": "encode-binary",
+      "entry": "encode",
+      "watches": ["encode", "_encode_binary", "_encode_to_binary_string"],
+      "module": "morse_talk.encoding",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Encode text to binary morse code representation",
+      "inputs": [
+        ["SOS", "binary"],
+        ["MORSE CODE", "binary"],
+        ["HELLO", "binary"]
+      ]
+    },
+    {
+      "id": "decode-default",
+      "entry": "decode",
+      "watches": ["decode"],
+      "module": "morse_talk.decoding",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Decode morse code string to text (single word)",
+      "inputs": [
+        "...   ---   ...",
+        ".-   .-..   .--.   ....   .-",
+        "-   ....   ..   ...",
+        ".-   -..."
+      ]
+    },
+    {
+      "id": "encode-morse-internal",
+      "entry": "_encode_morse",
+      "watches": ["_encode_morse"],
+      "module": "morse_talk.encoding",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Internal: convert individual characters to morse symbol list",
+      "inputs": [
+        "SOS",
+        "A",
+        "HELLO"
+      ]
+    },
+    {
+      "id": "encode-binary-internal",
+      "entry": "_encode_binary",
+      "watches": ["_encode_binary"],
+      "module": "morse_talk.encoding",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Internal: convert text to binary morse list",
+      "inputs": [
+        "SOS",
+        "A",
+        "HELLO"
+      ]
+    },
+    {
+      "id": "split-message",
+      "entry": "_split_message",
+      "watches": ["_split_message"],
+      "module": "morse_talk.encoding",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Internal: split message into list of word character lists",
+      "inputs": [
+        "SOS SOS",
+        "HELLO WORLD",
+        ""
+      ]
+    },
+    {
+      "id": "mlength",
+      "entry": "mlength",
+      "watches": ["mlength"],
+      "module": "morse_talk.utils",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Calculate morse length of a message",
+      "inputs": [
+        "PARIS",
+        "SOS",
+        "HELLO"
+      ]
+    }
+  ]
+}
