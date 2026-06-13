@@ -1,0 +1,13 @@
+cluster: gematria-convert
+version: 1
+fingerprint: 69vpdvu
+captured: 2026-06-13T15:42:12.255431+00:00
+watches: [_num_to_str, _get_letters, _stringify_gematria]
+entry: _num_to_str
+stack: python
+fingerprintLevel: entry
+module: pyluach.gematria
+---
+INPUT  1
+OUTPUT "א׳"
+HASH   69vpdvu

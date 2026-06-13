@@ -1,0 +1,14 @@
+cluster: month-length
+version: 1
+fingerprint: fny25om
+captured: 2026-06-13T15:42:12.258326+00:00
+watches: [_month_length, _is_leap, _long_cheshvan, _short_kislev]
+entry: _month_length
+stack: python
+fingerprintLevel: entry
+multiArgs: True
+module: pyluach.utils
+---
+INPUT  [5783, 1]
+OUTPUT 30
+HASH   fny25om

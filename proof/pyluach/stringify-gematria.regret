@@ -1,0 +1,13 @@
+cluster: stringify-gematria
+version: 1
+fingerprint: 5etsuwj
+captured: 2026-06-13T15:42:12.259277+00:00
+watches: [_stringify_gematria]
+entry: _stringify_gematria
+stack: python
+fingerprintLevel: entry
+module: pyluach.gematria
+---
+INPUT  "א"
+OUTPUT "א׳"
+HASH   5etsuwj

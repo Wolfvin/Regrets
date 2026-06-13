@@ -1,0 +1,14 @@
+cluster: month-name
+version: 1
+fingerprint: 3pfo2au
+captured: 2026-06-13T15:42:12.258636+00:00
+watches: [_month_name, _is_leap]
+entry: _month_name
+stack: python
+fingerprintLevel: entry
+multiArgs: True
+module: pyluach.utils
+---
+INPUT  [5783, 7, false]
+OUTPUT "Tishrei"
+HASH   3pfo2au
