@@ -318,7 +318,10 @@ def main():
 
                 # Consume generators/iterators into lists for fingerprinting (always-on fallback)
                 if not materialize_output_flag:
+                    raw_type_name = type(output).__name__
                     output = consume_generator(output)
+                    if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
+                        print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
 
                 # Apply output transform if specified (e.g., "str" for Statement objects)
                 output_for_fp = apply_output_transform(deep_clone(output), output_transform)
