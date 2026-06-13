@@ -251,7 +251,13 @@ for (const cluster of clusters) {
       //   2. Call singleton.singletonMethod(input) → output
       //   3. Fingerprint the output
       const singletonExportName = singletonName ?? entry
-      const singleton = rawModule[singletonExportName] ?? rawModule.default?.[singletonExportName]
+      let singleton = rawModule[singletonExportName] ?? rawModule.default?.[singletonExportName]
+      // CJS fallback: when module.exports = new Constructor(), the singleton IS the default export
+      // e.g., PorterStemmer: module.exports = new Stemmer() → default = {stem, tokenizeAndStem, ...}
+      // In this case, singletonName/entry won't match a named export — use default directly
+      if (!singleton && rawModule.default && typeof rawModule.default === 'object' && typeof rawModule.default[singletonMethod] === 'function') {
+        singleton = rawModule.default
+      }
       if (!singleton || typeof singleton !== 'object') {
         throw new Error(`Singleton "${singletonExportName}" not found or not an object in ${file}`)
       }

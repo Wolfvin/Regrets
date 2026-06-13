@@ -376,7 +376,11 @@ async function runCluster(clusterDef, regret) {
         // Example: module.exports = new Stemmer() → PorterStemmer.stem("running")
         const sMethod = regret.singletonMethod || singletonMethod
         const sName = regret.singletonName || singletonName || entry
-        const singleton = mod[sName] ?? mod.default?.[sName]
+        let singleton = mod[sName] ?? mod.default?.[sName]
+        // CJS fallback: when module.exports = new Constructor(), the singleton IS the default export
+        if (!singleton && mod.default && typeof mod.default === 'object' && typeof mod.default[sMethod] === 'function') {
+          singleton = mod.default
+        }
         if (!singleton || typeof singleton !== 'object') {
           throw new Error(`Singleton "${sName}" not found or not an object in ${file}`)
         }
