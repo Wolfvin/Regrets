@@ -157,6 +157,125 @@ function checkCoverage() {
   return { ok: true, msg: 'All clusters WELL-COVERED' }
 }
 
+function checkMutationRisks() {
+  // Detect JS/TS functions that mutate their input arguments.
+  // This fills the gap where Python has mutate_audit.py but JS had nothing.
+  // Common patterns: delete obj.prop, obj.prop = value on function arguments,
+  // Object.assign(target, ...), array .push/.splice/.sort on args.
+  const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'))
+  const clusters = manifest.clusters || []
+  const risks = []
+
+  for (const cluster of clusters) {
+    if (cluster.stack === 'python') continue  // Python has mutate_audit.py
+    const filePath = resolve(CWD, cluster.file)
+    if (!existsSync(filePath)) continue
+
+    let source
+    try {
+      source = readFileSync(filePath, 'utf8')
+    } catch { continue }
+
+    // Find the function body for the entry point
+    const fnBody = extractFunctionBody(source, cluster.entry)
+    if (!fnBody) continue
+
+    // Detect mutation patterns on function parameters
+    const mutations = detectMutations(fnBody, cluster.entry)
+    if (mutations.length > 0) {
+      risks.push({ cluster: cluster.id, mutations })
+    }
+  }
+
+  if (risks.length > 0) {
+    const details = risks.map(r =>
+      `${r.cluster}: ${r.mutations.join(', ')}`
+    ).join('; ')
+    return { ok: false, msg: `${risks.length} cluster(s) with argument mutation risk: ${details}` }
+  }
+  return { ok: true, msg: 'No argument mutation risks detected' }
+}
+
+function extractFunctionBody(source, functionName) {
+  const patterns = [
+    new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${escapeRegex(functionName)}\\s*\\([^)]*\\)\\s*\\{`, 'm'),
+    new RegExp(`(?:export\\s+)?const\\s+${escapeRegex(functionName)}\\s*=\\s*(?:async\\s*)?\\([^)]*\\)\\s*=>\\s*\\{`, 'm'),
+  ]
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern)
+    if (match) {
+      let depth = 0
+      let i = match.index + match[0].length - 1
+      for (; i < source.length; i++) {
+        if (source[i] === '{') depth++
+        else if (source[i] === '}') {
+          depth--
+          if (depth === 0) break
+        }
+      }
+      return source.slice(match.index + match[0].length, i)
+    }
+  }
+  return null
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function detectMutations(fnBody, fnName) {
+  const mutations = []
+
+  // Pattern: delete arg.prop — mutating an argument by deleting a property
+  // e.g., delete augmentedSchema.required (found in rjsf's getFirstMatchingOption)
+  const deletePattern = /\bdelete\s+\w+\.\w+/g
+  const deleteMatches = fnBody.match(deletePattern)
+  if (deleteMatches) {
+    mutations.push(`delete: ${[...new Set(deleteMatches)].join(', ')}`)
+  }
+
+  // Pattern: Object.assign(firstArg, ...) — mutates first argument
+  const objectAssignPattern = /Object\.assign\(\s*\w+\s*,/g
+  const assignMatches = fnBody.match(objectAssignPattern)
+  if (assignMatches) {
+    mutations.push(`Object.assign mutates first arg`)
+  }
+
+  // Pattern: arg.push(...) / arg.splice(...) / arg.sort() — mutating array arguments
+  const arrayMutatePattern = /\w+\.(push|splice|sort|reverse|shift|pop|unshift)\s*\(/g
+  const arrayMatches = fnBody.match(arrayMutatePattern)
+  if (arrayMatches) {
+    // Filter to only likely argument mutations (not local variable mutations)
+    const unique = [...new Set(arrayMatches)]
+    if (unique.length > 0) {
+      mutations.push(`array mutation: ${unique.join(', ')}`)
+    }
+  }
+
+  // Pattern: arg.prop = value — property assignment on what looks like a parameter
+  // This is a heuristic — we check if the assigned object matches a function parameter name
+  const propAssignPattern = /(\w+)\.\w+\s*=/g
+  let propMatch
+  const propAssignments = new Set()
+  while ((propMatch = propAssignPattern.exec(fnBody)) !== null) {
+    propAssignments.add(propMatch[1])
+  }
+  if (propAssignments.size > 0) {
+    // Try to find parameter names from the function signature
+    const paramMatch = fnBody.match && fnBody.match(/(?:function\s+\w+|const\s+\w+\s*=)\s*\(([^)]*)\)/)
+    if (paramMatch) {
+      const params = paramMatch[1].split(',').map(p => p.trim().split(':')[0].split('=')[0].trim()).filter(Boolean)
+      const mutatingParams = [...propAssignments].filter(name => params.includes(name))
+      if (mutatingParams.length > 0) {
+        mutations.push(`param mutation: ${mutatingParams.map(p => `${p}.*=`).join(', ')}`)
+      }
+    }
+  }
+
+  return mutations
+}
+
 function checkChains() {
   const chainsJson = resolve(REGRET_DIR, 'chains.json')
   const chainsDir = resolve(REGRET_DIR, 'chains')
@@ -211,6 +330,7 @@ const checks = [
   ('Drift Detection', checkDrift),
   ('Cluster Health', checkHealth),
   ('Branch Coverage', checkCoverage),
+  ('Mutation Risks', checkMutationRisks),
   ('Chains', checkChains),
 ]
 
