@@ -1,114 +1,90 @@
 # wafw00f — Security/Pentest WAF Detection Tool
 
-**Repo**: [EnableSecurity/wafw00f](https://github.com/EnableSecurity/wafw00f)
-**Stack**: Python (security/pentest tooling)
-**Domain**: Web Application Firewall detection and fingerprinting
+## Library/Project
 
-## Why This Tester
+| Field | Value |
+|-------|-------|
+| **Name** | wafw00f |
+| **Repository** | [EnableSecurity/wafw00f](https://github.com/EnableSecurity/wafw00f) |
+| **Version/tag tested** | *(see manifest.json for commit)* |
+| **Stack** | Python (security/pentest tooling) |
+| **Domain** | Web Application Firewall detection and fingerprinting |
 
-wafw00f was chosen because it represents a **security/pentest tooling** domain that had never been tested with Regrets before. Unlike the encoding/transliteration libraries that dominate existing case studies, wafw00f presents unique challenges:
+## Challenge
 
-- **Plugin architecture**: 100+ WAF detection plugins loaded dynamically, each with a duck-typed `is_waf(self)` function
-- **Side-effect heavy**: Core detection logic depends on HTTP responses (headers, cookies, content, status codes)
-- **God function**: `main()` was 200+ lines mixing CLI parsing, business logic, and output formatting
-- **Naming issues**: `genericdetect`, `getTextResults`, `calclogginglevel` didn't follow Python conventions
-- **Mixed concerns**: Result building, text formatting, CSV/JSON output all inline in main.py
+wafw00f presents multiple fingerprinting challenges uncommon in typical Regrets case studies. It uses a plugin architecture with 100+ WAF detection plugins loaded dynamically, each with a duck-typed `is_waf(self)` function. The core detection logic depends on HTTP responses (headers, cookies, content, status codes) — heavy side effects that are incompatible with pure function fingerprinting. A 200+ line `main()` god function mixed CLI parsing, business logic, and output formatting. Additionally, all True-returning detection functions produce identical boolean fingerprints — a fingerprint collision problem.
 
-## Adapter Pattern
+## Solution
 
-Because wafw00f's plugin detection functions require HTTP responses, we created a `regrets_adapter.py` module that:
-1. Constructs a WAFW00F instance without making real HTTP requests
-2. Sets `rq` and `attackres` to `MockResponse` objects with predetermined data
-3. Wraps each plugin's `is_waf()` call in a function that returns structured data including `waf_name`, `detected`, and `detection_method`
+An adapter pattern was used to make wafw00f testable with Regrets. A `regrets_adapter.py` module constructs a WAFW00F instance without making real HTTP requests by setting `rq` and `attackres` to `MockResponse` objects with predetermined data. Each plugin's `is_waf()` call is wrapped to return structured data including `waf_name`, `detected`, and `detection_method` — avoiding the boolean fingerprint collision by making each cluster's output unique. The god function `main()` was decomposed into focused functions with backward-compatible aliases for all renamed functions.
 
-This adapter pattern avoids fingerprint collision (all True-returning detection functions would produce the same boolean fingerprint) by returning richer output.
+## Key Lessons
 
-## Gaps Found
+1. **Adapter pattern for side-effect-heavy libraries**
+   When a library's core functions depend on external state (HTTP responses, databases, file I/O), create an adapter module that constructs objects with mock/predetermined data. The adapter isolates the logic from its dependencies, making it fingerprintable without altering the original codebase.
 
-### 1. manifest-level pythonPath not respected in contest.py
+2. **Boolean fingerprint collision**
+   When detection functions return only `True`/`False`, all True-returning functions produce identical fingerprints. Return structured data from adapter functions that includes identifying metadata (e.g., `waf_name`, `detection_method`) alongside the boolean result to make each cluster's fingerprint unique.
 
-The `contest.py` chain runner only looked for `pythonPath` in individual cluster definitions, ignoring the manifest-level `pythonPath` that `capture.py` and `validate.py` already support.
+3. **Manifest-level pythonPath support gaps**
+   When testing libraries where `pythonPath` is needed at the manifest level, verify that ALL Regrets tools (`capture.py`, `validate.py`, `contest.py`, `truth.py`) support the manifest-level setting — not just individual cluster definitions. Inconsistencies here cause silent failures.
 
-**Fix**: Added manifest-level `pythonPath` handling to `contest.py`'s `load_manifest()` method, matching the behavior of `capture.py` and `validate.py`.
+4. **Backward-compatible aliases during refactor**
+   When renaming functions in a refactoring, preserve old names as aliases in the original module so existing imports continue to work. This is especially important for plugin architectures where other code may reference the old names.
 
-### 2. manifest-level pythonPath not respected in truth.py
+5. **Decomposition of god functions**
+   A 200+ line `main()` mixing CLI parsing, business logic, and output formatting can be decomposed by responsibility: extract CLI parsing, extract output formatting, and leave `main()` as a thin orchestrator. Each extracted function becomes independently testable and fingerprintable.
 
-Same gap as contest.py — `truth.py` only handled cluster-level `pythonPath`, not the manifest-level one.
+## How to Reproduce
 
-**Fix**: Added manifest-level `pythonPath` handling before the cluster loop.
+```bash
+# 1. Clone the target library
+git clone https://github.com/EnableSecurity/wafw00f.git target-wafw00f
+cd target-wafw00f
 
-### 3. Boolean fingerprint collision
+# 2. Install dependencies
+pip install .
 
-When detection functions return only `True`/`False`, all True-returning functions produce identical fingerprints. This is a design consideration for security/pentest tools where boolean detection is the norm.
+# 3. Copy the manifest into the project
+mkdir -p regrets
+cp /path/to/Regrets/proof/wafw00f/manifest.json regrets/manifest.json
 
-**Workaround**: Return structured data from adapter functions that includes `waf_name` and `detection_method` alongside the boolean `detected` field. This makes each cluster's fingerprint unique.
+# 4. Capture baseline (if not already captured)
+# node scripts/capture.js --manifest regrets/manifest.json
 
-## Refactoring Performed
+# 5. Validate against KEBENARAN baselines
+# node scripts/validate.js --manifest regrets/manifest.json
 
-### Decomposition
-- Extracted `wafw00f/cli/` module: argument parsing, logging level calculation, header file parsing, target loading from files
-- Extracted `wafw00f/output/` module: result record building, text/CSV/JSON formatting, file/stdout writing
-- Decomposed 200+ line `main()` into focused functions: `scan_single_target()`, `print_waf_list()`, `main()`
+# 6. Verify fingerprints match
+# Compare output with proof/wafw00f/KEBENARAN_1_raw_output.json
+# Compare fingerprints with proof/wafw00f/KEBENARAN_2_fingerprints.json
+```
 
-### Naming
-- `genericdetect` → `detect_generic_waf` (with backward-compatible alias)
-- `calclogginglevel` → `calculate_logging_level` (with alias)
-- `getTextResults` → `format_results_as_text` (with alias)
-- `buildResultRecord` → `build_result_record` (with alias)
-- `getheaders` → `parse_custom_headers` (with alias)
+---
 
-### Single Responsibility
-- CLI parsing separated from scanning logic
-- Output formatting separated from result collection
-- Target loading (JSON/CSV/text) extracted into dedicated function
+## Clusters
 
-### Backward Compatibility
-All old function names are preserved as aliases in `main.py`, so existing imports continue to work.
+| Cluster | Entry | Fingerprint |
+|---------|-------|-------------|
+| build-result-record | build_result_record | 2ikhe24 |
+| calc-logging-level | calculate_logging_level | 54y0fdn |
+| get-text-results | format_results_as_text | 4vuuqrd |
+| detect-cloudflare-server | *(adapter)* | 5dq3s2n |
+| detect-cloudflare-cf-ray | *(adapter)* | 4374btf |
+| detect-cloudflare-negative | *(adapter)* | elmjzp4 |
+| detect-modsecurity-header | *(adapter)* | 3051af0 |
+| detect-modsecurity-content | *(adapter)* | 1vzwxaq |
+| detect-incapsula-cookie | *(adapter)* | 1wvsvif |
+| detect-incapsula-content | *(adapter)* | 69aoy6m |
+| detect-sucuri-header | *(adapter)* | 664qzqg |
+| detect-sucuri-content | *(adapter)* | p339jdj |
+| detect-awswaf-header | *(adapter)* | 51a2moz |
+| detect-fastly-header | *(adapter)* | 46n6ldz |
+| detect-barracuda-header | *(adapter)* | 166iywl |
+| detect-wordfence-content | *(adapter)* | 1ddqvrq |
+| generic-negative | *(adapter)* | hao4i97 |
 
-## Verification Results
-
-### KEBENARAN 1 — Raw Output (17 clusters)
-| Cluster | Output |
-|---------|--------|
-| build-result-record | 4 test inputs producing result dicts |
-| calc-logging-level | 6 verbosity levels producing logging levels |
-| get-text-results | 1 input producing formatted text lines |
-| detect-cloudflare-server | `{waf_name: 'Cloudflare', detected: True, detection_method: 'server-header'}` |
-| detect-cloudflare-cf-ray | `{waf_name: 'Cloudflare', detected: True, detection_method: 'cf-ray-header'}` |
-| detect-cloudflare-negative | `{waf_name: 'Cloudflare', detected: False, detection_method: 'negative-nginx'}` |
-| detect-modsecurity-header | `{waf_name: 'ModSecurity', detected: True, detection_method: 'server-header'}` |
-| detect-modsecurity-content | `{waf_name: 'ModSecurity', detected: True, detection_method: 'content-match'}` |
-| detect-incapsula-cookie | `{waf_name: 'Incapsula', detected: True, detection_method: 'cookie-match'}` |
-| detect-incapsula-content | `{waf_name: 'Incapsula', detected: True, detection_method: 'content-match'}` |
-| detect-sucuri-header | `{waf_name: 'Sucuri', detected: True, detection_method: 'header-match'}` |
-| detect-sucuri-content | `{waf_name: 'Sucuri', detected: True, detection_method: 'content-match'}` |
-| detect-awswaf-header | `{waf_name: 'AWS WAF', detected: True, detection_method: 'header-match'}` |
-| detect-fastly-header | `{waf_name: 'Fastly', detected: True, detection_method: 'header-match'}` |
-| detect-barracuda-header | `{waf_name: 'Barracuda', detected: True, detection_method: 'cookie-match'}` |
-| detect-wordfence-content | `{waf_name: 'Wordfence', detected: True, detection_method: 'content-match'}` |
-| generic-negative | `{cloudflare: False, sucuri: False, incapsula: False}` |
-
-### KEBENARAN 2 — Fingerprints (17) + Chains (3)
-
-| Cluster | Fingerprint |
-|---------|-------------|
-| build-result-record | 2ikhe24 |
-| calc-logging-level | 54y0fdn |
-| get-text-results | 4vuuqrd |
-| detect-cloudflare-server | 5dq3s2n |
-| detect-cloudflare-cf-ray | 4374btf |
-| detect-cloudflare-negative | elmjzp4 |
-| detect-modsecurity-header | 3051af0 |
-| detect-modsecurity-content | 1vzwxaq |
-| detect-incapsula-cookie | 1wvsvif |
-| detect-incapsula-content | 69aoy6m |
-| detect-sucuri-header | 664qzqg |
-| detect-sucuri-content | p339jdj |
-| detect-awswaf-header | 51a2moz |
-| detect-fastly-header | 46n6ldz |
-| detect-barracuda-header | 166iywl |
-| detect-wordfence-content | 1ddqvrq |
-| generic-negative | hao4i97 |
+### Chains
 
 | Chain | Hash |
 |-------|------|
@@ -116,11 +92,31 @@ All old function names are preserved as aliases in `main.py`, so existing import
 | result-formatting-pipeline | 5flcefz |
 | multi-waf-negative-scan | 442df5y |
 
-### 4-Way Verification: ALL GREEN
+### Refactoring Performed
 
-| Verification | Result |
-|-------------|--------|
-| V1: Cluster GREEN | ✅ All 17 clusters PASS |
-| V2: Output Identical | ✅ All 17 clusters identical to KEBENARAN 1 |
-| V3: Fingerprint Match | ✅ All 17 fingerprints match KEBENARAN 2 |
-| V4: Chain Hash Match | ✅ All 3 chains match |
+**Decomposition:**
+- Extracted `wafw00f/cli/` module: argument parsing, logging level calculation, header file parsing, target loading from files
+- Extracted `wafw00f/output/` module: result record building, text/CSV/JSON formatting, file/stdout writing
+- Decomposed 200+ line `main()` into focused functions: `scan_single_target()`, `print_waf_list()`, `main()`
+
+**Naming:**
+- `genericdetect` → `detect_generic_waf` (with backward-compatible alias)
+- `calclogginglevel` → `calculate_logging_level` (with alias)
+- `getTextResults` → `format_results_as_text` (with alias)
+- `buildResultRecord` → `build_result_record` (with alias)
+- `getheaders` → `parse_custom_headers` (with alias)
+
+### Gaps Found in Regrets
+
+1. **manifest-level pythonPath not respected in contest.py** — Fixed by adding manifest-level `pythonPath` handling to `load_manifest()`.
+2. **manifest-level pythonPath not respected in truth.py** — Same gap; fixed by adding manifest-level `pythonPath` handling before the cluster loop.
+3. **Boolean fingerprint collision** — Workaround: return structured data from adapter functions instead of raw booleans.
+
+## Verification
+
+| # | Method | Result |
+|---|--------|--------|
+| V1 | Cluster validate (all 17 GREEN) | PASS |
+| V2 | Raw output vs KEBENARAN 1 (17 clusters) | IDENTICAL |
+| V3 | Fingerprint match vs KEBENARAN 2 (17 clusters) | MATCH |
+| V4 | Chain hash match (3 chains) | MATCH |
