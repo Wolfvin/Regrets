@@ -22,7 +22,8 @@ from pathlib import Path
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot
+    _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot,
+    fingerprint_modes
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -170,6 +171,21 @@ def parse_regret(content):
             meta['mutationBefore'] = json.loads(line[16:])
         elif line.startswith('MUTATION_AFTER '):
             meta['mutationAfter'] = json.loads(line[15:])
+        elif line.startswith('MODES_FINGERPRINT '):
+            meta['modesFingerprint'] = line[18:].strip()
+        elif line.startswith('MODE '):
+            # Parse mode entries: MODE name, followed by indented INPUT/OUTPUT/HASH/KWARGS
+            if 'modes_data' not in meta:
+                meta['modes_data'] = []
+            meta['modes_data'].append({'mode_name': line[5:].strip()})
+        elif line.startswith('  INPUT ') and 'modes_data' in meta and meta['modes_data']:
+            meta['modes_data'][-1]['input'] = json.loads(line[8:])
+        elif line.startswith('  OUTPUT ') and 'modes_data' in meta and meta['modes_data']:
+            meta['modes_data'][-1]['output'] = json.loads(line[9:])
+        elif line.startswith('  HASH ') and 'modes_data' in meta and meta['modes_data']:
+            meta['modes_data'][-1]['fp'] = line[7:].strip()
+        elif line.startswith('  KWARGS ') and 'modes_data' in meta and meta['modes_data']:
+            meta['modes_data'][-1]['kwargs'] = json.loads(line[9:])
 
     meta['raw'] = content
     return meta
@@ -506,10 +522,105 @@ def main():
                 for input_hashes in hashes_per_input.values()
             )
 
+            # ── Modes validation ──────────────────────────────────────────────
+            # If the .regret file has modes data, validate each mode's fingerprint
+            modes_match = True
+            modes_data = regret.get('modes_data', [])
+            modes_fingerprint_stored = regret.get('modesFingerprint')
+
+            if modes_data and cluster_def.get('modes'):
+                live_mode_results = []
+                for mode_def in cluster_def['modes']:
+                    mode_name = mode_def.get('name', 'default')
+                    mode_kwargs = mode_def.get('kwargs', {})
+                    mode_inputs = mode_def.get('inputs', cluster_def.get('inputs', [None]))
+                    effective_kwargs = mode_kwargs
+
+                    # Find the golden mode data for comparison
+                    golden_mode = next(
+                        (m for m in modes_data if m.get('mode_name') == mode_name),
+                        None
+                    )
+
+                    if not golden_mode:
+                        print(f"  ⚠️  {cluster_id}: mode '{mode_name}' not found in .regret file")
+                        modes_match = False
+                        continue
+
+                    mode_fps = []
+                    for input_val in mode_inputs:
+                        recorder_m = []
+                        ghost_m = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder_m)
+                        entry_fn_m = getattr(ghost_m, entry_name, None) or getattr(mod, entry_name, None)
+                        input_for_args = deep_clone(input_val)
+                        input_for_record = deep_clone(input_val)
+
+                        if effective_kwargs and isinstance(input_for_args, dict):
+                            merged_args = {**input_for_args, **effective_kwargs}
+                            raw_output = entry_fn_m(**merged_args)
+                            fp_input = deep_clone(merged_args)
+                        elif effective_kwargs:
+                            raw_output = entry_fn_m(input_for_args, **effective_kwargs)
+                            fp_input = input_for_record
+                        else:
+                            raw_output = entry_fn_m(input_for_args) if input_for_args is not None else entry_fn_m()
+                            fp_input = input_for_record
+
+                        output = consume_generator(raw_output)
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+                        if effective_fp_mode == 'schema':
+                            schema = extract_schema(output_for_fp)
+                            fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
+                        elif effective_fp_mode == 'mixed':
+                            schema = extract_schema(output_for_fp)
+                            selected_values = {}
+                            for path in effective_value_paths:
+                                key = path.replace('$.', '')
+                                parts = key.split('.')
+                                val = output_for_fp
+                                for p in parts:
+                                    val = val.get(p) if isinstance(val, dict) else None
+                                    if val is None:
+                                        break
+                                if val is not None:
+                                    selected_values[path] = val
+                            combined = {'schema': schema, 'values': selected_values}
+                            fp = fingerprint(fp_input, combined, norm_rules, ign_fields)
+                        elif fp_level == 'entry':
+                            fp = fingerprint(fp_input, output_for_fp, norm_rules, ign_fields)
+                        else:
+                            fp = fingerprint_sequence(recorder_m, norm_rules, ign_fields)
+
+                        mode_fps.append(fp)
+
+                    mode_fp = mode_fps[0] if mode_fps else ''
+                    golden_mode_fp = golden_mode.get('fp', '')
+
+                    if mode_fp != golden_mode_fp:
+                        modes_match = False
+
+                    live_mode_results.append({
+                        'mode_name': mode_name,
+                        'fp': mode_fp,
+                    })
+
+                # Validate combined modes fingerprint
+                if live_mode_results and modes_fingerprint_stored:
+                    live_modes_fp = fingerprint_modes(live_mode_results, norm_rules, ign_fields)
+                    if live_modes_fp != modes_fingerprint_stored:
+                        modes_match = False
+
             # Mutation mismatch is a separate failure condition
             if track_mutation and not mutation_match:
                 print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
                 results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
+                continue
+
+            # Modes mismatch is a separate failure condition
+            if modes_data and not modes_match:
+                print(f"  ❌ {cluster_id:<35} MODES MISMATCH")
+                results.append({'id': cluster_id, 'pass': False, 'modes_mismatch': True})
                 continue
 
             if update_mode:
