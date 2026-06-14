@@ -50,6 +50,7 @@ class ScanResult(NamedTuple):
     suggested_clusters: list[dict]
     dead_imports: list[tuple[str, int]]  # (import_name, line_number) of unused imports
     oversized_functions: list[tuple[str, int, int]]  # (name, lineno, line_count) for fns > 30 lines
+    lambdas: list[tuple[str, FunctionInfo]] = []  # (var_name, info) for lambda assignments
 
 
 # ─── AST Analysis ───────────────────────────────────────────────────────────
@@ -903,9 +904,8 @@ def scan_file(filepath: str, base_dir: str = '') -> ScanResult:
         suggested_clusters=[],
         dead_imports=collector.get_dead_imports(),
         oversized_functions=oversized,
+        lambdas=collector.lambdas,
     )
-    # Store lambdas separately for rendering
-    result.lambdas = collector.lambdas
     result.suggested_clusters.extend(suggest_clusters(result))
 
     # Detect sys.path.insert calls and attach pythonPath suggestion
