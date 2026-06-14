@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // check.js — Pre-flight manifest validation
-// Verifies that all entry functions exist in the compiled output
-// before running capture, preventing confusing errors.
+// Verifies manifest structure AND that all entry functions exist
+// in the compiled output before running capture, preventing confusing errors.
+//
+// Validation phases:
+//   Phase 1 — Manifest structure validation (schema-level checks)
+//   Phase 2 — Export existence validation (import & verify)
 //
 // Usage:
 //   node scripts/check.js
@@ -37,6 +41,108 @@ if (!clusters.length) {
 
 console.log(`\n🔍 Pre-flight Check — ${clusters.length} cluster(s)\n`)
 
+// ─── Phase 1: Manifest structure validation ──────────────────────────────────
+// Collect ALL errors and warnings first, then print them at once.
+
+const VALID_STACKS = ['js', 'ts', 'python', 'react', 'go', 'php', 'rust']
+const VALID_FINGERPRINT_LEVELS = ['entry', 'full', 'watched']
+
+const structErrors = []   // { clusterId, message }
+const structWarnings = [] // { clusterId, message }
+
+// 1. Duplicate cluster IDs
+const idCounts = new Map()
+for (const cluster of clusters) {
+  const id = cluster.id
+  if (!id) continue
+  idCounts.set(id, (idCounts.get(id) || 0) + 1)
+}
+for (const [id, count] of idCounts) {
+  if (count > 1) {
+    structErrors.push({ clusterId: id, message: `Duplicate cluster id: '${id}'. IDs must be unique.` })
+  }
+}
+
+// Per-cluster validations
+for (let i = 0; i < clusters.length; i++) {
+  const cluster = clusters[i]
+  const cid = cluster.id || `index-${i}`
+
+  // 5. Missing required fields: id, entry, stack
+  for (const field of ['id', 'entry', 'stack']) {
+    if (!cluster[field]) {
+      structErrors.push({ clusterId: cid, message: `cluster at index ${i} missing required field: ${field}` })
+    }
+  }
+
+  // 4. Invalid stack value
+  if (cluster.stack && !VALID_STACKS.includes(cluster.stack)) {
+    structErrors.push({ clusterId: cid, message: `Unknown stack '${cluster.stack}'. Valid: ${VALID_STACKS.join('|')}` })
+  }
+
+  // 6. Invalid fingerprintLevel
+  if (cluster.fingerprintLevel && !VALID_FINGERPRINT_LEVELS.includes(cluster.fingerprintLevel)) {
+    structErrors.push({ clusterId: cid, message: `invalid fingerprintLevel '${cluster.fingerprintLevel}'` })
+  }
+
+  // 2. Empty inputs array
+  if (cluster.inputs && Array.isArray(cluster.inputs) && cluster.inputs.length === 0) {
+    structWarnings.push({ clusterId: cid, message: `cluster '${cid}' has no inputs — fingerprint will be empty` })
+  }
+  if (!cluster.inputs && !cluster.multiArgs) {
+    // No inputs field at all — also warn
+    structWarnings.push({ clusterId: cid, message: `cluster '${cid}' has no inputs — fingerprint will be empty` })
+  }
+
+  // 3. Empty watches array with fingerprintLevel:'full'
+  if (cluster.fingerprintLevel === 'full') {
+    const watches = cluster.watches
+    if (!watches || !Array.isArray(watches) || watches.length === 0) {
+      structErrors.push({ clusterId: cid, message: `watches required for fingerprintLevel:'full'` })
+    }
+  }
+
+  // 7. multiArgs:true but inputs not array of arrays
+  if (cluster.multiArgs) {
+    const inputs = cluster.inputs
+    if (!Array.isArray(inputs) || inputs.length === 0 || !inputs.every(item => Array.isArray(item))) {
+      structWarnings.push({ clusterId: cid, message: `multiArgs requires inputs to be array of arrays` })
+    }
+  }
+}
+
+// Print Phase 1 results
+if (structErrors.length > 0 || structWarnings.length > 0) {
+  console.log('📋 Phase 1 — Manifest structure validation:\n')
+  for (const err of structErrors) {
+    console.error(`  Error: [${err.clusterId}] ${err.message}`)
+  }
+  for (const warn of structWarnings) {
+    console.warn(`  Warning: [${warn.clusterId}] ${warn.message}`)
+  }
+  console.log()
+}
+
+// If structural errors exist, stop here (exit 1)
+if (structErrors.length > 0) {
+  console.log(`${'─'.repeat(50)}`)
+  console.log(`Manifest structure: ${structErrors.length} error(s), ${structWarnings.length} warning(s)`)
+  console.log(`\n❌ Fix manifest errors before running capture.`)
+  process.exit(1)
+}
+
+// If only warnings, note them but continue
+if (structWarnings.length > 0) {
+  console.log(`  (${structWarnings.length} warning(s) — non-blocking)\n`)
+}
+
+// If no errors and no warnings, print success for phase 1
+if (structErrors.length === 0 && structWarnings.length === 0) {
+  console.log(`📋 Phase 1 — Manifest structure: ✅ ${clusters.length} cluster(s), all fields OK\n`)
+}
+
+// ─── Phase 2: Export existence validation ────────────────────────────────────
+
 // Run preBuild if specified
 if (manifest.preBuild) {
   console.log(`🔧 Running preBuild: ${manifest.preBuild}`)
@@ -50,7 +156,7 @@ if (manifest.preBuild) {
 }
 
 let passed = 0
-let warnings = 0
+let warnings = structWarnings.length
 let failed = 0
 
 // Group by file to avoid redundant imports
@@ -159,4 +265,4 @@ if (failed > 0) {
   process.exit(1)
 }
 
-console.log(`\n✅ All checks passed. Safe to run capture.`)
+console.log(`\n✅ Manifest valid: ${clusters.length} clusters, all fields OK`)
