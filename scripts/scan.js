@@ -8,19 +8,21 @@
 //   node scripts/scan.js --dir src/
 //   node scripts/scan.js --stack js
 //   node scripts/scan.js --format manifest   (output as manifest.json snippet)
+//   node scripts/scan.js --generate-adapters (generate regret-adapters.mjs + manifest skeleton)
 //
 // This tool helps agents who are setting up Regrets for the first time.
 // It scans the project, identifies refactor-candidate functions, and suggests
 // cluster definitions. The agent still decides which clusters to create —
 // this is a SUGGESTION, not a prescription.
 
-import { readFileSync, readdirSync, existsSync, statSync } from 'fs'
+import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve, join, extname, relative } from 'path'
 
 const args = process.argv.slice(2)
 const scanDir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : '.'
 const stackFilter = args.includes('--stack') ? args[args.indexOf('--stack') + 1] : null
 const formatManifest = args.includes('--format') && args[args.indexOf('--format') + 1] === 'manifest'
+const generateAdapters = args.includes('--generate-adapters')
 const projectRoot = process.cwd()
 
 // ─── File discovery ───────────────────────────────────────────────────────────
@@ -662,6 +664,175 @@ function detectAdapterNeeded(source, functionName) {
   return reasons
 }
 
+// ─── TypeScript preBuild auto-detection ─────────────────────────────────────
+// Detects whether the project is a TypeScript project and suggests a preBuild
+// command for manifest.json. Checks for tsconfig.json and package.json build
+// scripts.
+
+function detectPreBuild(rootDir) {
+  const tsconfigPath = resolve(rootDir, 'tsconfig.json')
+  const isTypeScript = existsSync(tsconfigPath)
+  let preBuild = null
+  let buildScript = null
+
+  if (isTypeScript) {
+    // Check package.json for a "build" script
+    const pkgPath = resolve(rootDir, 'package.json')
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+        if (pkg.scripts?.build) {
+          buildScript = pkg.scripts.build
+          preBuild = 'npm run build'
+        }
+      } catch { /* skip invalid package.json */ }
+    }
+  }
+
+  return { isTypeScript, preBuild, buildScript }
+}
+
+// ─── Adapter skeleton generation ─────────────────────────────────────────────
+// Generates a regret-adapters.mjs file with adapter functions for static class
+// methods and stateful iterators. These adapter functions bridge the gap between
+// class-based APIs and Regrets' function-oriented capture system.
+
+function generateAdapterSkeleton(staticMethods, iterators, projectRoot) {
+  const adapterPath = resolve(projectRoot, 'regret-adapters.mjs')
+
+  // Don't overwrite existing file
+  if (existsSync(adapterPath)) {
+    console.log('\n⚠️  regret-adapters.mjs already exists — skipping adapter generation.')
+    console.log('   Delete the file and re-run if you want to regenerate it.\n')
+    return null
+  }
+
+  const lines = [
+    '// Auto-generated adapter module for Regrets regression testing',
+    '// This module bridges class-based APIs to standalone functions',
+    '// that can be wrapped by the Ghost Proxy.',
+    '//',
+    '// Next steps:',
+    '//   1. Uncomment the CJS bridge import below (adjust the path to your compiled output)',
+    '//   2. Fill in the adapter function bodies',
+    '//   3. Reference these adapter functions in regrets/manifest.json',
+    '',
+    "import { createRequire } from 'module';",
+    'const require = createRequire(import.meta.url);',
+    '// const module = require(\'./dist/index.js\');',
+    '',
+  ]
+
+  // Generate adapter functions for static class methods
+  for (const sm of staticMethods) {
+    const fnName = `adapt${sm.className}${sm.methodName.charAt(0).toUpperCase()}${sm.methodName.slice(1)}`
+    lines.push(`export function ${fnName}(input) {`)
+    lines.push(`  // TODO: Call ${sm.className}.${sm.methodName}(input) and serialize result`)
+    lines.push(`  // const result = ${sm.className}.${sm.methodName}(input);`)
+    lines.push(`  // return result;`)
+    lines.push(`}`)
+    lines.push('')
+  }
+
+  // Generate adapter functions for stateful iterators
+  for (const it of iterators) {
+    const fnName = `adapt${it.className}Iterate`
+    lines.push(`export function ${fnName}(input) {`)
+    lines.push(`  // TODO: Construct iterator and call next() N times`)
+    lines.push(`  // const instance = FactoryClass.factoryMethod(input.expression, input.options);`)
+    lines.push(`  // const results = [];`)
+    lines.push(`  // for (let i = 0; i < input.iterations; i++) {`)
+    lines.push(`  //   results.push(instance.next().toISOString()); // Adjust serialization as needed`)
+    lines.push(`  // }`)
+    lines.push(`  // return results;`)
+    lines.push(`}`)
+    lines.push('')
+  }
+
+  const content = lines.join('\n')
+  writeFileSync(adapterPath, content, 'utf8')
+  return adapterPath
+}
+
+// ─── Manifest generation with adapters ──────────────────────────────────────
+// Generates a regrets/manifest.json skeleton that includes cluster entries for
+// each adapter function, with auto-detected preBuild and empty inputs arrays.
+
+function generateManifestWithAdapters(suggestions, staticMethods, iterators, projectRoot) {
+  const regretsDir = resolve(projectRoot, 'regrets')
+  const manifestPath = resolve(regretsDir, 'manifest.json')
+
+  // Don't overwrite existing manifest
+  if (existsSync(manifestPath)) {
+    console.log('\n⚠️  regrets/manifest.json already exists — skipping manifest generation.')
+    console.log('   Delete the file and re-run if you want to regenerate it.\n')
+    return null
+  }
+
+  // Auto-detect preBuild
+  const { preBuild } = detectPreBuild(projectRoot)
+
+  const manifest = {
+    version: 1,
+  preBuild: preBuild || '',
+    clusters: [],
+  }
+
+  // Add clusters for regular suggestions (top 20)
+  for (const s of suggestions.slice(0, 20)) {
+    if (s.isStaticMethod || s.isIterator) continue  // Handled separately below
+    manifest.clusters.push({
+      id: s.function.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, ''),
+      entry: s.function,
+      watches: [s.function],
+      file: s.file,
+      stack: s.stack,
+      fingerprintLevel: 'entry',
+      description: `Cluster for ${s.function} in ${s.file}`,
+      inputs: [],
+    })
+  }
+
+  // Add clusters for static method adapters
+  for (const sm of staticMethods) {
+    const fnName = `adapt${sm.className}${sm.methodName.charAt(0).toUpperCase()}${sm.methodName.slice(1)}`
+    manifest.clusters.push({
+      id: `${sm.className.toLowerCase()}-${sm.methodName.toLowerCase()}`,
+      entry: fnName,
+      watches: [fnName],
+      file: 'regret-adapters.mjs',
+      stack: sm.stack,
+      fingerprintLevel: 'entry',
+      description: `Adapter for ${sm.className}.${sm.methodName} (static method)`,
+      inputs: [],
+    })
+  }
+
+  // Add clusters for stateful iterator adapters
+  for (const it of iterators) {
+    const fnName = `adapt${it.className}Iterate`
+    manifest.clusters.push({
+      id: `${it.className.toLowerCase()}-iterate`,
+      entry: fnName,
+      watches: [fnName],
+      file: 'regret-adapters.mjs',
+      stack: it.stack,
+      fingerprintLevel: 'entry',
+      description: `Adapter for ${it.className} iterator (materialize sequence)`,
+      inputs: [],
+    })
+  }
+
+  // Ensure regrets/ directory exists
+  if (!existsSync(regretsDir)) {
+    mkdirSync(regretsDir, { recursive: true })
+  }
+
+  const content = JSON.stringify(manifest, null, 2) + '\n'
+  writeFileSync(manifestPath, content, 'utf8')
+  return manifestPath
+}
+
 // ─── Determine stack from file extension ──────────────────────────────────────
 
 function stackFromExt(ext) {
@@ -797,6 +968,19 @@ if (reactMonorepo.length > 0) {
   }
   console.log('   ⚠️  React components need stack: "react" for render-to-HTML fingerprinting.')
   console.log('      Use normalize: ["incrementingIds"] if components use uniqueId for keys.\n')
+}
+
+// ─── TypeScript preBuild detection ───────────────────────────────────────────
+
+const { isTypeScript, preBuild, buildScript } = detectPreBuild(projectRoot)
+if (isTypeScript) {
+  console.log('🔷 TypeScript project detected — preBuild will be needed in manifest.json')
+  if (buildScript) {
+    console.log(`   Suggested preBuild: "npm run build" (package.json scripts.build: "${buildScript}")`)
+  } else {
+    console.log('   ⚠️  No "build" script found in package.json — add one and re-run')
+  }
+  console.log()
 }
 
 // ─── Large file / God Object detection ───────────────────────────────────────
@@ -970,7 +1154,12 @@ if (formatManifest) {
     inputs: [],
   }))
 
-  console.log(JSON.stringify({ clusters }, null, 2))
+  const manifestOutput = { clusters }
+  // Include preBuild for TypeScript projects
+  if (preBuild) {
+    manifestOutput.preBuild = preBuild
+  }
+  console.log(JSON.stringify(manifestOutput, null, 2))
 } else {
   // Human-readable report
   console.log('CLUSTER SUGGESTIONS')
@@ -1121,6 +1310,35 @@ if (formatManifest) {
     if (internalOnlyFiles.length > 15) {
       console.log(`   ... and ${internalOnlyFiles.length - 15} more files`)
     }
+  }
+
+  // ─── Adapter generation (--generate-adapters) ──────────────────────────────────
+  if (generateAdapters && (staticClassMethods.length > 0 || statefulIterators.length > 0)) {
+    console.log('\n🏗️  Generating adapter skeletons...')
+
+    const adapterPath = generateAdapterSkeleton(staticClassMethods, statefulIterators, projectRoot)
+    const manifestPath = generateManifestWithAdapters(suggestions, staticClassMethods, statefulIterators, projectRoot)
+
+    if (adapterPath) {
+      console.log(`\n✅ Adapter module generated: regret-adapters.mjs`)
+      console.log(`   Contains ${staticClassMethods.length} static method adapter(s) and ${statefulIterators.length} iterator adapter(s)`)
+    }
+
+    if (manifestPath) {
+      console.log(`\n✅ Manifest skeleton generated: regrets/manifest.json`)
+      if (preBuild) {
+        console.log(`   preBuild auto-detected: "${preBuild}"`)
+      }
+    }
+
+    console.log('\n📋 Next steps:')
+    console.log('   1. Edit regret-adapters.mjs — uncomment the CJS bridge import and fill in adapter bodies')
+    console.log('   2. Edit regrets/manifest.json — fill in the empty "inputs" arrays for each cluster')
+    console.log('   3. Run: node scripts/capture.js to capture baseline fingerprints')
+    console.log('   4. Run: node scripts/fingerprint.js to verify fingerprints')
+  } else if (generateAdapters) {
+    console.log('\nℹ️  --generate-adapters was specified, but no static methods or iterators were found.')
+    console.log('   Adapter generation is only needed when static class methods or stateful iterators are detected.')
   }
 
   console.log()
