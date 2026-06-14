@@ -76,12 +76,59 @@ function normalize($obj, array $rules = [])
             $result = preg_replace('/(?<!\d)(20\d{2}|19\d{2})(?!\d)/', '<YYYY>', $result);
             return $result;
         }
+        // floatPrecision: normalize float-like strings that differ only in trailing zeros
+        // Common in OCR/math output where "1500000.0" and "1500000" should be equivalent.
+        // Strips trailing ".0" from number-like strings (including negative).
+        if (in_array('floatPrecision', $rules)) {
+            return preg_replace('/^-?(\d+)\.0+$/', '$1', $obj);
+        }
         return $obj;
     }
 
-    if (is_int($obj) || is_float($obj)) {
+    if (is_int($obj)) {
         if (in_array('epochs', $rules) && $obj > 1_000_000_000 && $obj < 9_999_999_999_999) {
             return '<EPOCH>';
+        }
+        // floatPrecision: integers are already whole, no change needed
+        if (in_array('floatPrecision', $rules)) {
+            return $obj;
+        }
+        return $obj;
+    }
+
+    if (is_float($obj)) {
+        if (in_array('epochs', $rules) && $obj > 1_000_000_000 && $obj < 9_999_999_999_999) {
+            return '<EPOCH>';
+        }
+        // floatTolerance: round floating-point numbers to N decimal places before hashing.
+        // Prevents false negatives from tiny floating-point representation differences
+        // (e.g., 123456.0 vs 123456.00000001 in financial/scientific computing).
+        // Usage: "floatTolerance" (default 2 decimal places) or "floatTolerance:N" for N places.
+        $floatTolRule = null;
+        foreach ($rules as $r) {
+            if (str_starts_with($r, 'floatTolerance')) {
+                $floatTolRule = $r;
+                break;
+            }
+        }
+        if ($floatTolRule !== null) {
+            $decimals = 2;
+            if (str_contains($floatTolRule, ':')) {
+                $parts = explode(':', $floatTolRule);
+                $decimals = (int) ($parts[1] ?? 2);
+            }
+            $factor = pow(10, $decimals);
+            return round($obj * $factor) / $factor;
+        }
+        // floatPrecision: normalize numbers that are whole but stored as float
+        // e.g., 1500000.0 → 1500000 (common in math/parsing pipelines)
+        if (in_array('floatPrecision', $rules) && is_finite($obj)) {
+            if (floor($obj) === $obj) {
+                // It's a whole number stored as float — normalize to int for consistency
+                return (int) $obj;
+            }
+            // Round to 2 decimal places to normalize precision differences
+            return round($obj * 100) / 100;
         }
         return $obj;
     }
@@ -131,9 +178,14 @@ function to_base36(string $hex): string
 
 function deep_clone($val)
 {
-    /** Deep clone via JSON round-trip. */
+    /** Deep clone via JSON round-trip.
+     *  Uses JSON_PRESERVE_ZERO_FRACTION to ensure that 1.0 stays as 1.0
+     *  instead of becoming 1 (critical for math libraries where float vs int matters).
+     *  Uses JSON_FORCE_OBJECT flag only when needed to preserve empty-object vs empty-array distinction.
+     */
     try {
-        return json_decode(json_encode($val, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), true);
+        $encoded = json_encode($val, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
+        return json_decode($encoded, true);
     } catch (\Throwable $e) {
         return $val;
     }

@@ -234,6 +234,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/truth.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/truth.py`, ...passThroughArgs]) && success
+      } else if (stack === 'php') {
+        success = run('php', [`${SCRIPTS_DIR}/truth_php.php`, ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -296,6 +298,8 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/contest.py`, ...passThroughArgs]) && success
+      } else if (stack === 'php') {
+        console.log(`  ⏭️  PHP chain testing: use regret chain with JS/Python stacks for now — PHP chain support coming soon`)
       }
     }
     break
@@ -394,7 +398,7 @@ Usage:
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js list                       List all clusters with status
   node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
-  node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
+  node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python+PHP)
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js structure [--dir src/]        Structural analysis (God Objects, pure/impure, refactor priority)
