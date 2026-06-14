@@ -464,6 +464,8 @@ Usage:
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
   node scripts/regret.js setup [--stack js|python|ts]  One-command onboarding (scan→check→capture→validate)
+                                 [--dry-run]            Preview steps without executing
+                                 [--skip-build]         Skip preBuild step
   node scripts/regret.js watch [--dir src/] [--stack]  Watch files & auto-validate on change
 
 Global flags:
