@@ -189,7 +189,7 @@ class FreezeTime:
 
     def __enter__(self):
         frozen_localtime = _make_frozen_time(self.freeze_str)
-        # Parse the frozen time once for datetime.now()
+        # Parse the frozen time once
         if self.freeze_str.isdigit():
             dt = datetime.fromtimestamp(int(self.freeze_str))
         elif 'T' in self.freeze_str:
@@ -208,10 +208,30 @@ class FreezeTime:
         p2.start()
         self.patches.append(p2)
 
-        # Patch datetime.datetime.now
-        p3 = patch.object(datetime, 'now', return_value=dt)
-        p3.start()
-        self.patches.append(p3)
+        # Patch datetime.datetime.now — C types are immutable, must use
+        # the module-level datetime reference to patch datetime.datetime
+        # Approach: patch the 'now' attribute on the datetime.datetime class
+        # by temporarily replacing it via the datetime module's reference
+        import datetime as _dt_module
+        original_datetime_cls = _dt_module.datetime
+
+        # Create a subclass that overrides now() and utcnow()
+        class FrozenDateTime(_dt_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return dt.replace(tzinfo=tz)
+                return dt
+            @classmethod
+            def utcnow(cls):
+                return dt
+
+        # Replace datetime.datetime in the datetime module
+        _dt_module.datetime = FrozenDateTime
+
+        # Also try to replace it in the builtins if imported differently
+        self._original_datetime_cls = original_datetime_cls
+        self._dt_module = _dt_module
 
         return self
 
@@ -219,6 +239,9 @@ class FreezeTime:
         for p in reversed(self.patches):
             p.stop()
         self.patches = []
+        # Restore original datetime.datetime class
+        if hasattr(self, '_dt_module') and hasattr(self, '_original_datetime_cls'):
+            self._dt_module.datetime = self._original_datetime_cls
 
 
 # ─── Ghost decorator ──────────────────────────────────────────────────────────

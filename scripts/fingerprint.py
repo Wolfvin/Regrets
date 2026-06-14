@@ -233,6 +233,29 @@ def deep_clone(val):
             return deep_clone(val.to_dict())
         except Exception:
             pass
+    # Handle objects with __slots__ (e.g. pdtContext)
+    if hasattr(val, '__slots__') and not isinstance(val, type):
+        cls_name = type(val).__name__
+        attrs = {}
+        for slot in val.__slots__:
+            try:
+                attrs[slot] = deep_clone(getattr(val, slot))
+            except AttributeError:
+                pass
+        if attrs:
+            return {'__class__': cls_name, **attrs}
+    # Handle objects with __dict__ (most class instances)
+    if hasattr(val, '__dict__') and not isinstance(val, type):
+        cls_name = type(val).__name__
+        attrs = {}
+        for k, v in val.__dict__.items():
+            if not k.startswith('_'):
+                try:
+                    attrs[k] = deep_clone(v)
+                except Exception:
+                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+        if attrs:
+            return {'__class__': cls_name, **attrs}
     # Primitives: return as-is
     if isinstance(val, (int, float, str, bool)) or val is None:
         return val

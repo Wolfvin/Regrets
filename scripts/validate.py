@@ -106,9 +106,23 @@ class FreezeTime:
         p2.start()
         self.patches.append(p2)
 
-        p3 = patch.object(datetime, 'now', return_value=dt)
-        p3.start()
-        self.patches.append(p3)
+        # Patch datetime.datetime.now via module-level class replacement
+        import datetime as _dt_module
+        original_datetime_cls = _dt_module.datetime
+
+        class FrozenDateTime(_dt_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return dt.replace(tzinfo=tz)
+                return dt
+            @classmethod
+            def utcnow(cls):
+                return dt
+
+        _dt_module.datetime = FrozenDateTime
+        self._original_datetime_cls = original_datetime_cls
+        self._dt_module = _dt_module
 
         return self
 
@@ -116,6 +130,8 @@ class FreezeTime:
         for p in reversed(self.patches):
             p.stop()
         self.patches = []
+        if hasattr(self, '_dt_module') and hasattr(self, '_original_datetime_cls'):
+            self._dt_module.datetime = self._original_datetime_cls
 
 
 # ─── Helpers (shared with capture.py) ─────────────────────────────────────────
