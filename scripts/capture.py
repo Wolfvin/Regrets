@@ -81,12 +81,17 @@ def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
     Supported transforms:
-    - "str":     Convert each element to its string representation
-    - "repr":    Convert each element to its repr representation
-    - "dict":    Convert each element using dict(obj) or obj.__dict__
-    - "json":    Attempt obj.to_json() or json.dumps(obj)
-    - "len":     Return len(obj) — useful for large collections
-    - "type":    Return type names of elements
+    - "str":      Convert each element to its string representation
+    - "repr":     Convert each element to its repr representation
+    - "dict":     Convert each element using dict(obj) or obj.__dict__
+    - "snapshot": Deep recursive class-to-dict conversion using snapshot_state().
+                  Walks through nested class instances and converts them all to
+                  JSON-serializable dicts with __class__ tags. This is essential for
+                  libraries like musicpy where chord/scale/note objects contain other
+                  class instances inside lists.
+    - "json":     Attempt obj.to_json() or json.dumps(obj)
+    - "len":      Return len(obj) — useful for large collections
+    - "type":     Return type names of elements
     - "module.fn": Import and call module.fn(output) for custom transforms
 
     When output is a tuple, it is first converted to a list.
@@ -121,6 +126,16 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'snapshot':
+            # Deep recursive class-to-dict conversion using snapshot_state().
+            # This is the key transform for class-heavy libraries like musicpy
+            # where output objects contain nested class instances (e.g., chord
+            # objects contain lists of note objects, which themselves have
+            # __dict__ attributes). Unlike "dict" which only does a shallow
+            # __dict__ conversion (leaving nested class instances as unhashable
+            # objects), "snapshot" recursively walks through all nested objects
+            # and converts them to JSON-serializable dicts with __class__ tags.
+            return snapshot_state(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -258,6 +273,10 @@ def main():
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
         track_mutation = cluster.get('trackMutation', False)
+        class_method = cluster.get('classMethod', None)
+        constructor_name = cluster.get('constructor', entry)
+        constructor_args = cluster.get('constructorArgs', [])
+        setup_steps = cluster.get('setup', [])
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -272,10 +291,21 @@ def main():
             recorder_local = []
             ghost = create_ghost(mod, watches, recorder_local)
 
-            # Get entry function from ghost module
-            entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
-            if entry_fn is None or not callable(entry_fn):
-                raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
+            if class_method:
+                # Class-based entry: construct instance, optionally run setup,
+                # then call the target method and fingerprint its output.
+                # This mirrors the JS capture.js classMethod support but for Python.
+                Cls = getattr(mod, constructor_name, None) or getattr(mod, entry, None)
+                if Cls is None or not callable(Cls):
+                    raise TypeError(
+                        f"Constructor \"{constructor_name}\" not found or not callable in {module_path}"
+                    )
+                entry_fn = None  # Signal that we use class-based entry
+            else:
+                # Get entry function from ghost module
+                entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
+                if entry_fn is None or not callable(entry_fn):
+                    raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
 
             # Run with provided inputs
             results = []
@@ -294,7 +324,64 @@ def main():
                 if track_mutation:
                     input_snapshot_before = snapshot_state(input_for_args)
 
-                if multi_args and isinstance(input_for_args, list):
+                if class_method and entry_fn is None:
+                    # ── Class-based entry ───────────────────────────────────────
+                    # 1. new ClassName(...constructorArgs) → instance
+                    # 2. For each setup: instance[setup.method](...setup.args)
+                    # 3. instance.classMethod(input) → output (fingerprint this)
+                    instance = Cls(*deep_clone(constructor_args))
+
+                    # Apply ghost proxy to instance methods for watch recording
+                    for watch_fn in watches:
+                        orig_method = getattr(instance, watch_fn, None)
+                        if orig_method is not None and callable(orig_method):
+                            bound = orig_method.__func__.__get__(instance, type(instance))
+                            def make_instance_ghost(orig, name, rec, inst):
+                                @wraps(orig)
+                                def wrapper(*args, **kwargs):
+                                    try:
+                                        result = orig(inst, *args, **kwargs)
+                                        rec.append({
+                                            'fn': name,
+                                            'args': deep_clone(args),
+                                            'result': deep_clone(result),
+                                        })
+                                        return result
+                                    except Exception as err:
+                                        rec.append({
+                                            'fn': name,
+                                            'args': deep_clone(args),
+                                            'error': str(err),
+                                        })
+                                        raise
+                                return wrapper
+                            setattr(instance, watch_fn, make_instance_ghost(bound, watch_fn, recorder_local, instance))
+
+                    # Run setup methods
+                    for step in setup_steps:
+                        setup_method = getattr(instance, step.get('method', ''), None)
+                        if setup_method is None or not callable(setup_method):
+                            raise TypeError(
+                                f"Setup method \"{step.get('method')}\" not found on instance"
+                            )
+                        setup_args = step.get('args', [])
+                        setup_method(*deep_clone(setup_args))
+
+                    # Call the target method
+                    target_method = getattr(instance, class_method, None)
+                    if target_method is None or not callable(target_method):
+                        raise TypeError(
+                            f"Method \"{class_method}\" not found on instance of {constructor_name}"
+                        )
+
+                    if multi_args and isinstance(input_for_args, list):
+                        raw_output = target_method(*input_for_args)
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        raw_output = target_method(**input_for_args)
+                    else:
+                        raw_output = target_method(input_for_args) if input_for_args is not None else target_method()
+                    fp_input = input_for_record
+                elif multi_args and isinstance(input_for_args, list):
                     raw_output = entry_fn(*input_for_args)
                     fp_input = input_for_record
                 elif kwargs_mode and isinstance(input_for_args, dict):
@@ -398,10 +485,18 @@ def main():
                 f"fingerprint: {fp}",
                 f"captured: {timestamp}",
                 f"watches: [{', '.join(watches)}]",
-                f"entry: {entry}",
-                "stack: python",
-                f"fingerprintLevel: {fingerprint_level}",
             ]
+            if class_method:
+                lines.append(f"constructor: {constructor_name}")
+                lines.append(f"classMethod: {class_method}")
+            else:
+                lines.append(f"entry: {entry}")
+            lines.append("stack: python")
+            lines.append(f"fingerprintLevel: {fingerprint_level}")
+            if class_method and constructor_args:
+                lines.append(f"constructorArgs: {json_serialize(constructor_args)}")
+            if setup_steps:
+                lines.append(f"setup: {json_serialize(setup_steps)}")
             if fingerprint_mode != 'value':
                 lines.append(f"fingerprintMode: {fingerprint_mode}")
             if value_paths:
@@ -418,6 +513,8 @@ def main():
                 lines.append(f"module: {module_path}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
+            if class_method:
+                lines.append(f"classMethod: {class_method}")
             if materialize_output_flag:
                 lines.append("materializeOutput: true")
             if track_mutation:

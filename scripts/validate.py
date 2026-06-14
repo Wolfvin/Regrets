@@ -103,6 +103,8 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'snapshot':
+            return snapshot_state(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -382,6 +384,10 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
+            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
+            constructor_name = regret.get('constructor') or cluster_def.get('constructor', entry_name)
+            constructor_args = regret.get('constructorArgs') or cluster_def.get('constructorArgs', [])
+            setup_steps = regret.get('setup') or cluster_def.get('setup', [])
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -409,7 +415,17 @@ def main():
                 ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
 
                 entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
+
+                # Support classMethod: if the cluster uses class-based entry,
+                # construct the instance and call the target method
+                if class_method:
+                    Cls = getattr(mod, constructor_name, None) or getattr(mod, entry_name, None)
+                    if Cls is None or not callable(Cls):
+                        raise TypeError(
+                            f"Constructor \"{constructor_name}\" not found or not callable in {module_path}"
+                        )
+
+                if not class_method and (entry_fn is None or not callable(entry_fn)):
                     raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
 
                 # Determine fingerprint mode: .regret file takes precedence over manifest
@@ -426,7 +442,47 @@ def main():
                     if track_mutation:
                         input_snapshot_before = snapshot_state(input_for_args)
 
-                    if multi_args and isinstance(input_for_args, list):
+                    if class_method:
+                        # ── Class-based entry (mirrors capture.py classMethod support) ──
+                        instance = Cls(*deep_clone(constructor_args))
+
+                        # Apply ghost proxy to instance methods for watch recording
+                        for watch_fn in (regret.get('watches', cluster_def.get('watches', []))):
+                            orig_method = getattr(instance, watch_fn, None)
+                            if orig_method is not None and callable(orig_method):
+                                bound = orig_method.__func__.__get__(instance, type(instance))
+                                def make_instance_ghost(orig, name, rec, inst):
+                                    @wraps(orig)
+                                    def wrapper(*args, **kwargs):
+                                        try:
+                                            result = orig(inst, *args, **kwargs)
+                                            rec.append({'fn': name, 'args': deep_clone(args), 'result': deep_clone(result)})
+                                            return result
+                                        except Exception as err:
+                                            rec.append({'fn': name, 'args': deep_clone(args), 'error': str(err)})
+                                            raise
+                                    return wrapper
+                                setattr(instance, watch_fn, make_instance_ghost(bound, watch_fn, recorder, instance))
+
+                        # Run setup methods
+                        for step in (setup_steps or []):
+                            setup_method = getattr(instance, step.get('method', ''), None)
+                            if setup_method is not None and callable(setup_method):
+                                setup_method(*deep_clone(step.get('args', [])))
+
+                        # Call the target method
+                        target_method = getattr(instance, class_method, None)
+                        if target_method is None or not callable(target_method):
+                            raise TypeError(f"Method \"{class_method}\" not found on instance of {constructor_name}")
+
+                        if multi_args and isinstance(input_for_args, list):
+                            raw_output = target_method(*input_for_args)
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            raw_output = target_method(**input_for_args)
+                        else:
+                            raw_output = target_method(input_for_args) if input_for_args is not None else target_method()
+                        fp_input = input_for_fp
+                    elif multi_args and isinstance(input_for_args, list):
                         raw_output = entry_fn(*input_for_args)
                         fp_input = input_for_fp
                     elif kwargs_mode and isinstance(input_for_args, dict):
