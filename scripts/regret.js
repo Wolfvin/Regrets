@@ -455,6 +455,16 @@ switch (command) {
     break
   }
 
+  case 'uninstall': {
+    success = run('node', [`${SCRIPTS_DIR}/uninstall.js`, ...passThroughArgs])
+    break
+  }
+
+  case 'status': {
+    success = run('node', [`${SCRIPTS_DIR}/status.js`, ...passThroughArgs])
+    break
+  }
+
   case 'help':
   default:
     console.log(`
@@ -499,10 +509,12 @@ Usage:
   node scripts/regret.js discover --entry <fn> --file <path>              Discover call graph & draft manifest
                                  [--inputs '[null, {}]']                   Custom inputs (JSON array)
                                  [--out regrets/manifest.json]             Write to file (default: stdout)
+  node scripts/regret.js uninstall [--keep-manifest] [--force]  Remove regrets/ directory
+  node scripts/regret.js status [--json]                  Quick coverage + health snapshot
 
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
-  --json              Output in machine-readable JSON (validate, health, coverage, scan, branches)
+  --json              Output in machine-readable JSON (validate, health, coverage, scan, branches, status)
   --quiet             Only print summary line (capture, validate)
   --verbose           Print extra detail — inputs, outputs, call traces (capture, validate)
                       --quiet and --verbose are mutually exclusive (quiet wins)
