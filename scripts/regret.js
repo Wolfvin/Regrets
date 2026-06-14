@@ -104,6 +104,11 @@ if (needsPreBuild.includes(command) && !skipBuild) {
 }
 
 switch (command) {
+  case 'init': {
+    success = run('node', [`${SCRIPTS_DIR}/init.js`, ...passThroughArgs])
+    break
+  }
+
   case 'capture': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -402,6 +407,7 @@ switch (command) {
 regret.js — Unified Regret Runner
 
 Usage:
+  node scripts/regret.js init [--stack js|python|php|go]  Initialize regrets/ directory
   node scripts/regret.js capture [--cluster <id>]     Capture fingerprints
   node scripts/regret.js validate [--cluster <id>]    Validate against golden
   node scripts/regret.js health [--sort fragile]      Health report

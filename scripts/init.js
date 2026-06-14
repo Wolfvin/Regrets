@@ -3,8 +3,11 @@
 // in the target project for regret-based regression testing.
 //
 // Usage:
-//   node scripts/init.js           # creates regrets/ with manifest.json template
-//   node scripts/init.js --force   # overwrite existing
+//   node scripts/init.js                     # creates regrets/ with manifest.json template (stack: js)
+//   node scripts/init.js --stack python       # creates regrets/ with Python manifest template
+//   node scripts/init.js --stack php          # creates regrets/ with PHP manifest template
+//   node scripts/init.js --stack go           # creates regrets/ with Go manifest template
+//   node scripts/init.js --force              # overwrite existing
 
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { resolve, join } from 'path'
@@ -13,9 +16,15 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
+const validStacks = ['js', 'python', 'php', 'go', 'ts']
+let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
+
+if (!validStacks.includes(stack)) {
+  console.error(`❌ Unknown stack: "${stack}". Valid stacks: ${validStacks.join(', ')}`)
+  process.exit(1)
+}
 
 // ─── Target paths ─────────────────────────────────────────────────────────────
 
@@ -60,6 +69,38 @@ const templates = {
       }
     ]
   },
+  php: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'myFunction',
+        watches: ['myFunction'],
+        file: 'src/MyClass.php',
+        stack: 'php',
+        description: 'Example PHP cluster — replace with your actual cluster definitions',
+        inputs: [
+          'sample_input_1',
+          null
+        ]
+      }
+    ]
+  },
+  go: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'MyFunction',
+        watches: ['MyFunction'],
+        file: 'mypackage/myfunction.go',
+        stack: 'go',
+        description: 'Example Go cluster — replace with your actual cluster definitions',
+        inputs: [
+          'sample_input_1',
+          null
+        ]
+      }
+    ]
+  },
   ts: {
     clusters: [
       {
@@ -84,9 +125,10 @@ const manifestTemplate = templates[stack] || templates.js
 // ─── Pre-flight check ─────────────────────────────────────────────────────────
 
 if (existsSync(regretsDir) && !force) {
-  console.error(`❌ regrets/ directory already exists at: ${regretsDir}`)
-  console.error(`   Use --force to overwrite, or edit the existing manifest directly.`)
-  process.exit(1)
+  console.warn(`⚠️  regrets/ directory already exists at: ${regretsDir}`)
+  console.warn(`   Skipping init to avoid overwriting existing data.`)
+  console.warn(`   Use --force to overwrite, or edit the existing manifest directly.`)
+  process.exit(0)
 }
 
 if (existsSync(regretsDir) && force) {
@@ -128,15 +170,21 @@ try {
 console.log()
 console.log(`✅ regrets/ directory scaffolded successfully! (stack: ${stack})`)
 console.log()
-console.log(`Next steps:`)
-console.log(`  1. Edit regrets/manifest.json — replace the example cluster with your actual cluster definitions`)
+console.log(`Next: edit regrets/manifest.json, then run: node scripts/regret.js capture`)
 if (stack === 'python') {
-  console.log(`  2. Set cluster fields: id, entry, watches, module, stack, pythonPath, inputs`)
-} else {
-  console.log(`  2. Set cluster fields: id, entry, watches, file, stack, inputs`)
+  console.log()
+  console.log(`📦 Note for Python stack: make sure to install project dependencies first:`)
+  console.log(`   pip install -r requirements.txt   (or your project's dependency file)`)
 }
-console.log(`  3. Run: npm run regret:capture   (capture behavioral fingerprints)`)
-console.log(`  4. Run: npm run regret:drift      (5 runs — ensure all STABLE)`)
-console.log(`  5. Run: npm run regret:health     (check cluster health scores)`)
+if (stack === 'php') {
+  console.log()
+  console.log(`📦 Note for PHP stack: make sure composer dependencies are installed:`)
+  console.log(`   composer install`)
+}
+if (stack === 'go') {
+  console.log()
+  console.log(`📦 Note for Go stack: make sure dependencies are available:`)
+  console.log(`   go mod tidy`)
+}
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)
