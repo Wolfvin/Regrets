@@ -115,7 +115,7 @@ switch (command) {
   case 'capture': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts') {
+      if (stack === 'js' || stack === 'ts' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/capture.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/capture.py`, ...passThroughArgs]) && success
@@ -135,7 +135,7 @@ switch (command) {
   case 'validate': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
@@ -170,9 +170,12 @@ switch (command) {
       success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs])
     } else if (targetStack === 'php') {
       success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs])
+    } else if (targetStack === 'rust') {
+      success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs])
     } else if (targetStack === 'go') {
       success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs])
     } else {
+      // js, ts, css all use validate.js
       success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs])
     }
     break
@@ -181,12 +184,14 @@ switch (command) {
   case 'drift': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--runs', '5', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--runs', '5', ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--runs', '5', ...passThroughArgs]) && success
+      } else if (stack === 'rust') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
       }
@@ -203,12 +208,14 @@ switch (command) {
     }
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'rust') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
@@ -231,12 +238,16 @@ switch (command) {
   case 'truth': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/truth.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/truth.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = run('php', [`${SCRIPTS_DIR}/truth_php.php`, ...passThroughArgs]) && success
+      } else if (stack === 'rust') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'go') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -295,7 +306,7 @@ switch (command) {
   case 'chain': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/contest.py`, ...passThroughArgs]) && success
@@ -314,7 +325,7 @@ switch (command) {
   case 'scan': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/scan.py`, ...passThroughArgs]) && success
@@ -342,7 +353,7 @@ switch (command) {
   case 'coverage': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/coverage.py`, ...passThroughArgs]) && success
@@ -392,12 +403,14 @@ switch (command) {
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'rust') {
+        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
@@ -423,7 +436,7 @@ switch (command) {
 regret.js — Unified Regret Runner
 
 Usage:
-  node scripts/regret.js init [--stack js|python|php|go]  Initialize regrets/ directory
+  node scripts/regret.js init [--stack js|python|php|go|css]  Initialize regrets/ directory
   node scripts/regret.js capture [--cluster <id>]     Capture fingerprints
                                  [--only-new]          Only capture clusters without .regret files
                                  [--stale [hours]]     Re-capture clusters older than N hours (default: 24)
@@ -467,11 +480,11 @@ Capture flags:
   These flags can be combined: --only-new --stale 48
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
-  js/ts   → capture.js / validate.js
+  js/ts/css → capture.js / validate.js
   python  → capture.py / validate.py / truth.py
   php     → capture_php.php / validate_php.php
   react   → capture_react.mjs / validate.js
-  rust    → capture_rust.sh
+  rust    → capture_rust.sh (capture + validate via cargo test)
   go      → capture_go.sh (Community Preview)
 `)
     break

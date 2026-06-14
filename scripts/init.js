@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts']
+const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -117,6 +117,36 @@ const templates = {
         ]
       }
     ]
+  },
+  css: {
+    clusters: [
+      {
+        id: 'postcss-transform',
+        entry: 'transform',
+        watches: ['transform'],
+        file: 'plugins/my-postcss-plugin.js',
+        stack: 'css',
+        fingerprintLevel: 'entry',
+        description: 'PostCSS plugin that transforms CSS — replace with your actual cluster definitions',
+        inputs: [
+          { css: '.a { color: red; }', opts: {} },
+          { css: '@media (min-width: 768px) { .b { color: blue; } }', opts: {} }
+        ]
+      },
+      {
+        id: 'sass-function',
+        entry: 'compileSass',
+        watches: ['compileSass'],
+        file: 'src/sass-compiler.js',
+        stack: 'css',
+        fingerprintLevel: 'entry',
+        description: 'Sass/SCSS compilation function — replace with your actual cluster definitions',
+        inputs: [
+          { source: '$primary: #333; .btn { color: $primary; }' },
+          { source: '@mixin flex { display: flex; } .container { @include flex; }' }
+        ]
+      }
+    ]
   }
 }
 
@@ -185,6 +215,12 @@ if (stack === 'go') {
   console.log()
   console.log(`📦 Note for Go stack: make sure dependencies are available:`)
   console.log(`   go mod tidy`)
+}
+if (stack === 'css') {
+  console.log()
+  console.log(`📦 Note for CSS stack: CSS uses the JS runner (capture.js / validate.js).`)
+  console.log(`   Your module should export a function that takes CSS input and returns the transformed output.`)
+  console.log(`   See references/css-stack-guide.md for PostCSS, Sass, and CSS-in-JS examples.`)
 }
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)
