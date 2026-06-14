@@ -317,6 +317,14 @@ switch (command) {
         success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
       }
     }
+    // If --decompose flag is passed but no stack detected, run Python scanner
+    if (passThroughArgs.includes('--decompose') && !success) {
+      // Try Python scanner with the --decompose flag directly
+      const dirArg = passThroughArgs.find(a => !a.startsWith('-'))
+      if (dirArg) {
+        success = run('python3', [`${SCRIPTS_DIR}/scan.py`, dirArg, '--decompose'])
+      }
+    }
     break
   }
 
@@ -414,8 +422,8 @@ Usage:
   node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python+PHP)
   node scripts/regret.js truth [--outdir <dir>]        Save dual truth baselines (JS+Python)
-  node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
-  node scripts/regret.js structure [--dir src/]        Structural analysis (God Objects, pure/impure, refactor priority)
+  node scripts/regret.js scan [--dir src/] [--stack] [--decompose]   Scan project for cluster suggestions
+  node scripts/regret.js scan --decompose <path>                    Detect god modules and suggest decomposition
   node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
   node scripts/regret.js analyze [dir] [--json]        Deep structural analysis (god functions, duplicates)

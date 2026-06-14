@@ -482,6 +482,189 @@ def compute_python_path_suggestion(filepath: str, base_dir: str) -> str:
     return rel
 
 
+# ─── God Module Detection ──────────────────────────────────────────────────
+
+GOD_MODULE_LINE_THRESHOLD = 300  # files above this line count are flagged
+GOD_MODULE_FUNC_THRESHOLD = 15   # files with more than this many functions are flagged
+
+
+def detect_god_module(filepath: str, result: ScanResult) -> dict | None:
+    """Detect if a file is a 'god module' that needs decomposition.
+
+    A god module is a single file that contains too many functions/classes
+    mixing multiple domains. This analysis:
+    1. Counts total lines and functions
+    2. Groups class methods by their call patterns (domain inference)
+    3. Suggests decomposition boundaries
+
+    Returns None if the file is not a god module.
+    """
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            source = f.read()
+        line_count = len(source.splitlines())
+    except Exception:
+        line_count = 0
+
+    # Count all functions and methods
+    all_funcs = list(result.functions)
+    for methods in result.classes.values():
+        all_funcs.extend(methods)
+
+    total_funcs = len(all_funcs)
+
+    if line_count < GOD_MODULE_LINE_THRESHOLD and total_funcs < GOD_MODULE_FUNC_THRESHOLD:
+        return None
+
+    # Build call graph for domain grouping
+    # Strategy: group functions that call each other into the same domain
+    call_graph = {}
+    for func in all_funcs:
+        call_graph[func.name] = {
+            'calls': func.calls,
+            'called_by': [],
+            'is_method': func.is_method,
+            'is_pure': func.is_pure,
+            'branch_count': func.branch_count,
+        }
+
+    # Build reverse call graph (who calls whom)
+    for func in all_funcs:
+        for called in func.calls:
+            if called in call_graph:
+                call_graph[called]['called_by'].append(func.name)
+
+    # Group functions into domains using call-graph connectivity
+    visited = set()
+    domains = []
+
+    for func in all_funcs:
+        if func.name in visited:
+            continue
+        # BFS to find all connected functions
+        domain = set()
+        queue = [func.name]
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            domain.add(current)
+            # Add functions this one calls
+            if current in call_graph:
+                for called in call_graph[current]['calls']:
+                    if called in call_graph and called not in visited:
+                        queue.append(called)
+                # Add functions that call this one
+                for caller in call_graph[current]['called_by']:
+                    if caller in call_graph and caller not in visited:
+                        queue.append(caller)
+
+        if domain:
+            domains.append(domain)
+
+    # Name each domain by finding the most-called function (likely the entry point)
+    domain_info = []
+    for domain in domains:
+        domain_funcs = []
+        for fn_name in domain:
+            if fn_name in call_graph:
+                info = call_graph[fn_name]
+                domain_funcs.append({
+                    'name': fn_name,
+                    'is_method': info['is_method'],
+                    'is_pure': info['is_pure'],
+                    'branch_count': info['branch_count'],
+                    'calls': [c for c in info['calls'] if c in domain],
+                    'called_by': [c for c in info['called_by'] if c in domain],
+                })
+
+        # Find entry point: function called by most others in domain, or
+        # the public function with the most branches
+        best_entry = None
+        best_score = -1
+        for f in domain_funcs:
+            if f['name'].startswith('_'):
+                continue
+            score = len(f['called_by']) * 10 + f['branch_count']
+            if score > best_score:
+                best_score = score
+                best_entry = f['name']
+
+        if not best_entry and domain_funcs:
+            best_entry = domain_funcs[0]['name']
+
+        # Generate domain name from entry function
+        domain_name = best_entry or 'misc'
+        for c in domain_name:
+            if c.isupper() and domain_name:
+                domain_name = domain_name.replace(c, '-' + c.lower())
+        domain_name = domain_name.lower().replace('_', '-').lstrip('-')
+
+        domain_info.append({
+            'name': domain_name,
+            'entry': best_entry,
+            'functions': domain_funcs,
+            'function_count': len(domain_funcs),
+            'total_branches': sum(f['branch_count'] for f in domain_funcs),
+            'pure_count': sum(1 for f in domain_funcs if f['is_pure']),
+            'impure_count': sum(1 for f in domain_funcs if not f['is_pure']),
+        })
+
+    # Sort domains by size (largest first)
+    domain_info.sort(key=lambda d: d['function_count'], reverse=True)
+
+    return {
+        'filepath': filepath,
+        'module': result.module,
+        'line_count': line_count,
+        'total_functions': total_funcs,
+        'total_classes': len(result.classes),
+        'class_names': list(result.classes.keys()),
+        'domains': domain_info,
+        'domain_count': len(domain_info),
+        'decomposition_needed': True,
+        'decomposition_reason': (
+            f'{line_count} lines, {total_funcs} functions — '
+            f'should be split into {len(domain_info)} domain modules'
+        ),
+    }
+
+
+def render_god_module_analysis(analysis: dict):
+    """Render god module decomposition analysis to stdout."""
+    print(f"\n{'━' * 60}")
+    print(f"🔴 GOD MODULE DETECTED")
+    print(f"{'━' * 60}")
+    print(f"   File: {analysis['filepath']}")
+    print(f"   Module: {analysis['module']}")
+    print(f"   Lines: {analysis['line_count']}")
+    print(f"   Functions: {analysis['total_functions']}")
+    print(f"   Classes: {analysis['total_classes']} ({', '.join(analysis['class_names'])})")
+    print(f"   Domains identified: {analysis['domain_count']}")
+    print(f"\n   📋 {analysis['decomposition_reason']}")
+
+    for i, domain in enumerate(analysis['domains'], 1):
+        print(f"\n   Domain {i}: {domain['name']}")
+        print(f"     Functions: {domain['function_count']} ({domain['pure_count']} pure, {domain['impure_count']} impure)")
+        print(f"     Total branches: {domain['total_branches']}")
+        if domain['entry']:
+            print(f"     Suggested entry: {domain['entry']}")
+        func_names = [f['name'] for f in domain['functions']]
+        if len(func_names) <= 10:
+            print(f"     Members: {', '.join(func_names)}")
+        else:
+            print(f"     Members: {', '.join(func_names[:10])}, ... (+{len(func_names) - 10} more)")
+
+    print(f"\n   💡 Decomposition strategy:")
+    print(f"      1. Create cluster for each domain's entry function BEFORE refactoring")
+    print(f"      2. Run 'regret capture' + 'regret validate' — all must be GREEN")
+    print(f"      3. Save truths: 'regret truth'")
+    print(f"      4. Move each domain to its own module")
+    print(f"      5. Add re-exports in __init__.py to preserve public API")
+    print(f"      6. Run 'regret validate' — must still be GREEN")
+
+
 # ─── Cluster Suggestion ────────────────────────────────────────────────────
 
 def suggest_clusters(result: ScanResult) -> list[dict]:
@@ -849,6 +1032,7 @@ Usage:
   python scripts/scan.py <path> --manifest        Output as manifest.json snippet
   python scripts/scan.py <path> --pure            Only suggest pure functions (no I/O, no models)
   python scripts/scan.py <path> --python-path     Detect sys.path.insert and suggest pythonPath
+  python scripts/scan.py <path> --decompose       Detect god modules and suggest decomposition
 
 Analyzes Python source files and suggests:
   - Which functions to cluster
@@ -857,16 +1041,18 @@ Analyzes Python source files and suggests:
   - Whether functions are pure (ideal for fingerprinting)
   - pythonPath from sys.path.insert() patterns
   - @BEHAVIOR annotations as cluster descriptions
+  - Whether the file is a god module that needs decomposition
 
 This helps agents set up Regrets on new projects without guessing.
 """)
         sys.exit(0)
 
-    target = args[0]
+    target = args[0] if args else None
     recursive = '--recursive' in args
     as_manifest = '--manifest' in args
     pure_only = '--pure' in args
     show_python_path = '--python-path' in args
+    decompose = '--decompose' in args
 
     if not os.path.exists(target):
         print(f"❌ Path not found: {target}")
@@ -890,6 +1076,19 @@ This helps agents set up Regrets on new projects without guessing.
                 if pp:
                     print(f"\n  📂 pythonPath detected: {pp} (from sys.path.insert in {result.file})")
                     break
+
+    # God module decomposition analysis
+    if decompose:
+        print('\n🔍 God Module Decomposition Analysis\n')
+        found_god_modules = False
+        for result in results:
+            analysis = detect_god_module(result.file, result)
+            if analysis:
+                found_god_modules = True
+                render_god_module_analysis(analysis)
+        if not found_god_modules:
+            print('\n✅ No god modules detected. All files are within healthy size limits.')
+        sys.exit(0)
 
     if as_manifest:
         print(render_manifest_json(results, pure_only=pure_only))

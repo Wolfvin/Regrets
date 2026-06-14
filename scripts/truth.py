@@ -55,6 +55,11 @@ def parse_args():
     return result
 
 
+def json_serialize(val):
+    """Serialize value to JSON string for output. Handles numpy types."""
+    return json.dumps(_numpy_to_native(val), ensure_ascii=False)
+
+
 def consume_generator(val):
     """If val is a generator or iterator, consume it into a list."""
     if isinstance(val, (str, bytes, dict)):
@@ -172,9 +177,13 @@ def main():
         cid = cluster['id']
         entry = cluster['entry']
         module_path = cluster.get('module', cluster.get('file', ''))
+        inputs = cluster.get('inputs', [None])
         multi_args = cluster.get('multiArgs', False)
         kwargs_mode = cluster.get('kwargs', False)
-        inputs = cluster.get('inputs', [None])
+        class_method = cluster.get('classMethod', None)
+        constructor = cluster.get('constructor', None)
+        constructor_args = cluster.get('constructorArgs', [])
+        setup = cluster.get('setup', [])
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
         norm_rules = cluster.get('normalize', [])
@@ -187,51 +196,114 @@ def main():
 
         try:
             mod = importlib.import_module(module_path)
-            entry_fn = getattr(mod, entry, None)
-            if entry_fn is None or not callable(entry_fn):
-                raise TypeError(f'Entry "{entry}" not found or not callable in {module_path}')
+            test_inputs = inputs if inputs else [None]
 
-            outputs = []
-            for input_val in inputs:
-                input_for_args = deep_clone(input_val)
+            if class_method:
+                # Class-based entry (god-module decomposition support)
+                cls_name = constructor or entry
+                Cls = getattr(mod, cls_name, None)
+                if Cls is None:
+                    raise TypeError(f'Class "{cls_name}" not found in {module_path}')
 
-                if multi_args and isinstance(input_for_args, list):
-                    raw_output = entry_fn(*input_for_args)
-                elif kwargs_mode and isinstance(input_for_args, dict):
-                    raw_output = entry_fn(**input_for_args)
-                elif kwargs_mode and not isinstance(input_for_args, dict):
-                    raise TypeError(
-                        f'kwargs=True but input is {type(input_for_args).__name__}, not dict.'
-                    )
-                else:
-                    raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                outputs = []
+                for input_val in test_inputs:
+                    instance = Cls(*deep_clone(constructor_args))
+                    # Run setup steps
+                    for step in setup:
+                        method_fn = getattr(instance, step.get('method', ''), None)
+                        if method_fn:
+                            step_args = step.get('args', [])
+                            method_fn(*deep_clone(step_args))
+                    # Call classMethod
+                    input_for_args = deep_clone(input_val)
+                    if multi_args and isinstance(input_for_args, list):
+                        raw_output = getattr(instance, class_method)(*input_for_args)
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        raw_output = getattr(instance, class_method)(**input_for_args)
+                    elif kwargs_mode and not isinstance(input_for_args, dict):
+                        raise TypeError(
+                            f'kwargs=True but input is {type(input_for_args).__name__}, not dict.'
+                        )
+                    elif input_for_args is not None:
+                        raw_output = getattr(instance, class_method)(input_for_args)
+                    else:
+                        raw_output = getattr(instance, class_method)()
 
-                # Materialize generator/iterator output if configured
-                output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
-                if was_materialized:
-                    print(f'     🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)')
+                    # Materialize generator/iterator output if configured
+                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                    if was_materialized:
+                        print(f'     🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)')
 
-                # Consume generators/iterators into lists (always-on fallback)
-                if not materialize_output_flag:
-                    raw_type_name = type(output).__name__
-                    output = consume_generator(output)
-                    if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
-                        print(f'     🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)')
+                    # Consume generators/iterators into lists (always-on fallback)
+                    if not materialize_output_flag:
+                        raw_type_name = type(output).__name__
+                        output = consume_generator(output)
+                        if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
+                            print(f'     🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)')
 
-                # Apply output transform if specified
-                output_for_record = apply_output_transform(deep_clone(output), output_transform)
+                    # Apply output transform if specified
+                    output_for_record = apply_output_transform(deep_clone(output), output_transform)
 
-                outputs.append({
-                    'input': deep_clone(input_val),
-                    'output': _numpy_to_native(output_for_record),
-                })
+                    outputs.append({
+                        'input': deep_clone(input_val),
+                        'output': _numpy_to_native(output_for_record),
+                    })
 
-            raw_outputs[cid] = {
-                'entry': entry,
-                'module': module_path,
-                'outputs': outputs,
-            }
-            print(f'  ✅ {cid}: {len(outputs)} output(s) captured')
+                raw_outputs[cid] = {
+                    'entry': entry,
+                    'module': module_path,
+                    'classMethod': class_method,
+                    'outputs': outputs,
+                }
+                print(f'  ✅ {cid}: {len(outputs)} output(s) captured')
+
+            else:
+                # Function-based entry
+                entry_fn = getattr(mod, entry, None)
+                if entry_fn is None or not callable(entry_fn):
+                    raise TypeError(f'Entry "{entry}" not found or not callable in {module_path}')
+
+                outputs = []
+                for input_val in test_inputs:
+                    input_for_args = deep_clone(input_val)
+
+                    if multi_args and isinstance(input_for_args, list):
+                        raw_output = entry_fn(*input_for_args)
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        raw_output = entry_fn(**input_for_args)
+                    elif kwargs_mode and not isinstance(input_for_args, dict):
+                        raise TypeError(
+                            f'kwargs=True but input is {type(input_for_args).__name__}, not dict.'
+                        )
+                    else:
+                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+
+                    # Materialize generator/iterator output if configured
+                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                    if was_materialized:
+                        print(f'     🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)')
+
+                    # Consume generators/iterators into lists (always-on fallback)
+                    if not materialize_output_flag:
+                        raw_type_name = type(output).__name__
+                        output = consume_generator(output)
+                        if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
+                            print(f'     🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)')
+
+                    # Apply output transform if specified
+                    output_for_record = apply_output_transform(deep_clone(output), output_transform)
+
+                    outputs.append({
+                        'input': deep_clone(input_val),
+                        'output': _numpy_to_native(output_for_record),
+                    })
+
+                raw_outputs[cid] = {
+                    'entry': entry,
+                    'module': module_path,
+                    'outputs': outputs,
+                }
+                print(f'  ✅ {cid}: {len(outputs)} output(s) captured')
 
         except Exception as err:
             print(f'  ❌ {cid}: {err}')
@@ -353,9 +425,13 @@ def main():
 
     # ─── Write Output Files ──────────────────────────────────────────────────
 
-    project_name = manifest.get('projectName', os.getcwd().split(os.sep)[-1])
+    project_name = manifest.get('projectName', os.path.basename(os.getcwd()))
 
-    proof_dir = os.path.join(out_dir, project_name)
+    if cli['outdir']:
+        proof_dir = cli['outdir']
+    else:
+        proof_dir = os.path.join(out_dir, project_name)
+
     os.makedirs(proof_dir, exist_ok=True)
 
     k1_path = os.path.join(proof_dir, 'KEBENARAN_1_raw_output.json')
