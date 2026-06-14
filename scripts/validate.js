@@ -14,72 +14,87 @@
 import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } from 'fs'
 import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
-import { pathToFileURL } from 'url'
+import { pathToFileURL, fileURLToPath } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
 
-// ─── CLI args ─────────────────────────────────────────────────────────────────
+// ─── isMainModule guard ────────────────────────────────────────────────────────
+// When imported as a module (e.g. from api.js), we only want the function exports,
+// not the CLI side effects (process.argv parsing, process.exit, console output).
+
+const __filename = fileURLToPath(import.meta.url)
+const isMainModule = process.argv[1] && resolve(process.argv[1]) === __filename
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getArg(args, flag) {
   const i = args.indexOf(flag)
   return i !== -1 ? args[i + 1] ?? null : null
 }
 
-const args          = process.argv.slice(2)
-const clusterFilter = getArg(args, '--cluster')
-const failFast      = args.includes('--fail-fast')
-const runs          = parseInt(getArg(args, '--runs') ?? '1')
-const updateTarget  = getArg(args, '--update')
-const updateReason  = getArg(args, '--reason')
-const manifestPath  = getArg(args, '--manifest') ?? resolve(process.cwd(), 'regrets/manifest.json')
-const regretDir     = resolve(process.cwd(), 'regrets')
-const auditLog      = join(regretDir, 'audit.log')
-const jsonOutput    = args.includes('--json')
-const noDiff        = args.includes('--no-diff')
-const reporter      = getArg(args, '--reporter') ?? null  // 'junit' | null
+// ─── CLI args (only set when run directly) ──────────────────────────────────────
 
-// ─── --quiet / --verbose flags ─────────────────────────────────────────────────
+let clusterFilter = null
+let failFast      = false
+let runs          = 1
+let updateTarget  = null
+let updateReason  = null
+let manifestPath  = resolve(process.cwd(), 'regrets/manifest.json')
+let regretDir     = resolve(process.cwd(), 'regrets')
+let auditLog      = join(regretDir, 'audit.log')
+let jsonOutput    = false
+let noDiff        = false
+let reporter      = null
+let quiet         = false
+let verbose       = false
 
-let quiet   = args.includes('--quiet')
-let verbose = args.includes('--verbose')
+if (isMainModule) {
+  const args          = process.argv.slice(2)
+  clusterFilter = getArg(args, '--cluster')
+  failFast      = args.includes('--fail-fast')
+  runs          = parseInt(getArg(args, '--runs') ?? '1')
+  updateTarget  = getArg(args, '--update')
+  updateReason  = getArg(args, '--reason')
+  manifestPath  = getArg(args, '--manifest') ?? resolve(process.cwd(), 'regrets/manifest.json')
+  regretDir     = resolve(process.cwd(), 'regrets')
+  auditLog      = join(regretDir, 'audit.log')
+  jsonOutput    = args.includes('--json')
+  noDiff        = args.includes('--no-diff')
+  reporter      = getArg(args, '--reporter') ?? null
+  quiet         = args.includes('--quiet')
+  verbose       = args.includes('--verbose')
 
-if (quiet && verbose) {
-  console.warn('⚠️  --quiet and --verbose are mutually exclusive; using --quiet')
-  verbose = false
-}
-
-// --json already implies quiet for human-readable output; --quiet/--verbose don't affect JSON
-// quiet: only print summary line
-// verbose: print everything + extra detail (input, full output, call sequence)
-// default (neither): current behavior unchanged
-
-// ─── Validate --update usage ──────────────────────────────────────────────────
-
-if (updateTarget && !updateReason) {
-  if (jsonOutput) {
-    console.log(JSON.stringify({ error: '--update requires --reason' }))
-  } else {
-    console.error(`❌ --update requires --reason`)
-    console.error(`   Example: --update ${updateTarget} --reason "describe why behavior changed"`)
+  if (quiet && verbose) {
+    console.warn('⚠️  --quiet and --verbose are mutually exclusive; using --quiet')
+    verbose = false
   }
-  process.exit(1)
-}
 
-if (updateReason && updateReason.split(' ').length < 4) {
-  if (jsonOutput) {
-    console.log(JSON.stringify({ error: `--reason is too vague: "${updateReason}"` }))
-  } else {
-    console.error(`❌ --reason is too vague: "${updateReason}"`)
-    console.error(`   Be specific. e.g. "tax rate updated from 11% to 12% per new regulation"`)
+  if (updateTarget && !updateReason) {
+    if (jsonOutput) {
+      console.log(JSON.stringify({ error: '--update requires --reason' }))
+    } else {
+      console.error(`❌ --update requires --reason`)
+      console.error(`   Example: --update ${updateTarget} --reason "describe why behavior changed"`)
+    }
+    process.exit(1)
   }
-  process.exit(1)
+
+  if (updateReason && updateReason.split(' ').length < 4) {
+    if (jsonOutput) {
+      console.log(JSON.stringify({ error: `--reason is too vague: "${updateReason}"` }))
+    } else {
+      console.error(`❌ --reason is too vague: "${updateReason}"`)
+      console.error(`   Be specific. e.g. "tax rate updated from 11% to 12% per new regulation"`)
+    }
+    process.exit(1)
+  }
 }
 
 // ─── Parse a .regret file ─────────────────────────────────────────────────────
 
-function parseRegret(content) {
+export function parseRegret(content) {
   const [metaSection, dataSection] = content.split('\n---\n')
   const meta = {}
   for (const line of metaSection.split('\n')) {
@@ -153,7 +168,7 @@ function clone(v) { return deepClone(v) }
 //   'removed'      (-) key/index exists only in golden
 //   'type_changed' (>) same key, different types
 
-function jsonDiff(golden, live, prefix = '') {
+export function jsonDiff(golden, live, prefix = '') {
   const diffs = []
 
   // Both null/undefined
@@ -255,7 +270,7 @@ function truncateDiffValue(val, maxLen) {
   return str
 }
 
-function formatDiffOutput(goldenOutput, liveOutput, opts = {}) {
+export function formatDiffOutput(goldenOutput, liveOutput, opts = {}) {
   const maxValLen = opts.verbose ? Infinity : 60
 
   // Try JSON diff first
@@ -298,45 +313,50 @@ function formatDiffOutput(goldenOutput, liveOutput, opts = {}) {
 // ─── Load manifest ────────────────────────────────────────────────────────────
 
 let manifest
-try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) }
-catch {
-  if (jsonOutput) {
-    console.log(JSON.stringify({ error: `Could not read manifest: ${manifestPath}` }))
-  } else {
-    console.error(`❌ Could not read manifest: ${manifestPath}`)
+if (isMainModule) {
+  try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) }
+  catch {
+    if (jsonOutput) {
+      console.log(JSON.stringify({ error: `Could not read manifest: ${manifestPath}` }))
+    } else {
+      console.error(`❌ Could not read manifest: ${manifestPath}`)
+    }
+    process.exit(1)
   }
-  process.exit(1)
 }
 
 // ─── Find .regret files ───────────────────────────────────────────────────────
 
-const filterId = clusterFilter ?? updateTarget ?? null
-let regretFiles
-try {
-  regretFiles = readdirSync(regretDir)
-    .filter(f => f.endsWith('.regret'))
-    .filter(f => !filterId || f === `${filterId}.regret`)
-} catch {
-  if (jsonOutput) {
-    console.log(JSON.stringify({ error: 'regrets/ not found. Run capture.js first.' }))
-  } else {
-    console.error(`❌ regrets/ not found. Run capture.js first.`)
+let regretFiles = []
+if (isMainModule) {
+  const filterId = clusterFilter ?? updateTarget ?? null
+  try {
+    regretFiles = readdirSync(regretDir)
+      .filter(f => f.endsWith('.regret'))
+      .filter(f => !filterId || f === `${filterId}.regret`)
+  } catch {
+    if (jsonOutput) {
+      console.log(JSON.stringify({ error: 'regrets/ not found. Run capture.js first.' }))
+    } else {
+      console.error(`❌ regrets/ not found. Run capture.js first.`)
+    }
+    process.exit(1)
   }
-  process.exit(1)
-}
 
-if (!regretFiles.length) {
-  if (jsonOutput) {
-    console.log(JSON.stringify({ error: `No .regret files found${filterId ? ` for "${filterId}"` : ''}.` }))
-  } else {
-    console.error(`❌ No .regret files found${filterId ? ` for "${filterId}"` : ''}.`)
+  if (!regretFiles.length) {
+    if (jsonOutput) {
+      console.log(JSON.stringify({ error: `No .regret files found${filterId ? ` for "${filterId}"` : ''}.` }))
+    } else {
+      console.error(`❌ No .regret files found${filterId ? ` for "${filterId}"` : ''}.`)
+    }
+    process.exit(1)
   }
-  process.exit(1)
 }
 
 // ─── React cluster runner ─────────────────────────────────────────────────────
 
-async function runReactCluster(clusterDef, regret) {
+export async function runReactCluster(clusterDef, regret, options = {}) {
+  const { runs: runCount = runs } = options
   const { entry, file, normalize: normRules = [], ignoreFields = [],
           stripAttrs = [], fingerprintMode: fpMode = 'value', valuePaths = [] } = clusterDef
   const mode = regret.fingerprintMode || fpMode || 'value'
@@ -368,7 +388,7 @@ async function runReactCluster(clusterDef, regret) {
   const hashes = []
   let lastOutput = null
 
-  for (let i = 0; i < runs; i++) {
+  for (let i = 0; i < runCount; i++) {
     const goldenInput = regret.input
     const element = React.createElement(Component, goldenInput)
     const rawHtml = renderToStaticMarkup(element)
@@ -403,7 +423,8 @@ async function runReactCluster(clusterDef, regret) {
 
 // ─── Run cluster N times ──────────────────────────────────────────────────────
 
-async function runCluster(clusterDef, regret) {
+export async function runCluster(clusterDef, regret, options = {}) {
+  const { runs: runCount = runs } = options
   const { entry, file, normalize = [], ignoreFields = [], ignorePaths = [],
           fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
@@ -468,7 +489,7 @@ async function runCluster(clusterDef, regret) {
     }
   }
 
-  for (let i = 0; i < runs; i++) {
+  for (let i = 0; i < runCount; i++) {
     for (const currentInput of inputsToValidate) {
       const recorder = []
       let output
@@ -870,8 +891,46 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
   return { oldHash, newHash }
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── JUnit XML output ─────────────────────────────────────────────────────────
 
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+export function generateJUnitXml(results) {
+  const activeResults = results.filter(r => !r.skipped)
+  const tests = activeResults.length
+  const failures = activeResults.filter(r => !r.pass).length
+  const time = (Date.now() - (globalThis._validateStartTime ?? Date.now())) / 1000
+
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+  xml += `<testsuite name="regrets" tests="${tests}" failures="${failures}" time="${time.toFixed(3)}">\n`
+
+  for (const r of activeResults) {
+    xml += `  <testcase classname="regrets" name="${escapeXml(r.id)}" time="0.000">`
+    if (!r.pass) {
+      const message = r.error
+        ? escapeXml(r.error)
+        : r.drift
+          ? `Drift detected: hashes vary across runs`
+          : `Fingerprint mismatch: expected ${r.expected ?? 'unknown'}, got ${r.actual ?? 'unknown'}`
+      xml += `\n    <failure message="${escapeXml(message)}">${escapeXml(message)}</failure>\n  `
+    }
+    xml += `</testcase>\n`
+  }
+
+  xml += '</testsuite>\n'
+  return xml
+}
+
+// ─── Main (CLI only) ──────────────────────────────────────────────────────────
+
+if (isMainModule) {
 const updateMode = !!updateTarget
 const driftMode  = runs > 1 && !updateMode
 
@@ -1000,43 +1059,6 @@ for (const file of regretFiles) {
   }
 }
 
-// ─── JUnit XML output ─────────────────────────────────────────────────────────
-
-function escapeXml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-}
-
-function generateJUnitXml(results) {
-  const activeResults = results.filter(r => !r.skipped)
-  const tests = activeResults.length
-  const failures = activeResults.filter(r => !r.pass).length
-  const time = (Date.now() - (globalThis._validateStartTime ?? Date.now())) / 1000
-
-  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
-  xml += `<testsuite name="regrets" tests="${tests}" failures="${failures}" time="${time.toFixed(3)}">\n`
-
-  for (const r of activeResults) {
-    xml += `  <testcase classname="regrets" name="${escapeXml(r.id)}" time="0.000">`
-    if (!r.pass) {
-      const message = r.error
-        ? escapeXml(r.error)
-        : r.drift
-          ? `Drift detected: hashes vary across runs`
-          : `Fingerprint mismatch: expected ${r.expected ?? 'unknown'}, got ${r.actual ?? 'unknown'}`
-      xml += `\n    <failure message="${escapeXml(message)}">${escapeXml(message)}</failure>\n  `
-    }
-    xml += `</testcase>\n`
-  }
-
-  xml += '</testsuite>\n'
-  return xml
-}
-
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
 const passed  = results.filter(r => r.pass).length
@@ -1129,3 +1151,5 @@ if (reporter === 'junit') {
   console.log(`\nFix the CODE — do not edit .regret files.\nRe-run: node scripts/validate.js`)
   process.exit(1)
 }
+
+} // end isMainModule
