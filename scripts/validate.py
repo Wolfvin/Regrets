@@ -245,6 +245,7 @@ def parse_args():
         'reason': None,
         'fail_fast': False,
         'manifest': os.path.join(os.getcwd(), 'regrets', 'manifest.json'),
+        'json_output': False,
     }
 
     i = 0
@@ -265,6 +266,8 @@ def parse_args():
                 result['runs'] = 5
         elif args[i] == '--manifest' and i + 1 < len(args):
             result['manifest'] = args[i + 1]; i += 2
+        elif args[i] == '--json':
+            result['json_output'] = True; i += 1
         else:
             i += 1
 
@@ -860,15 +863,23 @@ def update_regret(regret_path, regret, new_hash, live_output, reason):
 def main():
     cli = parse_args()
 
+    json_output = cli['json_output']
+
     # Validate --update usage
     if cli['update'] and not cli['reason']:
-        print("❌ --update requires --reason")
-        print(f'   Example: --update {cli["update"]} --reason "describe why behavior changed"')
+        if json_output:
+            print(json.dumps({'error': '--update requires --reason'}))
+        else:
+            print("❌ --update requires --reason")
+            print(f'   Example: --update {cli["update"]} --reason "describe why behavior changed"')
         sys.exit(1)
 
     if cli['reason'] and len(cli['reason'].split()) < 4:
-        print(f'❌ --reason is too vague: "{cli["reason"]}"')
-        print('   Be specific. e.g. "tax rate updated from 11% to 12% per new regulation"')
+        if json_output:
+            print(json.dumps({'error': f'--reason is too vague: "{cli["reason"]}"'}))
+        else:
+            print(f'❌ --reason is too vague: "{cli["reason"]}"')
+            print('   Be specific. e.g. "tax rate updated from 11% to 12% per new regulation"')
         sys.exit(1)
 
     # Load manifest
@@ -876,7 +887,10 @@ def main():
         with open(cli['manifest'], 'r', encoding='utf-8') as f:
             manifest = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        print(f"❌ Could not read manifest: {cli['manifest']}")
+        if json_output:
+            print(json.dumps({'error': f'Could not read manifest: {cli["manifest"]}'}))
+        else:
+            print(f"❌ Could not read manifest: {cli['manifest']}")
         sys.exit(1)
 
     # Find .regret files
@@ -889,11 +903,18 @@ def main():
             if f.endswith('.regret') and (not filter_id or f == f'{filter_id}.regret')
         ]
     except FileNotFoundError:
-        print("❌ regrets/ not found. Run capture.py first.")
+        if json_output:
+            print(json.dumps({'error': 'regrets/ not found. Run capture.py first.'}))
+        else:
+            print("❌ regrets/ not found. Run capture.py first.")
         sys.exit(1)
 
     if not regret_files:
-        print(f"❌ No .regret files found{' for "' + filter_id + '"' if filter_id else ''}.")
+        if json_output:
+            filter_msg = f' for "{filter_id}"' if filter_id else ''
+            print(json.dumps({'error': f'No .regret files found{filter_msg}.'}))
+        else:
+            print(f"❌ No .regret files found{' for "' + filter_id + '"' if filter_id else ''}.")
         sys.exit(1)
 
     # Add pythonPath to sys.path if specified in any Python cluster
@@ -924,12 +945,15 @@ def main():
                     abs_path = os.path.join(os.getcwd(), python_path)
                     if abs_path not in sys.path:
                         sys.path.insert(0, abs_path)
-                        print(f"  📂 pythonPath resolved: {python_path} → {abs_path}")
+                        if not json_output:
+                            print(f"  📂 pythonPath resolved: {python_path} → {abs_path}")
 
     update_mode = bool(cli['update'])
     drift_mode = cli['runs'] > 1 and not update_mode
 
-    if update_mode:
+    if json_output:
+        pass  # silent in JSON mode
+    elif update_mode:
         print(f'\n🔄 Update mode — cluster: {cli["update"]}')
         print(f'   Reason: {cli["reason"]}\n')
     elif drift_mode:
@@ -955,7 +979,9 @@ def main():
                 break
 
         if not cluster_def:
-            print(f"  ⚠️  {cluster_id}: not in manifest — skipping")
+            if not json_output:
+                print(f"  ⚠️  {cluster_id}: not in manifest — skipping")
+            results.append({'id': cluster_id, 'pass': False, 'skipped': True})
             continue
 
         # Compute effective runs for this cluster:
@@ -964,7 +990,9 @@ def main():
 
         # Only validate Python clusters
         if cluster_def.get('stack') != 'python':
-            print(f"  ⏭️  {cluster_id}: stack={cluster_def.get('stack', 'js')} — use JS validator")
+            if not json_output:
+                print(f"  ⏭️  {cluster_id}: stack={cluster_def.get('stack', 'js')} — use JS validator")
+            results.append({'id': cluster_id, 'pass': False, 'skipped': True})
             continue
 
         try:
@@ -976,7 +1004,8 @@ def main():
             fp_level = cluster_def.get('fingerprintLevel', 'entry')
             # Warn about private entry functions with fingerprintLevel=full
             if fp_level == 'full' and entry_name.startswith('_'):
-                print(f"  ⚠️  {cluster_id}: Entry '{entry_name}' is private — ghost proxy cannot wrap it. fingerprintLevel='full' will produce empty-sequence fingerprint. Consider 'entry'.")
+                if not json_output:
+                    print(f"  ⚠️  {cluster_id}: Entry '{entry_name}' is private — ghost proxy cannot wrap it. fingerprintLevel='full' will produce empty-sequence fingerprint. Consider 'entry'.")
             fp_mode = cluster_def.get('fingerprintMode', 'value')
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
@@ -1012,7 +1041,8 @@ def main():
                 current_env = get_env_snapshot()
                 for k, v in regret_env.items():
                     if current_env.get(k) != v:
-                        print(f"  ⚠️  {cluster_id}: environment changed: {k} was {v}, now {current_env.get(k)}")
+                        if not json_output:
+                            print(f"  ⚠️  {cluster_id}: environment changed: {k} was {v}, now {current_env.get(k)}")
 
             mod = importlib.import_module(module_path)
 
@@ -1687,8 +1717,9 @@ def main():
 
             # Mutation mismatch is a separate failure condition
             if track_mutation and not mutation_match:
-                print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
-                results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
+                if not json_output:
+                    print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
+                results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True, 'mutation_detected': True})
                 continue
 
             # State mutation check (for trackState)
@@ -1724,52 +1755,61 @@ def main():
                     return_state_match = False
 
             if not state_match:
-                print(f"  ❌ {cluster_id:<35} STATE MISMATCH")
+                if not json_output:
+                    print(f"  ❌ {cluster_id:<35} STATE MISMATCH")
                 results.append({'id': cluster_id, 'pass': False, 'state_mismatch': True})
                 continue
 
             if not return_state_match:
-                print(f"  ❌ {cluster_id:<35} RETURN STATE MISMATCH")
+                if not json_output:
+                    print(f"  ❌ {cluster_id:<35} RETURN STATE MISMATCH")
                 results.append({'id': cluster_id, 'pass': False, 'return_state_mismatch': True})
                 continue
 
             # Modes mismatch is a separate failure condition
             if modes_data and not modes_match:
-                print(f"  ❌ {cluster_id:<35} MODES MISMATCH")
+                if not json_output:
+                    print(f"  ❌ {cluster_id:<35} MODES MISMATCH")
                 results.append({'id': cluster_id, 'pass': False, 'modes_mismatch': True})
                 continue
 
             if update_mode:
                 if is_match:
-                    print(f"  ℹ️  {cluster_id:<35} unchanged — no update needed")
+                    if not json_output:
+                        print(f"  ℹ️  {cluster_id:<35} unchanged — no update needed")
                     results.append({'id': cluster_id, 'pass': True})
                 else:
                     old_hash, new_hash = update_regret(
                         regret_path, regret, live_hash, last_output, cli['reason']
                     )
-                    print(f"  ✅ {cluster_id:<35} {old_hash} → {new_hash}  UPDATED")
+                    if not json_output:
+                        print(f"  ✅ {cluster_id:<35} {old_hash} → {new_hash}  UPDATED")
                     results.append({'id': cluster_id, 'pass': True, 'updated': True})
 
             elif drift_mode:
                 if is_drift:
-                    print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(hashes)}]")
+                    if not json_output:
+                        print(f"  ❌ {cluster_id:<35} DRIFT  [{' / '.join(hashes)}]")
                     results.append({'id': cluster_id, 'pass': False, 'drift': True})
                 else:
-                    icon = '✅' if is_match else '❌'
-                    print(f"  {icon} {cluster_id:<35} {live_hash}  × {effective_runs}  {'PASS+STABLE' if is_match else 'FAIL'}")
+                    if not json_output:
+                        icon = '✅' if is_match else '❌'
+                        print(f"  {icon} {cluster_id:<35} {live_hash}  × {effective_runs}  {'PASS+STABLE' if is_match else 'FAIL'}")
                     results.append({'id': cluster_id, 'pass': is_match})
 
             else:
-                icon = '✅' if is_match else '❌'
-                hash_str = regret.get('goldenHash', '') if is_match else f"{regret.get('goldenHash', '')} → {live_hash}"
-                print(f"  {icon} {cluster_id:<35} {hash_str:<22} {'PASS' if is_match else 'FAIL'}")
+                if not json_output:
+                    icon = '✅' if is_match else '❌'
+                    hash_str = regret.get('goldenHash', '') if is_match else f"{regret.get('goldenHash', '')} → {live_hash}"
+                    print(f"  {icon} {cluster_id:<35} {hash_str:<22} {'PASS' if is_match else 'FAIL'}")
                 results.append({
                     'id': cluster_id, 'pass': is_match,
                     'golden': regret.get('goldenHash'), 'live': live_hash
                 })
 
         except Exception as err:
-            print(f"  ❌ {cluster_id:<35} ERROR: {err}")
+            if not json_output:
+                print(f"  ❌ {cluster_id:<35} ERROR: {err}")
             results.append({'id': cluster_id, 'pass': False, 'error': str(err)})
         finally:
             # Restore global state even if validation failed
@@ -1777,7 +1817,8 @@ def main():
                 restore_module_globals(saved_globals)
 
         if results and not results[-1]['pass'] and cli['fail_fast']:
-            print("\n  --fail-fast: stopping.")
+            if not json_output:
+                print("\n  --fail-fast: stopping.")
             break
 
     # ─── Summary ──────────────────────────────────────────────────────────────
@@ -1785,6 +1826,65 @@ def main():
     passed = sum(1 for r in results if r['pass'])
     failed = sum(1 for r in results if not r['pass'])
     drifted = sum(1 for r in results if r.get('drift'))
+
+    if json_output:
+        # JSON output mode — match JS validate.js --json format
+        json_clusters = []
+        for r in results:
+            if r.get('skipped'):
+                continue
+            if r['pass']:
+                if r.get('drift'):
+                    status = 'drift'
+                elif r.get('updated'):
+                    status = 'pass'
+                else:
+                    status = 'pass'
+            else:
+                if r.get('mutation_mismatch'):
+                    status = 'mutation_mismatch'
+                elif r.get('state_mismatch'):
+                    status = 'state_mismatch'
+                elif r.get('return_state_mismatch'):
+                    status = 'return_state_mismatch'
+                elif r.get('modes_mismatch'):
+                    status = 'modes_mismatch'
+                elif r.get('error'):
+                    status = 'error'
+                elif r.get('drift'):
+                    status = 'drift'
+                else:
+                    status = 'fail'
+            entry = {
+                'id': r['id'],
+                'status': status,
+            }
+            if r.get('golden') or r.get('live'):
+                entry['expected'] = r.get('golden')
+                entry['actual'] = r.get('live')
+            if r.get('error'):
+                entry['error'] = r['error']
+            if r.get('drift'):
+                entry['drift'] = True
+            if r.get('updated'):
+                entry['updated'] = True
+            if r.get('mutation_mismatch'):
+                entry['mutationMismatch'] = True
+                entry['mutationDetected'] = r.get('mutation_detected', True)
+            json_clusters.append(entry)
+
+        json_result = {
+            'passed': passed,
+            'failed': failed,
+            'clusters': json_clusters,
+        }
+        print(json.dumps(json_result, separators=(',', ':')))
+
+        if update_mode:
+            sys.exit(0)
+        if drift_mode and drifted > 0:
+            sys.exit(1)
+        sys.exit(0 if failed == 0 else 1)
 
     print(f"\n{'─' * 60}")
 
