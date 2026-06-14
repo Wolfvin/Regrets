@@ -147,6 +147,27 @@ def normalize(obj, rules=None):
         # Strips trailing ".0" from number-like strings (including negative).
         if 'floatPrecision' in rules:
             return re.sub(r'^-?(\d+)\.0+$', r'\1', obj)
+        # incrementingIds: normalize auto-incrementing or unique IDs that change across runs.
+        # Handles patterns from lodash/uniqueId ("rjsf-array-item-1"), nanoid, React.useId.
+        # Replaces strings matching <prefix><digits> or pure hex/alnum IDs with <ID>.
+        # This is essential for React component libraries that use uniqueId for keys,
+        # where the internal counter never resets between runs.
+        if 'incrementingIds' in rules:
+            # Pattern 1: prefix + incrementing number (lodash/uniqueId style)
+            m = re.match(r'^(.+[-_:])(\d+)$', obj)
+            if m:
+                return m.group(1) + '<ID>'
+            # Pattern 2: pure numeric ID (e.g., "42")
+            if re.match(r'^\d+$', obj) and len(obj) <= 10:
+                return '<ID>'
+            # Pattern 3: React useId format ":r0:", ":r1:", ":rs0:", ":rs1:"
+            if re.match(r'^:r[s]?\d+:$', obj):
+                return '<ID>'
+            # Pattern 4: UUID-like hex strings without dashes (nanoid short, etc.)
+            if re.match(r'^[A-Za-z0-9_-]{8,30}$', obj) and not re.match(r'^(true|false|null|undefined|NaN|Infinity)$', obj):
+                # Heuristic: if it looks like a random ID (has both letters and digits)
+                if re.search(r'[A-Za-z]', obj) and re.search(r'\d', obj):
+                    return '<ID>'
         return obj
 
     # Handle Python complex numbers (common in DSP/SDR libraries like mhostetter/sdr)

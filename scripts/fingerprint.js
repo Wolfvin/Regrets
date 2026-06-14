@@ -89,6 +89,35 @@ export function normalize(obj, rules = []) {
     if (rules.includes('autoIncrement')) {
       return obj.replace(/([a-zA-Z_]+)\d+/g, '$1<ID>')
     }
+    // incrementingIds: normalize auto-incrementing or unique IDs that change across runs.
+    // Handles patterns from lodash/uniqueId ("rjsf-array-item-1", "rjsf-array-item-2"),
+    // nanoid, crypto.randomUUID, React.useId, and similar generators.
+    // Replaces strings matching <prefix><digits> or pure hex/alnum IDs with <ID>.
+    // This is essential for React component libraries that use uniqueId for keys,
+    // where the internal counter never resets between runs.
+    if (rules.includes('incrementingIds')) {
+      // Pattern 1: prefix + incrementing number (lodash/uniqueId style)
+      // e.g., "rjsf-array-item-42", "field-0", ":r0:", ":r1:"
+      if (/^(.+[-_:])(\d+)$/.test(obj)) {
+        return obj.replace(/^(.+[-_:])\d+$/, '$1<ID>')
+      }
+      // Pattern 2: pure numeric ID (e.g., "42")
+      if (/^\d+$/.test(obj) && obj.length <= 10) {
+        return '<ID>'
+      }
+      // Pattern 3: React useId format ":r0:", ":r1:", ":rs0:", ":rs1:"
+      if (/^:r[s]?\d+:$/.test(obj)) {
+        return '<ID>'
+      }
+      // Pattern 4: UUID-like hex strings without dashes (nanoid short, etc.)
+      // e.g., "V1StGXR8_Z5jdHi6B-myT" or "abc123def456"
+      if (/^[A-Za-z0-9_-]{8,30}$/.test(obj) && !/^(true|false|null|undefined|NaN|Infinity)$/.test(obj)) {
+        // Heuristic: if it looks like a random ID (has both letters and digits), normalize it
+        if (/[A-Za-z]/.test(obj) && /\d/.test(obj)) {
+          return '<ID>'
+        }
+      }
+    }
   }
   if (typeof obj === 'number') {
     if (rules.includes('epochs') && obj > 1_000_000_000 && obj < 9_999_999_999_999) {
@@ -124,7 +153,12 @@ export function normalize(obj, rules = []) {
       return '<ID>'
     }
   }
-  if (Array.isArray(obj)) return obj.map(v => normalize(v, rules))
+  if (Array.isArray(obj)) {
+    // incrementingIds: also normalize numeric array indices that act as keys
+    // When used in React lists, array indices map to incrementing IDs.
+    // We don't normalize the array elements themselves, only string values within them.
+    return obj.map(v => normalize(v, rules))
+  }
   // Handle TypedArrays — convert to regular arrays before recursing
   if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
     return Array.from(obj).map(v => normalize(v, rules))

@@ -34,6 +34,55 @@ const EXTENSIONS = {
   svelte: ['.svelte'],
 }
 
+// ─── React Monorepo detection ─────────────────────────────────────────────
+// Detects React monorepo projects (like react-jsonschema-form, react-select,
+// MUI, etc.) that have packages/ directories with multiple React packages.
+// These repos need special cluster suggestions because:
+// 1. Pure utility functions in packages/utils can be fingerprinted directly
+// 2. React components need the 'react' stack for render capture
+// 3. Validator packages often have pure logic that can be tested separately
+
+function detectReactMonorepo(rootDir) {
+  const markers = []
+
+  // Check for packages/ directory with React dependencies
+  const packagesDir = resolve(rootDir, 'packages')
+  try {
+    const entries = readdirSync(packagesDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const pkgJson = resolve(packagesDir, entry.name, 'package.json')
+      try {
+        const content = readFileSync(pkgJson, 'utf8')
+        const pkg = JSON.parse(content)
+        const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies }
+        const hasReact = Object.keys(deps).some(d => d === 'react' || d.startsWith('react-') || d.startsWith('@react-'))
+        if (hasReact) {
+          markers.push({
+            package: entry.name,
+            hasReact: true,
+            hasUtils: entry.name.includes('utils') || entry.name.includes('shared') || entry.name.includes('common'),
+            hasValidator: entry.name.includes('validator'),
+            hasCore: entry.name.includes('core'),
+            hasTheme: !entry.name.includes('utils') && !entry.name.includes('validator') && !entry.name.includes('core'),
+          })
+        }
+      } catch { /* skip invalid package.json */ }
+    }
+  } catch { /* no packages/ dir */ }
+
+  // Check root package.json for React dependency
+  try {
+    const rootPkg = JSON.parse(readFileSync(resolve(rootDir, 'package.json'), 'utf8'))
+    const deps = { ...rootPkg.dependencies, ...rootPkg.devDependencies }
+    if (deps['react'] || deps['react-dom']) {
+      markers.push({ package: '(root)', hasReact: true, hasUtils: false, hasValidator: false, hasCore: false, hasTheme: false })
+    }
+  } catch { /* no root package.json */ }
+
+  return markers
+}
+
 // ─── Chrome Extension detection ─────────────────────────────────────────────
 // Detects Chrome extension projects and adds appropriate warnings/suggestions.
 // Chrome extensions have content scripts that often use IIFEs with no exports,
@@ -561,6 +610,35 @@ if (chromeExtensions.length > 0) {
   console.log('   💡 Chrome extension content scripts often use IIFEs and have no exports.')
   console.log('      Consider creating adapter modules that wrap internal functions for Regrets.')
   console.log('      See references/chrome-extension.md for patterns.\n')
+}
+
+// ─── React Monorepo detection ──────────────────────────────────────────────
+
+const reactMonorepo = detectReactMonorepo(projectRoot)
+if (reactMonorepo.length > 0) {
+  console.log('⚛️  React Monorepo detected!\n')
+  for (const pkg of reactMonorepo) {
+    const tags = []
+    if (pkg.hasUtils) tags.push('utils')
+    if (pkg.hasValidator) tags.push('validator')
+    if (pkg.hasCore) tags.push('core')
+    if (pkg.hasTheme) tags.push('theme')
+    console.log(`   packages/${pkg.package}${tags.length ? ` [${tags.join(', ')}]` : ''}`)
+  }
+  console.log()
+  const utilsPkgs = reactMonorepo.filter(p => p.hasUtils)
+  const validatorPkgs = reactMonorepo.filter(p => p.hasValidator)
+  if (utilsPkgs.length > 0) {
+    console.log('   💡 Utils packages contain pure functions — best starting point for clustering.')
+    console.log('      Use stack: "js" for these, not "react" — no rendering needed.')
+    console.log('      Add normalize: ["incrementingIds"] if the utils generate unique IDs.')
+  }
+  if (validatorPkgs.length > 0) {
+    console.log('   💡 Validator packages contain pure validation logic — fingerprint with stack: "js".')
+    console.log('      Pass a pre-constructed validator instance as input to test validation methods.')
+  }
+  console.log('   ⚠️  React components need stack: "react" for render-to-HTML fingerprinting.')
+  console.log('      Use normalize: ["incrementingIds"] if components use uniqueId for keys.\n')
 }
 
 // ─── Large file / God Object detection ───────────────────────────────────────
