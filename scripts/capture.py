@@ -440,6 +440,11 @@ def main():
             print(f"   Entry:   {entry}")
         print(f"   Watches: {', '.join(watches)}")
 
+        # Read classMethod-related fields early for display
+        class_method = cluster.get('classMethod', None)
+        if class_method:
+            print(f"   Class:   {cluster.get('constructor', entry)} → {class_method}()")
+
         try:
             # Global state isolation — snapshot before, restore after
             # This is critical for libraries with module-level mutable state
@@ -451,6 +456,22 @@ def main():
             # Dynamic import of target module
             # module uses dot notation: "src.invoice.processor"
             mod = importlib.import_module(module_path)
+
+            # ── CWD shadowing detection ────────────────────────────────────
+            # When the project directory name matches the package name,
+            # Python may find the CWD as a namespace package instead of
+            # the real package subdirectory. Detect this and warn.
+            if hasattr(mod, '__path__') and not hasattr(mod, '__file__'):
+                # This is a namespace package — check if it's the CWD
+                mod_paths = list(mod.__path__)
+                cwd = os.getcwd()
+                for mp in mod_paths:
+                    if os.path.normpath(mp) == os.path.normpath(cwd):
+                        print(f"   ⚠️  CWD SHADOWING: Module \"{module_path}\" resolves to a namespace package at")
+                        print(f"      {mp} instead of the real package.")
+                        print(f"      This happens when the project directory name matches the package name.")
+                        print(f"      Fix: Run from a different directory, or use `pip install -e .`")
+                        break
 
             # ── classMethod mode ────────────────────────────────────────────
             # For class-based APIs: construct a fresh instance for each input,
@@ -829,6 +850,14 @@ def main():
 
     print(f"\n{'─' * 50}")
     print(f"Capture complete: {passed} captured, {failed} failed")
+
+    # Warn about stateful class clusters
+    class_clusters = [c for c in manifest.get('clusters', []) if c.get('classMethod')]
+    if class_clusters:
+        print(f"\n⚠️  {len(class_clusters)} class-based cluster(s) detected.")
+        print(f"   These use fresh instances per input to avoid state leakage.")
+        print(f"   When verifying raw output manually, create a new instance per call.")
+        print(f"   Stateful methods (num, classical, gender) affect subsequent calls.")
 
     if failed > 0:
         print(f"\n⚠️  Fix failed captures before proceeding to PHASE 2.")

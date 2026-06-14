@@ -42,6 +42,8 @@ let checked = 0
 // K1 is a flat dict of cluster_id → { entry, outputs: [{ input, output }] }
 // K2 may store fingerprints under "clusters" (old format) or "fingerprints" (current format)
 // The truth.js command saves under "fingerprints", so we check both keys for compatibility.
+// K2 clusters dict: cluster_id → { fingerprint, golden_hash, golden_input, golden_output }
+// K2 may also use "fingerprints" key (from truth.py) instead of "clusters" (from truth.js)
 const k2Clusters = k2.clusters || k2.fingerprints || {}
 
 for (const [clusterId, data] of Object.entries(k1)) {
@@ -64,12 +66,17 @@ for (const [clusterId, data] of Object.entries(k1)) {
     outputs = []
   }
 
-  if (outputs.length === 0) {
+  const outputList = outputs
+  if (outputList.length === 0) {
     console.log(`⚠️  ${clusterId}: no outputs in KEBENARAN 1`)
     continue
   }
 
-  const k1Output = outputs[0].output
+  // Handle both truth.js format ({outputs: [{input, output}]}) and truth.py format ([{input, output}])
+  const firstOutput = outputList[0]
+  const k1Output = firstOutput.output !== undefined ? firstOutput.output : firstOutput
+
+  // K2 may have golden_output (truth.js) or just fingerprint (truth.py)
   const k2GoldenOutput = k2Cluster.golden_output
 
   // If K2 has golden_output (proof format), compare directly
@@ -87,9 +94,10 @@ for (const [clusterId, data] of Object.entries(k1)) {
       allOk = false
     }
   } else if (k2Cluster.fingerprint || k2Cluster.hash) {
-    // K2 only has fingerprint (truth.js format) — verify that fingerprint exists
+    // K2 only has fingerprint (truth.py format) — verify that fingerprint exists
     // The actual fingerprint comparison is done by `regret validate`
-    console.log(`✅ ${clusterId}: K1 output captured, K2 fingerprint = ${k2Cluster.fingerprint || k2Cluster.hash}`)
+    const fp = k2Cluster.fingerprint || k2Cluster.hash
+    console.log(`✅ ${clusterId}: K1 output captured, K2 fingerprint = ${fp}`)
     checked++
   } else {
     console.log(`⚠️  ${clusterId}: K2 entry has no golden_output or fingerprint`)
@@ -107,7 +115,7 @@ for (const clusterId of Object.keys(k2Clusters)) {
 // Verify chain hashes
 const k2Chains = k2.chains || {}
 for (const [chainId, chainData] of Object.entries(k2Chains)) {
-  const hash = chainData.chainHash || chainData.chain_hash || 'unknown'
+  const hash = chainData.chain_hash || chainData.chainHash || 'unknown'
   console.log(`⛓  Chain ${chainId}: hash = ${hash}`)
 }
 
