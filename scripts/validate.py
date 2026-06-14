@@ -597,40 +597,40 @@ def main():
                 for input_hashes in hashes_per_input.values()
             )
 
-                    # Mutation mismatch is a separate failure condition
-                    if track_mutation and not mutation_match:
-                        print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
-                        results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
-                        continue
+            # Mutation mismatch is a separate failure condition
+            if track_mutation and not mutation_match:
+                print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
+                results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
+                continue
 
-                    # State mutation check (for trackState)
-                    state_match = True
-                    if track_state_attrs and obj_state_before is not None:
-                        obj_state_after = None
-                        if isinstance(input_for_args, dict) and 'self' in input_for_args:
-                            obj_state_after = snapshot_state(
-                                input_for_args['self'],
-                                include_private=True,
-                                attr_filter=track_state_attrs
-                            )
-                        elif hasattr(input_for_args, '__dict__'):
-                            obj_state_after = snapshot_state(
-                                input_for_args,
-                                include_private=True,
-                                attr_filter=track_state_attrs
-                            )
-                        if obj_state_after is not None:
-                            live_state_fp = fingerprint(
-                                obj_state_before, obj_state_after,
-                                norm_rules, ign_fields
-                            )
-                            if golden_state_fp and live_state_fp != golden_state_fp:
-                                state_match = False
+            # State mutation check (for trackState)
+            state_match = True
+            if track_state_attrs and obj_state_before is not None:
+                obj_state_after = None
+                if isinstance(input_for_args, dict) and 'self' in input_for_args:
+                    obj_state_after = snapshot_state(
+                        input_for_args['self'],
+                        include_private=True,
+                        attr_filter=track_state_attrs
+                    )
+                elif hasattr(input_for_args, '__dict__'):
+                    obj_state_after = snapshot_state(
+                        input_for_args,
+                        include_private=True,
+                        attr_filter=track_state_attrs
+                    )
+                if obj_state_after is not None:
+                    live_state_fp = fingerprint(
+                        obj_state_before, obj_state_after,
+                        norm_rules, ign_fields
+                    )
+                    if golden_state_fp and live_state_fp != golden_state_fp:
+                        state_match = False
 
-                    if not state_match:
-                        print(f"  ❌ {cluster_id:<35} STATE MISMATCH")
-                        results.append({'id': cluster_id, 'pass': False, 'state_mismatch': True})
-                        continue
+            if not state_match:
+                print(f"  ❌ {cluster_id:<35} STATE MISMATCH")
+                results.append({'id': cluster_id, 'pass': False, 'state_mismatch': True})
+                continue
 
             if update_mode:
                 if is_match:
