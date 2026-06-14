@@ -100,6 +100,18 @@ const ghost = new Proxy(targetFn, {
 
 Read `scripts/fingerprint.js` for the full implementation.
 
+### ⚠️ Private Function Limitation
+
+The ghost proxy **cannot wrap functions that start with `_`** (underscore). It only copies public attributes from the module. This means:
+
+- If `entry` starts with `_`, the ghost proxy falls through to the unwrapped function
+- With `fingerprintLevel: "full"`, the watch recorder will be empty, producing an **empty-sequence fingerprint** (a hash of `[]`)
+- This fingerprint will NOT match the entry-level fingerprint computed during validate
+
+**Workaround:** Always use `fingerprintLevel: "entry"` for clusters whose entry function starts with `_`.
+
+Capture will now warn: `"Entry function '_' starts with underscore. Ghost proxy cannot wrap private functions."`
+
 ---
 
 ## Cluster Manifest
@@ -880,6 +892,7 @@ regression-testing/
     ├── nextjs.md                ← Next.js integration — adapter modules for noEmit projects
     ├── tauri-apps.md            ← Tauri app integration — esbuild transpile + adapter modules
     ├── zustand-store.md          ← Zustand store — extract pure logic from create() closures
+    ├── reexport-hub.md            ← Re-export hub pattern — backward-compatible decomposition
     ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
     ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
     ├── contest.md              ← Chain testing — multi-step flow validation

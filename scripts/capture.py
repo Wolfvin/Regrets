@@ -225,7 +225,17 @@ def main():
 
     # Add pythonPath to sys.path if specified
     # Supports both single string ("src") and array of strings (["src", "lib"])
+    # Also supports manifest-level pythonPath as default for all clusters
+    manifest_python_path = manifest.get('pythonPath', '')
+    if isinstance(manifest_python_path, str):
+        manifest_python_paths = [manifest_python_path] if manifest_python_path else []
+    elif isinstance(manifest_python_path, list):
+        manifest_python_paths = manifest_python_path
+    else:
+        manifest_python_paths = []
+
     for cluster in python_clusters:
+        # Cluster-level pythonPath overrides manifest-level
         raw_python_path = cluster.get('pythonPath', '')
         if isinstance(raw_python_path, str):
             python_paths = [raw_python_path] if raw_python_path else []
@@ -233,11 +243,15 @@ def main():
             python_paths = raw_python_path
         else:
             python_paths = []
+        # If no cluster-level pythonPath, fall back to manifest-level
+        if not python_paths:
+            python_paths = manifest_python_paths
         for python_path in python_paths:
             if python_path:
                 abs_python_path = os.path.join(os.getcwd(), python_path)
                 if abs_python_path not in sys.path:
                     sys.path.insert(0, abs_python_path)
+                    print(f"   📂 pythonPath resolved: {python_path} → {abs_python_path}")
 
     passed = 0
     failed = 0
@@ -383,6 +397,14 @@ def main():
                 print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(uncalled_watches)}")
                 print(f"      The fingerprint may be based on incomplete data.")
                 print(f"      Consider splitting into separate clusters or adjusting the entry function.")
+
+            # Warn about private entry functions with fingerprintLevel=full
+            # Ghost proxy skips attributes starting with _, so it can't wrap them
+            if fingerprint_level == 'full' and entry.startswith('_'):
+                print(f"   ⚠️  Entry function '{entry}' starts with underscore.")
+                print(f"      Ghost proxy cannot wrap private functions — watches will be empty.")
+                print(f"      With fingerprintLevel=full, this produces an empty-sequence fingerprint.")
+                print(f"      RECOMMENDATION: Change fingerprintLevel to 'entry' for this cluster.")
 
             # Use first result as golden
             golden = results[0]
