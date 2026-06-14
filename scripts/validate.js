@@ -11,7 +11,7 @@
 //   node scripts/validate.js --verbose         Print extra detail (input, output, calls)
 //   node scripts/validate.js --reporter junit
 
-import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync, openSync, closeSync, unlinkSync, statSync } from 'fs'
 import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
 import { pathToFileURL, fileURLToPath } from 'url'
@@ -19,6 +19,60 @@ import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stable
 import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
+import { constants as _fsConstants } from 'fs'
+import { execSync as _execSync } from 'child_process'
+
+// ─── Lightweight file locking (lockfile pattern) ────────────────────────────────
+// Uses O_EXCL atomic create for lock acquisition.  Retries with exponential
+// backoff up to 10 s.  Auto-releases in finally block so orphan locks are rare.
+
+const _O_EXCL = _fsConstants.O_CREAT | _fsConstants.O_EXCL
+const _LOCK_TIMEOUT_MS = 10_000
+const _LOCK_BASE_DELAY_MS = 50
+const _LOCK_MAX_DELAY_MS = 500
+
+function _lockfilePath(filePath) {
+  return filePath + '.lock'
+}
+
+function _sleepMs(ms) {
+  _execSync(`sleep ${Math.max(0, ms / 1000).toFixed(3)}`, { stdio: 'ignore', timeout: ms + 2000 })
+}
+
+function acquireLock(filePath) {
+  const lockPath = _lockfilePath(filePath)
+  const deadline = Date.now() + _LOCK_TIMEOUT_MS
+  let delay = _LOCK_BASE_DELAY_MS
+
+  while (Date.now() < deadline) {
+    try {
+      const st = statSync(lockPath)
+      if (Date.now() - st.mtimeMs > _LOCK_TIMEOUT_MS) {
+        try { unlinkSync(lockPath) } catch (_) { /* race */ }
+        continue
+      }
+    } catch (_) { /* lock doesn't exist yet */ }
+
+    try {
+      const fd = openSync(lockPath, _O_EXCL, 0o600)
+      closeSync(fd)
+      return lockPath
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e
+    }
+
+    const sleepMs = Math.min(delay, deadline - Date.now(), _LOCK_MAX_DELAY_MS)
+    if (sleepMs <= 0) break
+    _sleepMs(sleepMs)
+    delay = Math.min(delay * 2, _LOCK_MAX_DELAY_MS)
+  }
+
+  throw new Error(`filelock: could not acquire lock on ${filePath} within ${_LOCK_TIMEOUT_MS / 1000}s`)
+}
+
+function releaseLock(lockPath) {
+  try { unlinkSync(lockPath) } catch (_) { /* already removed */ }
+}
 
 // ─── isMainModule guard ────────────────────────────────────────────────────────
 // When imported as a module (e.g. from api.js), we only want the function exports,
@@ -866,7 +920,12 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
     output: `OUTPUT ${JSON.stringify(serializableOutput)}`,
     hash: `HASH   ${newHash}`,
   })
-  writeFileSync(regretPath, newContent, 'utf8')
+  const _regretLock = acquireLock(regretPath)
+  try {
+    writeFileSync(regretPath, newContent, 'utf8')
+  } finally {
+    releaseLock(_regretLock)
+  }
 
   // ─── Hash chain ────────────────────────────────────────────────────────────
   let prevChain = '0000000'  // genesis
@@ -887,7 +946,12 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
   const chainHash = createHash('sha256').update(prevChain + newEntryContent).digest('hex').slice(0, 7)
 
   const entry = `\n${newEntryContent}\n  chain: ${chainHash}`
-  appendFileSync(auditLog, entry, 'utf8')
+  const _auditLock = acquireLock(auditLog)
+  try {
+    appendFileSync(auditLog, entry, 'utf8')
+  } finally {
+    releaseLock(_auditLock)
+  }
   return { oldHash, newHash }
 }
 
