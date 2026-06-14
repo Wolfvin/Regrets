@@ -205,7 +205,7 @@ for (const cluster of clusters) {
     console.log(`   └────────────────────────────────────────────`)
   }
 
-  if (stack && stack !== 'js' && stack !== 'ts') {
+  if (stack && stack !== 'js' && stack !== 'ts' && stack !== 'css') {
     const stackScripts = {
       python: 'python3 scripts/capture.py',
       react: 'node scripts/capture_react.mjs',

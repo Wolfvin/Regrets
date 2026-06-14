@@ -30,7 +30,8 @@ Create `regrets/manifest.json` inside the target project:
 Required: `id`, `entry`, `watches`, `file` (JS) or `module` (Python), `stack`, `inputs`.
 Python: use `module` + `pythonPath` instead of `file`. React: add `renderMode: "static"`.
 Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
-Stack: `js` | `ts` | `python` | `rust` | `react` | `go` | `php` | `extension`.
+Stack: `js` | `ts` | `css` | `python` | `rust` | `react` | `go` | `php` | `extension`.
+CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed. Rust supports capture + validate via `cargo test`.
 
 ---
 
