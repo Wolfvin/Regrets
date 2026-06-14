@@ -661,19 +661,24 @@ def main():
                     called_fns.add(call['fn'])
             uncalled_watches = [w for w in watches if w not in called_fns]
             if uncalled_watches:
-                # When entry == watches (common for pure functions), the ghost proxy
-                # wraps the watched function but entry_fn may bypass it. This is
-                # expected — the fingerprint is still correct because it captures
-                # the input/output pair. Only warn if the watch is NOT the entry.
-                non_entry_uncalled = [w for w in uncalled_watches if w != entry]
-                if non_entry_uncalled:
-                    print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(non_entry_uncalled)}")
+                # Self-watching is common for simple pure functions where entry == watch.
+                # In this case, the entry function IS the watch — it's called directly,
+                # not through the ghost proxy, so the recorder never sees it.
+                # This is expected behavior, not a real issue.
+                self_watches = [w for w in uncalled_watches if w == entry]
+                other_uncalled = [w for w in uncalled_watches if w != entry]
+
+                if self_watches:
+                    print(f"   ℹ️  Self-watching: entry '{entry}' is also in watches — ghost cannot intercept self-calls")
+                    print(f"      This is expected for simple pure functions. Fingerprint is based on entry output only.")
+
+                if other_uncalled:
+                    print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(other_uncalled)}")
                     print(f"      The fingerprint may be based on incomplete data.")
                     print(f"      Consider splitting into separate clusters or adjusting the entry function.")
-                elif uncalled_watches and entry in uncalled_watches and len(uncalled_watches) == 1:
-                    # Entry function was called directly, not through ghost proxy.
-                    # This is normal for pure functions where entry == watches.
-                    pass  # No warning needed — fingerprint is correct
+                    if fingerprint_level == 'full':
+                        print(f"      ⚠️  fingerprintLevel is 'full' but internal calls bypass the ghost proxy.")
+                        print(f"      Consider using fingerprintLevel 'entry' instead, or split into separate clusters.")
 
             # Warn about private entry functions with fingerprintLevel=full
             # Ghost proxy skips attributes starting with _, so it can't wrap them
