@@ -390,6 +390,11 @@ switch (command) {
     break
   }
 
+  case 'diagnose': {
+    success = run('node', [`${SCRIPTS_DIR}/diagnose.js`, ...passThroughArgs])
+    break
+  }
+
   case 'guard': {
     const stacks = detectStacks()
     for (const stack of stacks) {
