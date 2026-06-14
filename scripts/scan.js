@@ -608,6 +608,60 @@ function detectStatefulIterators(source, ext) {
   return results
 }
 
+// ─── Adapter-needed detection ─────────────────────────────────────────────
+// Detects functions that take parameters typed as interfaces or complex objects
+// that can't be expressed as JSON in manifest.json inputs.
+// These functions need an adapter module to construct the required dependencies.
+// Discovered while trying to cluster isMultiSelect(validator, schema, rootSchema)
+// in rjsf — the validator parameter is a class instance with methods, impossible
+// to represent as plain JSON.
+
+function detectAdapterNeeded(source, functionName) {
+  const reasons = []
+
+  // Find the function signature
+  const fnPattern = new RegExp(
+    `(?:export\\s+)?(?:async\\s+)?function\\s+${escapeRegex(functionName)}\\s*\\(([^)]*)\\)`, 'm'
+  )
+  const arrowPattern = new RegExp(
+    `(?:export\\s+)?const\\s+${escapeRegex(functionName)}\\s*=\\s*(?:async\\s*)?\\(([^)]*)\\)\\s*=>`, 'm'
+  )
+
+  let params = null
+  const fnMatch = source.match(fnPattern)
+  const arrowMatch = source.match(arrowPattern)
+
+  if (fnMatch) params = fnMatch[1]
+  else if (arrowMatch) params = arrowMatch[1]
+  else return reasons
+
+  // Check for parameter names that indicate complex interface objects
+  const adapterHints = [
+    { pattern: /\bvalidator\b/i, reason: 'validator parameter (needs ValidatorType instance)' },
+    { pattern: /\bregistry\b/i, reason: 'registry parameter (needs RegistryType instance)' },
+    { pattern: /\bcontext\b/i, reason: 'context parameter (needs FormContext instance)' },
+    { pattern: /\bstore\b/i, reason: 'store parameter (needs store instance)' },
+    { pattern: /\bclient\b/i, reason: 'client parameter (needs API client instance)' },
+    { pattern: /\bconnection\b/i, reason: 'connection parameter (needs DB/connection instance)' },
+  ]
+
+  for (const hint of adapterHints) {
+    if (hint.pattern.test(params)) {
+      reasons.push(hint.reason)
+    }
+  }
+
+  // Check if function has 3+ parameters that include 'schema' and 'rootSchema'
+  // This is a common pattern in JSON Schema libraries where a validator is needed
+  if (/\bschema\b/.test(params) && /\brootSchema\b/.test(params)) {
+    if (!reasons.some(r => r.includes('validator'))) {
+      reasons.push('schema + rootSchema pattern (may need validator)')
+    }
+  }
+
+  return reasons
+}
+
 // ─── Determine stack from file extension ──────────────────────────────────────
 
 function stackFromExt(ext) {
@@ -839,6 +893,10 @@ for (const filePath of files) {
   for (const fn of pureFns) {
     const complexity = estimateComplexity(source, fn)
 
+    // Check if this function takes parameters that look like interface objects
+    // (e.g., validator, schema, rootSchema) — these need an adapter module
+    const needsAdapter = detectAdapterNeeded(source, fn)
+
     suggestions.push({
       function: fn,
       file: relPath,
@@ -847,6 +905,8 @@ for (const filePath of files) {
       fileSize: lines,
       isZustand: false,
       isFactory: detectFactoryPattern(source),
+      needsAdapter: needsAdapter.length > 0,
+      adapterReason: needsAdapter.length > 0 ? needsAdapter.join(', ') : undefined,
     })
   }
 
@@ -942,6 +1002,16 @@ if (formatManifest) {
     for (const s of highComplexity) {
       console.log(`  ${s.function} in ${s.file} (complexity: ${s.complexity})`)
     }
+  }
+
+  const needsAdapterFns = suggestions.filter(s => s.needsAdapter)
+  if (needsAdapterFns.length > 0) {
+    console.log(`\n🔌 Functions needing adapter module (complex parameters):`)
+    for (const s of needsAdapterFns) {
+      console.log(`  ${s.function} in ${s.file} — ${s.adapterReason}`)
+      console.log(`     → Create an adapter module and use the "adapter" field in manifest.json`)
+    }
+    console.log(`  See references/react-monorepo.md for the adapter pattern.`)
   }
 
   const zustandActions = suggestions.filter(s => s.isZustand)

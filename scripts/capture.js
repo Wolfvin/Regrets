@@ -63,7 +63,8 @@ for (const cluster of clusters) {
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, kwargs = false, outputTransform = null,
           materializeOutput = false, outputEncoding, resetState, deepCloneInput = true,
-          seed, singletonMethod, singletonName, storeDispatch, initialState } = cluster
+          seed, singletonMethod, singletonName, storeDispatch, initialState,
+          adapter } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
@@ -517,10 +518,39 @@ for (const cluster of clusters) {
       // 2. Default object export: mod.default.encode (CJS default object)
       // 3. Single function export: mod.default (CJS module.exports = function)
       //    Accessible via entry="default" or entry="module.exports"
-      const entryFn = ghostModule[entry]
-        ?? rawModule[entry]
-        ?? rawModule.default?.[entry]
-        ?? ((entry === 'default' || entry === 'module.exports') && typeof rawModule.default === 'function' ? rawModule.default : null)
+      //
+      // 4. Adapter mode: If `adapter` is specified in the manifest, import the
+      //    adapter module and call its exported function to get the entry function.
+      //    This is for functions that need complex setup (e.g., constructing a
+      //    validator instance and passing it as the first argument).
+      //    Example: adapter: "regrets/adapter-isMultiSelect.js"
+      //    The adapter module must export a function that returns { entryFn, defaultInputs? }
+      let entryFn
+      if (adapter) {
+        // Adapter mode: import the adapter module
+        const adapterPath = resolve(process.cwd(), adapter)
+        const adapterUrl = pathToFileURL(adapterPath).href
+        const adapterModule = await import(adapterUrl)
+        const adapterFn = adapterModule.default ?? adapterModule.createAdapter
+        if (typeof adapterFn !== 'function') {
+          throw new Error(`Adapter "${adapter}" must export a function (default or createAdapter)`)
+        }
+        const adapterResult = adapterFn(rawModule)
+        entryFn = adapterResult.entryFn
+        if (!entryFn) {
+          throw new Error(`Adapter "${adapter}" returned no entryFn`)
+        }
+        // If adapter provides defaultInputs and cluster has none, use them
+        if (adapterResult.defaultInputs && (!inputs || inputs.length === 0)) {
+          testInputs.splice(0, testInputs.length, ...adapterResult.defaultInputs)
+        }
+        console.log(`   Adapter: ${adapter}`)
+      } else {
+        entryFn = ghostModule[entry]
+          ?? rawModule[entry]
+          ?? rawModule.default?.[entry]
+          ?? ((entry === 'default' || entry === 'module.exports') && typeof rawModule.default === 'function' ? rawModule.default : null)
+      }
       if (typeof entryFn !== 'function') {
         throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
       }
