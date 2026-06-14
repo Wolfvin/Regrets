@@ -97,6 +97,9 @@ def main():
     # Deep-clone output to serialize datetime objects and other non-JSON types
     output_for_fp = deep_clone(output)
 
+    # Deep-clone output to serialize datetime objects and other non-JSON types
+    output_for_fp = deep_clone(output)
+
     # Compute fingerprint
     fp = fingerprint(input_data, output_for_fp, norm_rules, ign_fields)
 

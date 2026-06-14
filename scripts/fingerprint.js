@@ -147,7 +147,7 @@ export function normalize(obj, rules = []) {
     }
 
     // datetimeNow: replace serialized datetime dicts (from Python _serialize_datetime)
-    // that represent "now". This handles Python functions that default to datetime.now()
+    // that represent "now". Handles Python functions defaulting to datetime.now()
     // (e.g. dateutil.parser.parse, dateutil.rrule.rrule).
     if (rules.includes('datetimeNow') && obj.__datetime__) {
       const todayISO = new Date().toISOString().slice(0, 10)

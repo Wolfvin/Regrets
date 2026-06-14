@@ -106,6 +106,8 @@ def normalize(obj, rules=None):
         pass
 
     # datetimeNow: replace serialized datetime dicts that represent "now"
+    # This handles the common pattern where functions default to datetime.now()
+    # (e.g. dateutil.parser.parse, dateutil.rrule.rrule).
     if 'datetimeNow' in rules and isinstance(obj, dict):
         if '__datetime__' in obj:
             dt_iso = obj['__datetime__']
@@ -436,13 +438,15 @@ def materialize_output(val, max_yields=None):
     Handles:
     - Generators (generator type)
     - Iterators (has __next__ but is not str/bytes/dict/list)
+    - Custom iterables (has __iter__ but is not a concrete type) — e.g. rrule objects
     - map/filter objects
     - range objects
 
-    Does NOT materialize:
-    - str, bytes, dict, list, tuple, set (already concrete)
-    - numpy arrays (handled by _numpy_to_native)
-    - Numbers, booleans, None (primitives)
+    Args:
+        val: The value to potentially materialize.
+        max_yields: If set, only consume up to this many items.
+            Critical for infinite generators (e.g., rrule with no count/until).
+            materializeLimit is an alias for maxYields in manifest config.
 
     Args:
         val: The value to potentially materialize.
