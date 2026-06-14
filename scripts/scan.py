@@ -1066,6 +1066,7 @@ Usage:
   python scripts/scan.py <file_or_directory>     Scan a Python file or directory
   python scripts/scan.py <path> --recursive       Scan recursively
   python scripts/scan.py <path> --manifest        Output as manifest.json snippet
+  python scripts/scan.py <path> --json            Same as --manifest (machine-readable JSON)
   python scripts/scan.py <path> --pure            Only suggest pure functions (no I/O, no models)
   python scripts/scan.py <path> --python-path     Detect sys.path.insert and suggest pythonPath
   python scripts/scan.py <path> --decompose       Detect god modules and suggest decomposition
@@ -1085,7 +1086,7 @@ This helps agents set up Regrets on new projects without guessing.
 
     target = args[0] if args else None
     recursive = '--recursive' in args
-    as_manifest = '--manifest' in args
+    as_manifest = '--manifest' in args or '--json' in args
     pure_only = '--pure' in args
     show_python_path = '--python-path' in args
     decompose = '--decompose' in args
