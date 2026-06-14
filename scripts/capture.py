@@ -14,6 +14,8 @@ import json
 import importlib
 import copy
 import types
+import asyncio
+import inspect
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -75,6 +77,28 @@ def consume_generator(val):
             return val
         return list(val)
     return val
+
+
+def call_maybe_async(fn, *args, **kwargs):
+    """Call a function that may be sync or async, returning its result.
+
+    If the function is a coroutine function (async def) or returns a
+    coroutine object, automatically awaits it using asyncio.run().
+    This is essential for Python codebases that use async/await patterns
+    (e.g., theHarvester's discovery modules, aiohttp-based tools).
+
+    Args:
+        fn: The function to call (sync or async).
+        *args: Positional arguments.
+        **kwargs: Keyword arguments.
+
+    Returns:
+        The function's return value, with coroutines automatically awaited.
+    """
+    result = fn(*args, **kwargs)
+    if inspect.iscoroutine(result):
+        result = asyncio.run(result)
+    return result
 
 
 def apply_output_transform(output, transform):
@@ -173,7 +197,7 @@ def create_ghost(module, watch_list, recorder):
             @wraps(orig)
             def wrapper(*args, **kwargs):
                 try:
-                    result = orig(*args, **kwargs)
+                    result = call_maybe_async(orig, *args, **kwargs)
                     rec.append({
                         'fn': name,
                         'args': deep_clone(args),
@@ -345,7 +369,7 @@ def main():
                                 @wraps(orig)
                                 def wrapper(*a, **kw):
                                     try:
-                                        result = orig(*a, **kw)
+                                        result = call_maybe_async(orig, *a, **kw)
                                         rec.append({
                                             'fn': name,
                                             'args': deep_clone(a),
@@ -371,11 +395,11 @@ def main():
                             )
                         setup_args = deep_clone(step.get('args', []))
                         if isinstance(setup_args, list):
-                            setup_method(*setup_args)
+                            call_maybe_async(setup_method, *setup_args)
                         elif isinstance(setup_args, dict):
-                            setup_method(**setup_args)
+                            call_maybe_async(setup_method, **setup_args)
                         else:
-                            setup_method(setup_args)
+                            call_maybe_async(setup_method, setup_args)
 
                     # Call the target method
                     target_method = getattr(instance, class_method, None)
@@ -384,13 +408,13 @@ def main():
                             f"Method \"{class_method}\" not found on instance"
                         )
 
-                    # Handle multiArgs and kwargs
+                    # Handle multiArgs and kwargs (with async support)
                     if multi_args and isinstance(input_for_args, list):
-                        raw_output = target_method(*input_for_args)
+                        raw_output = call_maybe_async(target_method, *input_for_args)
                     elif kwargs_mode and isinstance(input_for_args, dict):
-                        raw_output = target_method(**input_for_args)
+                        raw_output = call_maybe_async(target_method, **input_for_args)
                     else:
-                        raw_output = target_method(input_for_args) if input_for_args is not None else target_method()
+                        raw_output = call_maybe_async(target_method, input_for_args) if input_for_args is not None else call_maybe_async(target_method)
 
                     fp_input = input_for_record
 
@@ -468,11 +492,11 @@ def main():
                         input_snapshot_before = snapshot_state(input_for_args)
 
                     if multi_args and isinstance(input_for_args, list):
-                        raw_output = entry_fn(*input_for_args)
+                        raw_output = call_maybe_async(entry_fn, *input_for_args)
                         fp_input = input_for_record
                     elif kwargs_mode and isinstance(input_for_args, dict):
                         # kwargs mode: input dict is unpacked as keyword arguments
-                        raw_output = entry_fn(**input_for_args)
+                        raw_output = call_maybe_async(entry_fn, **input_for_args)
                         fp_input = input_for_record
                     elif kwargs_mode and not isinstance(input_for_args, dict):
                         raise TypeError(
@@ -480,7 +504,7 @@ def main():
                             f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
                         )
                     else:
-                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                        raw_output = call_maybe_async(entry_fn, input_for_args) if input_for_args is not None else call_maybe_async(entry_fn)
                         fp_input = input_for_record
 
                     # Materialize generator/iterator output if configured

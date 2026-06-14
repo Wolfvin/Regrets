@@ -1,0 +1,65 @@
+{
+  "fingerprints": {
+    "sanitize-xml": {
+      "fingerprint": "5lfywfe",
+      "golden_hash": "5lfywfe",
+      "captured": "2026-06-14T03:12:06.903059+00:00",
+      "entry": "sanitize_for_xml",
+      "golden_input": "test<>&\"'value",
+      "golden_output": "test&lt;&gt;&amp;&quot;&apos;value"
+    },
+    "sanitize-filename": {
+      "fingerprint": "5fm2vhc",
+      "golden_hash": "5fm2vhc",
+      "captured": "2026-06-14T03:12:06.903811+00:00",
+      "entry": "sanitize_filename",
+      "golden_input": "../../../etc/passwd",
+      "golden_output": "passwd"
+    },
+    "list-ips-in-range": {
+      "fingerprint": "16zw78a",
+      "golden_hash": "16zw78a",
+      "captured": "2026-06-14T03:12:06.904953+00:00",
+      "entry": "list_ips_in_network_range",
+      "golden_input": "192.168.1.0/30",
+      "golden_output": [
+        "192.168.1.1",
+        "192.168.1.2"
+      ]
+    },
+    "sorted-unique": {
+      "fingerprint": "ihqi9va",
+      "golden_hash": "ihqi9va",
+      "captured": "2026-06-14T03:12:06.905346+00:00",
+      "entry": "sorted_unique",
+      "golden_input": [
+        "c",
+        "a",
+        "b",
+        "a",
+        "c"
+      ],
+      "golden_output": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "serialize-ip-range": {
+      "fingerprint": "6couj44",
+      "golden_hash": "6couj44",
+      "captured": "2026-06-14T03:12:06.904494+00:00",
+      "entry": "serialize_ip_range",
+      "golden_input": [
+        "192.168.1.100",
+        "24"
+      ],
+      "golden_output": "192.168.1.0/24"
+    }
+  },
+  "chains": {
+    "ip-to-hosts-pipeline": {
+      "chain_hash": "50lgut4"
+    }
+  }
+}

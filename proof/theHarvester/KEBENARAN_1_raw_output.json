@@ -1,0 +1,182 @@
+{
+  "sanitize-xml": {
+    "entry": "sanitize_for_xml",
+    "module": "theHarvester.__main__",
+    "outputs": [
+      {
+        "input": "test<>&\"'value",
+        "output": "test&lt;&gt;&amp;&quot;&apos;value"
+      },
+      {
+        "input": "normal text",
+        "output": "normal text"
+      },
+      {
+        "input": "<script>alert('xss')</script>",
+        "output": "&lt;script&gt;alert(&apos;xss&apos;)&lt;/script&gt;"
+      },
+      {
+        "input": "&amp; already escaped",
+        "output": "&amp;amp; already escaped"
+      },
+      {
+        "input": "mixed <b>bold</b> & 'quotes'",
+        "output": "mixed &lt;b&gt;bold&lt;/b&gt; &amp; &apos;quotes&apos;"
+      }
+    ]
+  },
+  "sanitize-filename": {
+    "entry": "sanitize_filename",
+    "module": "theHarvester.__main__",
+    "outputs": [
+      {
+        "input": "../../../etc/passwd",
+        "output": "passwd"
+      },
+      {
+        "input": "normal_file.txt",
+        "output": "normal_file.txt"
+      },
+      {
+        "input": "file with spaces and dots...txt",
+        "output": "file_with_spaces_and_dots...txt"
+      },
+      {
+        "input": ".hidden_file",
+        "output": "hidden_file"
+      },
+      {
+        "input": "file/with/slashes",
+        "output": "slashes"
+      }
+    ]
+  },
+  "serialize-ip-range": {
+    "entry": "serialize_ip_range",
+    "module": "theHarvester.discovery.dnssearch",
+    "outputs": [
+      {
+        "input": [
+          "192.168.1.100",
+          "24"
+        ],
+        "output": "192.168.1.0/24"
+      },
+      {
+        "input": [
+          "10.0.0.1",
+          "16"
+        ],
+        "output": "10.0.0.0/16"
+      },
+      {
+        "input": [
+          "172.16.5.100:8080",
+          "24"
+        ],
+        "output": "172.16.5.0/24"
+      },
+      {
+        "input": [
+          "invalid",
+          "24"
+        ],
+        "output": ""
+      },
+      {
+        "input": [
+          "1.2.3.4",
+          "32"
+        ],
+        "output": "1.2.3.4/32"
+      }
+    ]
+  },
+  "list-ips-in-range": {
+    "entry": "list_ips_in_network_range",
+    "module": "theHarvester.discovery.dnssearch",
+    "outputs": [
+      {
+        "input": "192.168.1.0/30",
+        "output": [
+          "192.168.1.1",
+          "192.168.1.2"
+        ]
+      },
+      {
+        "input": "10.0.0.0/28",
+        "output": [
+          "10.0.0.1",
+          "10.0.0.2",
+          "10.0.0.3",
+          "10.0.0.4",
+          "10.0.0.5",
+          "10.0.0.6",
+          "10.0.0.7",
+          "10.0.0.8",
+          "10.0.0.9",
+          "10.0.0.10",
+          "10.0.0.11",
+          "10.0.0.12",
+          "10.0.0.13",
+          "10.0.0.14"
+        ]
+      },
+      {
+        "input": "invalid_range",
+        "output": []
+      }
+    ]
+  },
+  "sorted-unique": {
+    "entry": "sorted_unique",
+    "module": "theHarvester.lib.output",
+    "outputs": [
+      {
+        "input": [
+          "c",
+          "a",
+          "b",
+          "a",
+          "c"
+        ],
+        "output": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      {
+        "input": [
+          "host3.example.com",
+          "host1.example.com",
+          "host2.example.com",
+          "host1.example.com"
+        ],
+        "output": [
+          "host1.example.com",
+          "host2.example.com",
+          "host3.example.com"
+        ]
+      },
+      {
+        "input": [],
+        "output": []
+      },
+      {
+        "input": [
+          3,
+          1,
+          2,
+          1,
+          3
+        ],
+        "output": [
+          1,
+          2,
+          3
+        ]
+      }
+    ]
+  }
+}

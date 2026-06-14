@@ -403,13 +403,13 @@ def main():
         try:
             module_path = cluster_def.get('module', cluster_def.get('file', ''))
             entry_name = cluster_def['entry']
+            norm_rules = cluster_def.get('normalize', [])
+            ign_fields = cluster_def.get('ignoreFields', [])
+            fp_level = cluster_def.get('fingerprintLevel', 'entry')
 
             # Warn about private entry functions with fingerprintLevel=full
             if fp_level == 'full' and entry_name.startswith('_'):
                 print(f"  ⚠️  {cluster_id}: Entry '{entry_name}' is private — ghost proxy cannot wrap it. fingerprintLevel='full' will produce empty-sequence fingerprint. Consider 'entry'.")
-            norm_rules = cluster_def.get('normalize', [])
-            ign_fields = cluster_def.get('ignoreFields', [])
-            fp_level = cluster_def.get('fingerprintLevel', 'entry')
             fp_mode = cluster_def.get('fingerprintMode', 'value')
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
