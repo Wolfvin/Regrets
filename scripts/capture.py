@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# capture.py — ghost-decorator runner for Python clusters
+# capture.py — ghost-proxy runner for Python clusters
 # Reads regrets/manifest.json, instruments watched functions via
-# unittest.mock.patch, runs entry points, and writes .regret files.
+# ghost.py (Ghost Proxy), runs entry points, and writes .regret files.
 #
 # Usage:
 #   python scripts/capture.py
@@ -21,7 +21,7 @@ import inspect
 import errno
 from datetime import datetime, timezone
 from functools import wraps
-from unittest.mock import patch
+from unittest.mock import patch  # only used by freeze_time()
 
 # ─── Lightweight file locking ─────────────────────────────────────────────────
 # Uses fcntl.flock on Unix for locking, with fallback to lockfile pattern
@@ -141,6 +141,9 @@ from fingerprint import (
     object_state_serialize, snapshot_module_globals, restore_module_globals,
     fingerprint_modes
 )
+
+# Import Ghost Proxy — transparent recording wrapper equivalent to JS ghost.js
+from ghost import create_ghost, create_instance_ghost, restore_instance
 
 
 # ─── Seeded RNG support ───────────────────────────────────────────────────────
@@ -770,123 +773,9 @@ class FreezeTime:
 
 
 # ─── Ghost decorator ──────────────────────────────────────────────────────────
-
-def create_ghost(module, watch_list, recorder):
-    """
-    Wrap watched functions in the module with recording decorators.
-    Returns a namespace-like object with ghost-wrapped functions.
-    """
-    import types
-
-    class GhostModule:
-        pass
-
-    ghost = GhostModule()
-
-    # Copy all attributes from original module
-    for attr_name in dir(module):
-        if not attr_name.startswith('_'):
-            try:
-                setattr(ghost, attr_name, getattr(module, attr_name))
-            except AttributeError:
-                pass
-
-    # Replace watched functions with ghost wrappers
-    for fn_name in watch_list:
-        original = getattr(module, fn_name, None)
-        if original is None or not callable(original):
-            print(f"  ⚠️  Watch target \"{fn_name}\" is not callable — skipping")
-            continue
-
-        # Create closure that captures the original function and recorder
-        def make_ghost(orig, name, rec):
-            @wraps(orig)
-            def wrapper(*args, **kwargs):
-                try:
-                    result = call_maybe_async(orig, *args, **kwargs)
-                    rec.append({
-                        'fn': name,
-                        'args': deep_clone(args),
-                        'result': deep_clone(result),
-                    })
-                    return result
-                except Exception as err:
-                    rec.append({
-                        'fn': name,
-                        'args': deep_clone(args),
-                        'error': str(err),
-                    })
-                    raise
-            # Ensure wrapper has a meaningful name (not '<lambda>')
-            # This is critical for lambda-assigned functions (e.g., in PyJHora's house.py)
-            # where the variable name is the true identifier, not __name__
-            if getattr(wrapper, '__name__', '') == '<lambda>':
-                wrapper.__name__ = name
-                wrapper.__qualname__ = name
-            return wrapper
-
-        setattr(ghost, fn_name, make_ghost(original, fn_name, recorder))
-
-    return ghost
-
-
-def create_instance_ghost(instance, watch_list, recorder):
-    """
-    Wrap watched methods on a class instance with recording decorators.
-    Returns the original instance with methods replaced by ghost wrappers.
-
-    Unlike create_ghost which wraps module-level functions, this wraps
-    bound methods on an instance. This is needed for class-based APIs
-    where the entry point is a method like mesh.area or mesh.is_watertight.
-
-    The instance is modified in-place — methods are swapped with wrappers.
-    After capture, the original methods are restored.
-    """
-    import types as _types
-
-    originals = {}  # name → original bound method
-
-    for fn_name in watch_list:
-        original = getattr(instance, fn_name, None)
-        if original is None:
-            print(f"  ⚠️  Watch target \"{fn_name}\" not found on instance — skipping")
-            continue
-        if not callable(original):
-            print(f"  ⚠️  Watch target \"{fn_name}\" is not callable (probably a property) — skipping")
-            continue
-
-        originals[fn_name] = original
-
-        def make_ghost(orig, name, rec):
-            @wraps(orig)
-            def wrapper(*args, **kwargs):
-                try:
-                    result = orig(*args, **kwargs)
-                    rec.append({
-                        'fn': name,
-                        'args': deep_clone(args),
-                        'result': deep_clone(result),
-                    })
-                    return result
-                except Exception as err:
-                    rec.append({
-                        'fn': name,
-                        'args': deep_clone(args),
-                        'error': str(err),
-                    })
-                    raise
-            return wrapper
-
-        # Replace the method on the instance with the ghost wrapper
-        setattr(instance, fn_name, make_ghost(original, fn_name, recorder))
-
-    return instance, originals
-
-
-def restore_instance(instance, originals):
-    """Restore original methods on an instance after ghost capture."""
-    for name, original in originals.items():
-        setattr(instance, name, original)
+# create_ghost, create_instance_ghost, and restore_instance are now imported
+# from ghost.py — the Python Ghost Proxy equivalent of JS ghost.js.
+# See ghost.py for implementation details.
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -1239,16 +1128,21 @@ def main():
                     dt_cm, time_cm = freeze_time(freeze_time_str)
                     freeze_cms = [dt_cm, time_cm]
 
-                recorder_local = []  # initialized here; reassigned per input in the loop below
-                ghost = create_ghost(mod, watches, recorder_local)
+                recorder_local = []  # initialized here; cleared per input in the loop below
+                ghost = create_ghost(mod, watches, recorder_local, instance_methods=instance_methods)
                 entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
                 if entry_fn is None or not callable(entry_fn):
+                    ghost.restore()
                     raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
 
                 # Run with provided inputs
                 results = []
                 for input_val in inputs:
-                    recorder_local = []
+                    # Clear the recorder list instead of creating a new one.
+                    # The Ghost Proxy's wrappers hold a reference to the original
+                    # list object — if we reassign recorder_local = [], the wrappers
+                    # would still write to the old list. Clearing in-place fixes this.
+                    recorder_local.clear()
 
                     # Deep-clone input BEFORE calling the function to prevent mutation from
                     # corrupting the stored fingerprint. Two clones: one for the .regret file
@@ -1427,6 +1321,15 @@ def main():
                     if saved_rng is not None:
                         restore_rng(*saved_rng)
 
+            # Restore original functions on the module after ghost capture
+            # This is critical: the Ghost Proxy mutates the module in-place
+            # so that internal calls between watched functions are intercepted.
+            # We must restore the originals after all inputs are processed.
+            try:
+                ghost.restore()
+            except (NameError, AttributeError):
+                pass
+
             # Warn about watched functions that were never called during capture
             # Note: If the entry function is also in the watches list, it IS called
             # (the ghost wrapper records it), but the recorder only captures calls
@@ -1488,7 +1391,7 @@ def main():
                     mode_outputs = []
                     for input_val in mode_inputs:
                         recorder_local = []
-                        ghost = create_ghost(mod, watches, recorder_local)
+                        ghost = create_ghost(mod, watches, recorder_local, instance_methods=instance_methods)
                         entry_fn_mode = getattr(ghost, entry, None) or getattr(mod, entry, None)
                         input_for_record = deep_clone(input_val)
                         input_for_args = deep_clone(input_val)
@@ -1541,6 +1444,12 @@ def main():
 
                         mode_fps.append(fp)
                         mode_outputs.append({'input': input_for_record, 'output': output_for_fp, 'fp': fp})
+
+                        # Restore original functions after this mode input
+                        try:
+                            ghost.restore()
+                        except (NameError, AttributeError):
+                            pass
 
                     # Use first mode input result as the mode's representative
                     mode_fp = mode_fps[0] if mode_fps else ''
@@ -1691,6 +1600,11 @@ def main():
             passed += 1
 
         except Exception as err:
+            # Ensure ghost proxy is restored even on error
+            try:
+                ghost.restore()
+            except (NameError, AttributeError):
+                pass
             print(f"   ❌ Capture failed: {err}")
             import traceback
             traceback.print_exc()
