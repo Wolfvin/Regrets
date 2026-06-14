@@ -198,7 +198,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `goTestPkg` | ❌ | Relative path for `go test` command in Go stack (e.g., `"./pkg/name"`) |
 | `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
-| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `json`, `keys`, `toString`, `toJSON`, `pojo`, `repr`, `len`, `type`, `array_summary` (numpy array shape/stats summary — essential for DSP/scientific computing), `dict`, or `"module.fn"` for custom (Python & JS) |
+| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `json`, `keys`, `toString`, `toJSON`, `pojo`, `repr`, `len`, `type`, `array_summary` (numpy array shape/stats summary — essential for DSP/scientific computing), `dict`, `dataclass_dict`, or `"module.fn"` for custom (Python & JS) |
 | `materializeOutput` | ❌ | `true` → auto-consume generators/iterators into lists before fingerprinting |
 | `maxYields` | ❌ | Integer — max items to take from an infinite generator. Only works with `materializeOutput: true`. Appends a `{"__truncated__": true, "maxYields": N}` sentinel if more items exist. Critical for generators that yield forever (e.g., `rrule` with no `count`/`until`). |
 | `freezeTime` | ❌ | ISO 8601 datetime string (e.g., `"2024-01-15T10:30:00"`) — freezes `datetime.now()`, `datetime.utcnow()`, `date.today()`, and `time.localtime()` during capture/validate. Essential for functions that default to current time. |
@@ -241,11 +241,40 @@ Non-deterministic values are normalized before hashing:
 | `floatTolerance:N` | Floats rounded to N decimal places | `round(n * 10^N) / 10^N` |
 | `floatPrecision` | Whole-value floats → integers, decimal floats → 2dp, string floats stripped | `1500000.0` → `1500000` |
 | `autoIncrement` | String IDs with numeric suffix → placeholder, small integers (1-9999) → placeholder | `"b1"` → `"b<ID>"`, `42` → `"<ID>"` |
+| `currentYearBound` | Integers equal to current year or current year + 1 → placeholders | `2026` → `<CURRENT_YEAR>`, `2027` → `<CURRENT_YEAR+1>` |
+| `tokenOffsets` | Integer values in offset dict keys (start, end, span_start, etc.) → `<OFFSET>` | `{"start": 42}` → `{"start": "<OFFSET>"}` |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
 Use `normalizeNow` when the function's output IS derived from the current time (e.g., `filenameFallback()` that calls `new Date()` to produce `"FPK-062026"`). Unlike `dynamicDates` which normalizes embedded dates in data, `normalizeNow` signals that the entire output meaning is "the current time expressed as a filename". The distinct placeholders (`<NOW_MMYYYY>` vs `<MMYYYY>`) help audit reviewers distinguish "data contains a date" from "output IS a date".
 Use `floatTolerance` for financial/scientific computing where tiny floating-point differences (e.g., `123456.0` vs `123456.00000001`) should not trigger false negatives. `floatTolerance:0` rounds to integers — ideal for IDR amounts.
 Use `floatPrecision` for OCR/parsing pipelines where the same value may appear as `1500000` or `1500000.0` depending on the parsing path — common in financial OCR where integer amounts are sometimes stored as floats. Both rules can coexist: `floatTolerance` handles representation differences, `floatPrecision` handles type equivalence and string normalization.
+Use `currentYearBound` for code that uses `date.today().year` as a validation boundary (e.g., citation year validators that reject years beyond "this year + 1"). Without this rule, fingerprints would silently change every January — not because behavior regressed, but because the calendar advanced.
+Use `tokenOffsets` for NLP/citation parsing libraries where output includes character offset positions (start, end, span_start, etc.). These offsets shift with any change to input text length, but the behavioral contract is about *what* text is identified, not *where* it is at byte offset 42 vs 44.
+
+### dataclass_dict Output Transform
+
+When fingerprinting Python libraries with deep dataclass hierarchies (e.g., citation parsers, NLP libraries, Pydantic models), use `"outputTransform": "dataclass_dict"` to recursively convert dataclass instances into JSON-serializable dicts. This handles:
+
+- Frozen dataclasses (common in immutable value objects)
+- Nested dataclasses (e.g., `CitationBase.Metadata` inside `FullCaseCitation`)
+- `UserString` subclasses (e.g., Token objects that inherit from `str` but also have dataclass fields like `start`, `end`, `groups`)
+- `datetime`/`date` objects → deterministic ISO format strings
+- Sequences of dataclass instances → lists of dicts
+- Class identity is preserved via `__class__` key (a `FullCaseCitation` and `ShortCaseCitation` with the same fields will produce different fingerprints, which is correct)
+
+```json
+{
+  "id": "find-citations",
+  "entry": "get_citations",
+  "watches": ["get_citations"],
+  "module": "regret_adapters",
+  "stack": "python",
+  "outputTransform": "dataclass_dict",
+  "normalize": ["currentYearBound", "tokenOffsets"],
+  "ignoreFields": ["document"],
+  "inputs": ["1 U.S. 1"]
+}
+```
 
 Read `references/fingerprint-spec.md` for edge cases (timestamps, random IDs, etc).
 
