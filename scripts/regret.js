@@ -481,6 +481,13 @@ Capture flags:
   --cluster <id>      Capture a specific cluster (overrides --only-new / --stale)
   These flags can be combined: --only-new --stale 48
 
+Error path contracts (expectThrow):
+  In manifest inputs, use { "__expectThrow": true, "value": <input> } to declare
+  that a function MUST throw for that input. capture.js catches the error and
+  fingerprints { type: ErrorClass, message: normalizedMessage } as ERROR_CONTRACT.
+  validate.js FAILs if the function stops throwing or the error type/message changes.
+  Supports sync throw and async rejection (Promise.reject / async throw).
+
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts/css → capture.js / validate.js
   python  → capture.py / validate.py / truth.py

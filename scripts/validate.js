@@ -179,11 +179,13 @@ export function parseRegret(content) {
     else if (key === 'singletonMethod') meta.singletonMethod = val
     else if (key === 'singletonName') meta.singletonName = val
     else if (key === 'dispatch') meta.dispatch = val
+    else if (key === 'expectThrow') meta.expectThrow = val === 'true'
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
   const inputLine  = lines.find(l => l.startsWith('INPUT '))
   const outputLine = lines.find(l => l.startsWith('OUTPUT '))
+  const errorContractLine = lines.find(l => l.startsWith('ERROR_CONTRACT '))
   const hashLine   = lines.find(l => l.startsWith('HASH '))
   // Parse INPUT/OUTPUT lines — handle undefined output gracefully
   // (JSON.stringify(undefined) produces the literal string "undefined", not valid JSON)
@@ -197,6 +199,12 @@ export function parseRegret(content) {
     const outputStr = outputLine.replace(/^OUTPUT\s+/, '')
     parsedOutput = outputStr === 'undefined' ? undefined : JSON.parse(outputStr)
   }
+  // Parse ERROR_CONTRACT line (expectThrow support)
+  let parsedErrorContract = null
+  if (errorContractLine) {
+    const ecStr = errorContractLine.replace(/^ERROR_CONTRACT\s+/, '')
+    parsedErrorContract = JSON.parse(ecStr)
+  }
   // Parse MUTATION_BEFORE/AFTER lines
   const mutationBeforeLine = lines.find(l => l.startsWith('MUTATION_BEFORE '))
   const mutationAfterLine = lines.find(l => l.startsWith('MUTATION_AFTER '))
@@ -204,10 +212,37 @@ export function parseRegret(content) {
     ...meta,
     input:      parsedInput,
     output:     parsedOutput,
+    errorContract: parsedErrorContract,
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
     mutationBefore: mutationBeforeLine ? JSON.parse(mutationBeforeLine.replace(/^MUTATION_BEFORE\s+/, '')) : null,
     mutationAfter:  mutationAfterLine  ? JSON.parse(mutationAfterLine.replace(/^MUTATION_AFTER\s+/, ''))   : null,
     raw:        content
+  }
+}
+
+// ─── expectThrow helpers ──────────────────────────────────────────────────────
+// Shared between runCluster and the main validation loop.
+function isExpectThrow(inp) {
+  return inp && typeof inp === 'object' && inp.__expectThrow === true
+}
+function extractInputValue(inp) {
+  return isExpectThrow(inp) ? inp.value : inp
+}
+function normalizeErrorMessage(msg, normalizeRules) {
+  if (typeof msg !== 'string') return String(msg)
+  let m = msg
+  m = m.split('\n')[0]
+  if (normalizeRules.includes('timestamps'))  m = m.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<timestamp>')
+  if (normalizeRules.includes('uuids'))        m = m.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
+  if (normalizeRules.includes('epochs'))        m = m.replace(/\b\d{10,13}\b/g, '<epoch>')
+  m = m.replace(/\s*\(.+:\d+:\d+\)/g, '')
+  m = m.replace(/\s+at .+$/s, '')
+  return m.trim()
+}
+function buildErrorContract(err, normalizeRules) {
+  return {
+    type: err.constructor?.name || 'Error',
+    message: normalizeErrorMessage(err.message, normalizeRules),
   }
 }
 
@@ -528,6 +563,7 @@ export async function runCluster(clusterDef, regret, options = {}) {
   const hashes = []           // flat list of all hashes (for backward compat)
   const hashesPerInput = {}   // { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
   let lastOutput = null
+  let lastErrorContract = null  // expectThrow: error contract from last run
   // trackMutation: collect mutation fingerprints across all runs/inputs
   let mutationMatch = true
   let mutationDetected = false
@@ -720,9 +756,50 @@ export async function runCluster(clusterDef, regret, options = {}) {
           ?? ((entry === 'default' || entry === 'module.exports') && typeof mod.default === 'function' ? mod.default : null)
         if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
         const inputForFp = deepCloneInput ? deepClone(currentInput) : currentInput
-        const inputForArgs = deepCloneInput ? deepClone(currentInput) : currentInput
+        const actualInput = extractInputValue(currentInput)
+        const inputForArgs = deepCloneInput ? deepClone(actualInput) : actualInput
         inputForArgsRef = inputForArgs  // trackMutation: keep reference for post-call snapshot
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        const expectThrow = isExpectThrow(currentInput)
+
+        // ─── expectThrow: catch error and build error contract ────────────
+        if (expectThrow) {
+          let caughtError = null
+          try {
+            await entryFn(...args_)
+          } catch (err) {
+            caughtError = err
+          }
+          if (seed != null) Math.random = origRandom
+          if (!caughtError) {
+            // Function did NOT throw when it should have — this is a FAIL
+            lastOutput = null
+            lastErrorContract = null
+            fpInput = inputForFp
+            // Use a sentinel hash that won't match the golden
+            const fpConfig = { normalize, ignoreFields, ignorePaths }
+            const errHash = fingerprint(inputForFp, { expectThrowViolated: true }, fpConfig)
+            hashes.push(errHash)
+            const inputKey = JSON.stringify(currentInput)
+            if (!hashesPerInput[inputKey]) hashesPerInput[inputKey] = []
+            hashesPerInput[inputKey].push(errHash)
+            continue
+          }
+          const errorContract = buildErrorContract(caughtError, normalize)
+          lastErrorContract = errorContract
+          lastOutput = null
+          fpInput = inputForFp
+          if (seed != null) Math.random = origRandom
+          // Fingerprint the error contract (same as capture)
+          const fpConfig = { normalize, ignoreFields, ignorePaths }
+          const fp = fingerprint(fpInput, errorContract, fpConfig)
+          hashes.push(fp)
+          const inputKey = JSON.stringify(currentInput)
+          if (!hashesPerInput[inputKey]) hashesPerInput[inputKey] = []
+          hashesPerInput[inputKey].push(fp)
+          continue
+        }
+
         const rawOutput = await entryFn(...args_)
 
         // Restore original Math.random after the call
@@ -737,6 +814,7 @@ export async function runCluster(clusterDef, regret, options = {}) {
 
         output = deepClone(transformedOutput)
         lastOutput = output
+        lastErrorContract = null  // normal output, no error contract
         fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
       }
 
@@ -806,7 +884,7 @@ export async function runCluster(clusterDef, regret, options = {}) {
       hashesPerInput[inputKey].push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, hashesPerInput, lastOutput, mutationMatch, mutationDetected, liveMutationFingerprint }
+  return { hashes, hashesPerInput, lastOutput, lastErrorContract, mutationMatch, mutationDetected, liveMutationFingerprint }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -1022,7 +1100,7 @@ for (const file of regretFiles) {
   }
 
   try {
-    const { hashes, hashesPerInput, lastOutput, skipped,
+    const { hashes, hashesPerInput, lastOutput, lastErrorContract, skipped,
             mutationMatch: clusterMutationMatch,
             mutationDetected: clusterMutationDetected,
             liveMutationFingerprint: clusterLiveMutationFp } = await runCluster(def, regret)
@@ -1052,6 +1130,41 @@ for (const file of regretFiles) {
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
     const isDrift  = driftMode && Object.values(hashesPerInput).some(inputHashes => new Set(inputHashes).size > 1)
+
+    // ── expectThrow: special output for error contract validation ──────────
+    const goldenErrorContract = regret.errorContract || null
+    if (goldenErrorContract) {
+      // This .regret was captured with expectThrow — compare error contracts
+      if (!isMatch) {
+        if (!jsonOutput && !quiet) {
+          console.log(`  ❌ ${id.padEnd(35)} ${regret.goldenHash} → ${liveHash}  FAIL`)
+          if (lastErrorContract) {
+            console.log(`    Expected error: ${goldenErrorContract.type}: ${goldenErrorContract.message}`)
+            console.log(`    Actual error:   ${lastErrorContract.type}: ${lastErrorContract.message}`)
+          } else {
+            console.log(`    Expected error: ${goldenErrorContract.type}: ${goldenErrorContract.message}`)
+            console.log(`    Actual: function did NOT throw (error path removed)`)
+          }
+        }
+        results.push({
+          id, pass: false,
+          expected: regret.goldenHash, actual: liveHash,
+          expectedError: goldenErrorContract,
+          actualError: lastErrorContract,
+          expectThrowViolated: !lastErrorContract,
+        })
+      } else {
+        if (!jsonOutput && !quiet) {
+          console.log(`  ✅ ${id.padEnd(35)} ${regret.goldenHash}  PASS`)
+        }
+        results.push({ id, pass: true, expected: regret.goldenHash, actual: liveHash })
+      }
+      if (!results.at(-1).pass && failFast) {
+        if (!jsonOutput && !quiet) console.log(`\n  --fail-fast: stopping.`)
+        break
+      }
+      continue  // skip normal output path for expectThrow clusters
+    }
 
     // ─── Verbose: print extra detail before status line ────────────────────
     if (verbose && !jsonOutput) {
@@ -1157,13 +1270,16 @@ if (reporter === 'junit') {
       .filter(r => !r.skipped)
       .map(r => ({
         id: r.id,
-        status: r.pass ? (r.drift ? 'drift' : 'pass') : (r.mutationMismatch ? 'mutation_mismatch' : (r.error ? 'error' : 'fail')),
+        status: r.pass ? (r.drift ? 'drift' : 'pass') : (r.expectThrowViolated ? 'expect_throw_violated' : (r.mutationMismatch ? 'mutation_mismatch' : (r.error ? 'error' : 'fail'))),
         ...(r.expected ? { expected: r.expected } : {}),
         ...(r.actual ? { actual: r.actual } : {}),
         ...(r.error ? { error: r.error } : {}),
         ...(r.drift ? { drift: true } : {}),
         ...(r.updated ? { updated: true } : {}),
         ...(r.mutationMismatch ? { mutationMismatch: true, mutationDetected: r.mutationDetected } : {}),
+        ...(r.expectedError ? { expectedError: r.expectedError } : {}),
+        ...(r.actualError ? { actualError: r.actualError } : {}),
+        ...(r.expectThrowViolated ? { expectThrowViolated: true } : {}),
       }))
   }
   console.log(JSON.stringify(jsonResult, null, 0))
@@ -1203,8 +1319,10 @@ if (reporter === 'junit') {
   console.log(`❌ ${failed}/${results.length} FAILED.\n`)
   results.filter(r => !r.pass).forEach(r => {
     console.log(`  • ${r.id}`)
-    if (r.error) console.log(`    ${r.error}`)
+    if (r.expectThrowViolated) console.log(`    Expected error: ${r.expectedError?.type}: ${r.expectedError?.message} — function did NOT throw`)
+    else if (r.error) console.log(`    ${r.error}`)
     else if (r.mutationMismatch) console.log(`    Mutation fingerprint mismatch — function's input mutation behavior changed`)
+    else if (r.expectedError && r.actualError) console.log(`    Error contract changed: expected ${r.expectedError.type}: ${r.expectedError.message}, got ${r.actualError.type}: ${r.actualError.message}`)
     else if (r.expected && r.actual) console.log(`    Expected: ${r.expected}  Got: ${r.actual}`)
     else if (r.drift) console.log(`    Drift detected — hashes vary across runs`)
     if (!noDiff && r.goldenOutput != null && r.liveOutput != null) {
