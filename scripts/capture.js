@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
-import { createGhost, deepClone } from './ghost.js'
+import { createGhost, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransform } from './outputTransform.js'
 
@@ -202,16 +202,7 @@ for (const cluster of clusters) {
       return consumedOutput
     }
 
-    // ─── Helper: consume iterators/generators ──────────────────────────────
-    function consumeIterator(rawOutput) {
-      let consumedOutput = rawOutput
-      if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-          typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-          !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-        consumedOutput = [...rawOutput]
-      }
-      return consumedOutput
-    }
+    // ─── Helper: consumeIterator is now imported from ghost.js ───────────
 
     if (storeDispatch) {
       // ── storeDispatch mode ────────────────────────────────────────────────
@@ -292,7 +283,7 @@ for (const cluster of clusters) {
         }
 
         const rawOutput = getStateFn()
-        let consumedOutput = consumeIterator(rawOutput)
+        const { result: consumedOutput } = await consumeIterator(rawOutput)
         let transformedOutput = await applyOutputTransform(consumedOutput, outputTransform)
         const output = deepClone(transformedOutput)
 
@@ -367,12 +358,7 @@ for (const cluster of clusters) {
         const rawOutput = await instance[classMethod](...args_)
 
         // Consume generators/iterators into arrays for fingerprinting.
-        let consumedOutput = rawOutput
-        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-          consumedOutput = [...rawOutput]
-        }
+        const { result: consumedOutput } = await consumeIterator(rawOutput)
 
         // Apply outputTransform if specified in manifest
         let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
@@ -460,12 +446,7 @@ for (const cluster of clusters) {
         const rawOutput = await singleton[singletonMethod](...args_)
 
         // Consume generators/iterators into arrays for fingerprinting
-        let consumedOutput = rawOutput
-        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-          consumedOutput = [...rawOutput]
-        }
+        const { result: consumedOutput } = await consumeIterator(rawOutput)
 
         // Apply outputTransform if specified
         let transformedOutput = consumedOutput
@@ -584,35 +565,9 @@ for (const cluster of clusters) {
         const rawOutput = await entryFn(...args_)
 
         // Materialize generator/iterator output if configured
-        let consumedOutput
-        if (materializeOutput && rawOutput && typeof rawOutput === 'object') {
-          const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
-                             typeof rawOutput[Symbol.iterator] === 'function'
-          if (isIterable && !Array.isArray(rawOutput)) {
-            consumedOutput = []
-            if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
-              for await (const item of rawOutput) consumedOutput.push(deepClone(item))
-            } else {
-              for (const item of rawOutput) consumedOutput.push(deepClone(item))
-            }
-            console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${consumedOutput.length} items)`)
-          } else {
-            // Consume generators/iterators into arrays for fingerprinting.
-            consumedOutput = rawOutput
-            if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-                typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-                !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-              consumedOutput = [...rawOutput]
-            }
-          }
-        } else {
-          // Consume generators/iterators into arrays for fingerprinting (always-on fallback).
-          consumedOutput = rawOutput
-          if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-              typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-              !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-            consumedOutput = [...rawOutput]
-          }
+        const { consumed: wasConsumed, result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutput })
+        if (wasConsumed && materializeOutput) {
+          console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${consumedOutput.length} items)`)
         }
 
         // Apply outputTransform if specified in manifest
