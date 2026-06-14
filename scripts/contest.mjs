@@ -91,6 +91,29 @@ class ContestRunner {
       return { cluster: step.cluster, input, output, fingerprint: fp, calls: [] }
     }
 
+    // Support singletonMethod clusters in chains
+    if (cluster.singletonMethod) {
+      const singletonExportName = cluster.singletonName || cluster.entry
+      let singleton = rawModule[singletonExportName] ?? rawModule.default?.[singletonExportName]
+      // CJS fallback
+      if (!singleton && rawModule.default && typeof rawModule.default === 'object' && typeof rawModule.default[cluster.singletonMethod] === 'function') {
+        singleton = rawModule.default
+      }
+      if (!singleton || typeof singleton !== 'object') {
+        throw new Error(`Singleton "${singletonExportName}" not found in ${cluster.file}`)
+      }
+      if (typeof singleton[cluster.singletonMethod] !== 'function') {
+        throw new Error(`Method "${cluster.singletonMethod}" not found on singleton "${singletonExportName}"`)
+      }
+      const input = step.input
+      const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
+      const output = await singleton[cluster.singletonMethod](...args_)
+      const fp = fingerprint(input, output, {
+        normalize: cluster.normalize || [], ignoreFields: cluster.ignoreFields || []
+      })
+      return { cluster: step.cluster, input, output, fingerprint: fp, calls: [] }
+    }
+
     const recorder = []
     const ghostModule = createGhost(rawModule, cluster.watches || [], recorder, cluster.instanceMethods || {})
     const entryFn = ghostModule[cluster.entry] ?? rawModule[cluster.entry]

@@ -158,9 +158,47 @@ function extractExportedFunctions(source, ext) {
   const defaultExportFn = source.matchAll(/export\s+default\s+function\s+(\w+)/g)
   for (const m of defaultExportFn) fns.push(m[1])
 
-  // Module.exports style
+  // ── CJS (CommonJS) patterns ──────────────────────────────────────────────
+  // These are critical for older Node.js projects like natural, underscore, etc.
+
+  // module.exports.Name = require(...)
+  // module.exports.Name = ClassName
+  // module.exports.Name = function() {...}
   const moduleExports = source.matchAll(/module\.exports\.(\w+)\s*=/g)
   for (const m of moduleExports) fns.push(m[1])
+
+  // exports.Name = require(...)
+  const exportsAssign = source.matchAll(/^exports\.(\w+)\s*=/gm)
+  for (const m of exportsAssign) fns.push(m[1])
+
+  // module.exports = function Name(...) — single function export with a name
+  const cjsNamedFn = source.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
+  for (const m of cjsNamedFn) fns.push(m[1])
+
+  // module.exports = ClassName — single class export
+  const cjsClassExport = source.matchAll(/module\.exports\s*=\s*(\w+)/g)
+  for (const m of cjsClassExport) {
+    // Skip if it's 'require' or common keywords
+    if (!['require', 'undefined', 'null', 'true', 'false'].includes(m[1])) {
+      fns.push(m[1])
+    }
+  }
+
+  // ── CJS singleton method detection ─────────────────────────────────────
+  // Pattern: const X = new SomeConstructor() → X is a singleton with methods
+  // These appear in files like porter_stemmer.js: module.exports = new Stemmer()
+  // The scanner can't call .stem() on them, but it CAN detect the export name
+  // and flag it as a singletonMethod candidate.
+
+  // Prototype method definitions: Name.prototype.method = function()
+  const protoMethods = source.matchAll(/(\w+)\.prototype\.(\w+)\s*=\s*function/g)
+  for (const m of protoMethods) {
+    fns.push(`${m[1]}.prototype.${m[2]}`)
+  }
+
+  // this.method = function() — inside constructor/mixin functions
+  const thisMethods = source.matchAll(/this\.(\w+)\s*=\s*(?:function|async\s+function)/g)
+  for (const m of thisMethods) fns.push(m[1])
 
   // Svelte component functions (from <script> blocks)
   if (ext === '.svelte') {
@@ -292,10 +330,18 @@ function estimateComplexity(source, functionName) {
 
 function extractJsFunctionBody(source, functionName) {
   // Try to find function and extract its body
+  // Supports ESM, CJS, prototype methods, and this.method assignments
   const patterns = [
+    // ESM: export function name() {
     new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${escapeRegex(functionName)}\\s*\\([^)]*\\)\\s*\\{`),
+    // ESM arrow: export const name = () => {
     new RegExp(`(?:export\\s+)?const\\s+${escapeRegex(functionName)}\\s*=\\s*(?:async\\s*)?\\([^)]*\\)\\s*=>\\s*\\{`),
+    // ESM short arrow: export const name = x => {
     new RegExp(`(?:export\\s+)?const\\s+${escapeRegex(functionName)}\\s*=\\s*(?:async\\s*)?\\w+\\s*=>\\s*\\{`),
+    // CJS: Name.prototype.method = function() {
+    new RegExp(`\\w+\\.prototype\\.${escapeRegex(functionName)}\\s*=\\s*(?:async\\s+)?function\\s*\\([^)]*\\)\\s*\\{`),
+    // CJS mixin: this.method = function() {
+    new RegExp(`this\\.${escapeRegex(functionName)}\\s*=\\s*(?:async\\s+)?function\\s*\\([^)]*\\)\\s*\\{`),
   ]
 
   for (const pattern of patterns) {
