@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
-import { applyOutputTransform } from './outputTransform.js'
+import { applyOutputTransformAsync } from './outputTransform.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -319,36 +319,10 @@ for (const cluster of clusters) {
       }
     }
 
-    // ─── Helper: apply outputTransform ─────────────────────────────────────
-    async function applyOutputTransform(consumedOutput, outputTransform) {
-      if (!outputTransform) return consumedOutput
-      if (outputTransform === 'str') {
-        if (Array.isArray(consumedOutput)) {
-          return consumedOutput.map(item => String(item))
-        }
-        return String(consumedOutput)
-      } else if (outputTransform === 'json') {
-        if (Array.isArray(consumedOutput)) {
-          return consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
-        }
-        return JSON.parse(JSON.stringify(consumedOutput))
-      } else if (outputTransform === 'keys') {
-        if (consumedOutput && typeof consumedOutput === 'object') {
-          return Object.keys(consumedOutput)
-        }
-      } else if (outputTransform.includes('.')) {
-        const lastDot = outputTransform.lastIndexOf('.')
-        const modPath = outputTransform.slice(0, lastDot)
-        const fnName = outputTransform.slice(lastDot + 1)
-        try {
-          const customMod = await import(resolve(process.cwd(), modPath))
-          return customMod[fnName](consumedOutput)
-        } catch (e) {
-          throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-        }
-      }
-      return consumedOutput
-    }
+    // ─── outputTransform: delegated to shared applyOutputTransformAsync ─────
+    // All transform logic (str, json, keys, toString, toJSON, pojo, repr, len,
+    // type, isoformat, array_summary, dict, dataclass_dict, custom module.fn)
+    // lives in scripts/outputTransform.js
 
     // ─── Helper: consumeIterator is now imported from ghost.js ───────────
 
@@ -432,7 +406,7 @@ for (const cluster of clusters) {
 
         const rawOutput = getStateFn()
         const { result: consumedOutput } = await consumeIterator(rawOutput)
-        let transformedOutput = await applyOutputTransform(consumedOutput, outputTransform)
+        let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
         const output = deepClone(transformedOutput)
 
         const fpInput = inputForRecord
@@ -509,7 +483,7 @@ for (const cluster of clusters) {
         const { result: consumedOutput } = await consumeIterator(rawOutput)
 
         // Apply outputTransform if specified in manifest
-        let transformedOutput = await applyOutputTransform(consumedOutput, outputTransform)
+        let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
         // trackMutation: snapshot input state before/after call to detect mutations
         let inputAfterCall = null
@@ -597,22 +571,7 @@ for (const cluster of clusters) {
         const { result: consumedOutput } = await consumeIterator(rawOutput)
 
         // Apply outputTransform if specified
-        let transformedOutput = consumedOutput
-        if (outputTransform) {
-          if (outputTransform === 'str') {
-            transformedOutput = Array.isArray(consumedOutput)
-              ? consumedOutput.map(item => String(item))
-              : String(consumedOutput)
-          } else if (outputTransform === 'json') {
-            transformedOutput = Array.isArray(consumedOutput)
-              ? consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
-              : JSON.parse(JSON.stringify(consumedOutput))
-          } else if (outputTransform === 'keys') {
-            if (consumedOutput && typeof consumedOutput === 'object') {
-              transformedOutput = Object.keys(consumedOutput)
-            }
-          }
-        }
+        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
         const output = deepClone(transformedOutput)
         const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
@@ -719,20 +678,7 @@ for (const cluster of clusters) {
         }
 
         // Apply outputTransform if specified in manifest
-        let transformedOutput = await applyOutputTransform(consumedOutput, outputTransform)
-
-        // Handle async custom outputTransform (module.function pattern)
-        if (outputTransform && outputTransform.includes('.')) {
-          const lastDot = outputTransform.lastIndexOf('.')
-          const modPath = outputTransform.slice(0, lastDot)
-          const fnName = outputTransform.slice(lastDot + 1)
-          try {
-            const customMod = await import(resolve(process.cwd(), modPath))
-            transformedOutput = customMod[fnName](consumedOutput)
-          } catch (e) {
-            throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-          }
-        }
+        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
         // trackMutation: snapshot input state after call to detect mutations
         let inputAfterCall = null

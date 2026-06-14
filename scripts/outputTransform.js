@@ -4,22 +4,27 @@
 // Eliminates code duplication that caused false positives when validate.js
 // didn't have the same transforms as capture.js (discovered during mathjs refactoring).
 
+import { resolve } from 'path'
 import { deepClone } from './ghost.js'
 
 /**
  * Apply an output transform to prepare output for fingerprinting.
  *
  * Supported transforms:
- *   'str'      — Convert to string via String()
- *   'json'     — Force JSON round-trip (strips non-serializable values)
- *   'keys'     — Return Object.keys() for objects
- *   'toString' — Call .toString() on objects (e.g., mathjs Node trees)
- *   'toJSON'   — Call .toJSON() on objects (e.g., mathjs Complex, BigNumber)
- *   'pojo'     — Recursively convert class instances to plain objects
- *   'repr'     — JSON.stringify the full value
- *   'len'      — Return length/size
- *   'type'     — Return type name string
- *   'a.b'      — Custom module.function (returns output unchanged; caller handles async)
+ *   'str'            — Convert to string via String()
+ *   'json'           — Force JSON round-trip (strips non-serializable values)
+ *   'keys'           — Return Object.keys() for objects
+ *   'toString'       — Call .toString() on objects (e.g., mathjs Node trees)
+ *   'toJSON'         — Call .toJSON() on objects (e.g., mathjs Complex, BigNumber)
+ *   'pojo'           — Recursively convert class instances to plain objects
+ *   'repr'           — JSON.stringify the full value
+ *   'len'            — Return length/size
+ *   'type'           — Return type name string
+ *   'isoformat'      — Convert Date/datetime objects to ISO 8601 strings
+ *   'array_summary'  — Summarize array-like data (length + shape + dtype info)
+ *   'dict'           — Convert to plain object (for Map-like or dict-like objects)
+ *   'dataclass_dict' — Recursively convert class instances to dicts (alias for pojo)
+ *   'a.b'            — Custom module.function (returns output unchanged; use applyOutputTransformAsync for auto-import)
  *
  * @param {*} output - The raw output value
  * @param {string|null} transform - Transform name from manifest
@@ -86,10 +91,88 @@ export function applyOutputTransform(output, transform) {
     return typeof output
   }
 
+  if (transform === 'array_summary') {
+    // Summarize array-like output: length, shape hints, dtype-like info.
+    // Essential for numpy-style arrays or large typed arrays where full
+    // fingerprinting is impractical.
+    if (Array.isArray(output)) {
+      const summary = { length: output.length }
+      if (output.length > 0) {
+        summary.first = output[0]
+        summary.last = output[output.length - 1]
+      }
+      return summary
+    }
+    if (ArrayBuffer.isView(output) && !(output instanceof DataView)) {
+      return { length: output.length, byteLength: output.byteLength }
+    }
+    if (output && typeof output === 'object') {
+      const keys = Object.keys(output)
+      return { length: keys.length, keys }
+    }
+    return { length: 0 }
+  }
+
+  if (transform === 'dict') {
+    // Convert Map-like or dict-like objects to plain JS objects.
+    // For Map instances, converts entries to an object.
+    // For class instances, recursively strips class identity.
+    if (output instanceof Map) {
+      const result = {}
+      for (const [k, v] of output) {
+        result[k] = toPojo(v)
+      }
+      return result
+    }
+    if (output && typeof output === 'object' && !Array.isArray(output)) {
+      return toPojo(output)
+    }
+    return output
+  }
+
+  if (transform === 'dataclass_dict') {
+    // Recursively convert dataclass-like instances to plain dicts.
+    // In JS this is functionally equivalent to pojo.
+    return toPojo(output)
+  }
+
   // Custom "module.function" — caller handles async import
   if (transform.includes('.')) return output
 
   return output
+}
+
+/**
+ * Async version of applyOutputTransform that also handles the custom
+ * "module.function" transform pattern by dynamically importing the module.
+ *
+ * Use this when the transform might be a custom "module.fn" pattern that
+ * requires async import(). For all other transforms, behavior is identical
+ * to applyOutputTransform().
+ *
+ * @param {*} output - The raw output value
+ * @param {string|null} transform - Transform name from manifest
+ * @param {string} [cwd] - Current working directory for resolving module paths
+ * @returns {Promise<*>} Transformed output
+ */
+export async function applyOutputTransformAsync(output, transform, cwd) {
+  if (!transform) return output
+
+  // Custom "module.function" — async import
+  if (transform.includes('.')) {
+    const lastDot = transform.lastIndexOf('.')
+    const modPath = transform.slice(0, lastDot)
+    const fnName = transform.slice(lastDot + 1)
+    try {
+      const customMod = await import(resolve(cwd || process.cwd(), modPath))
+      return customMod[fnName](output)
+    } catch (e) {
+      throw new Error(`Cannot resolve outputTransform '${transform}': ${e.message}`)
+    }
+  }
+
+  // All other transforms delegate to the sync version
+  return applyOutputTransform(output, transform)
 }
 
 /**
