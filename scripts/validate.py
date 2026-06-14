@@ -15,6 +15,7 @@ import re
 import hashlib
 import types
 import time
+import random
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
@@ -28,6 +29,54 @@ from fingerprint import (
     object_state_serialize, snapshot_module_globals, restore_module_globals,
     fingerprint_modes
 )
+
+
+# ─── Seeded RNG support ───────────────────────────────────────────────────────
+# Same implementation as capture.py — kept in sync.
+
+_numpy_available = False
+try:
+    import numpy as np
+    _numpy_available = True
+except ImportError:
+    pass
+
+
+def seed_rng(seed_value):
+    """Seed the Python random module and numpy (if available).
+
+    Returns a tuple (saved_python_state, saved_numpy_state) that can be
+    passed to restore_rng() to restore the previous RNG state.
+    """
+    saved_python_state = random.getstate()
+    saved_numpy_state = None
+
+    random.seed(seed_value)
+
+    if _numpy_available:
+        try:
+            saved_numpy_state = np.random.get_state()
+            np.random.seed(seed_value)
+        except Exception:
+            saved_numpy_state = None
+
+    return saved_python_state, saved_numpy_state
+
+
+def restore_rng(saved_python_state, saved_numpy_state):
+    """Restore the Python random module and numpy (if available) to a
+    previously saved state.
+    """
+    try:
+        random.setstate(saved_python_state)
+    except Exception as e:
+        print(f"   ⚠️  Could not restore Python RNG state: {e}")
+
+    if _numpy_available and saved_numpy_state is not None:
+        try:
+            np.random.set_state(saved_numpy_state)
+        except Exception as e:
+            print(f"   ⚠️  Could not restore numpy RNG state: {e}")
 
 
 def freeze_time(frozen_dt_str):
@@ -467,6 +516,11 @@ def parse_regret(content):
             meta['freezeTime'] = val
         elif key == 'trackState':
             meta['trackState'] = [s.strip() for s in val.strip('[]').split(',') if s.strip()]
+        elif key == 'seed':
+            try:
+                meta['seed'] = int(val.strip())
+            except ValueError:
+                meta['seed'] = val.strip()
         elif key == 'stateFingerprint':
             meta['stateFingerprint'] = val.strip()
         elif key == 'instanceMethods':
@@ -493,6 +547,8 @@ def parse_regret(content):
             meta['stateBefore'] = json.loads(line[13:])
         elif line.startswith('STATE_AFTER '):
             meta['stateAfter'] = json.loads(line[12:])
+        elif line.startswith('RETURN_STATE '):
+            meta['returnState'] = json.loads(line[14:])
         elif line.startswith('MODES_FINGERPRINT '):
             meta['modesFingerprint'] = line[18:].strip()
         elif line.startswith('MODE '):
@@ -788,7 +844,9 @@ def main():
             max_yields = regret.get('maxYields', cluster_def.get('maxYields', cluster_def.get('materializeLimit', None)))
             freeze_time_str = regret.get('freezeTime', cluster_def.get('freezeTime', None))
             track_state_attrs = regret.get('trackState', cluster_def.get('trackState', None))
+            seed_value = regret.get('seed', cluster_def.get('seed', None))
             golden_state_fp = regret.get('stateFingerprint', None)
+            golden_return_state = regret.get('returnState', None)
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -803,6 +861,7 @@ def main():
             hashes = []           # flat list of all hashes (for backward compat)
             hashes_per_input = {}  # { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
             last_output = None
+            live_return_state = None
 
             # Determine which inputs to validate: golden from .regret + all from manifest
             all_inputs = cluster_def.get('inputs', [regret.get('input')])
@@ -833,6 +892,11 @@ def main():
                     for current_input in inputs_to_validate:
                         input_for_fp = deep_clone(current_input)
                         input_for_args = deep_clone(current_input)
+
+                        # ── Seed RNG if configured ────────────────────────────
+                        saved_rng = None
+                        if seed_value is not None:
+                            saved_rng = seed_rng(seed_value)
 
                         # Create fresh instance for each input
                         c_args = deep_clone(constructor_args) if constructor_args else []
@@ -929,6 +993,15 @@ def main():
 
                         last_output = output_for_fp
 
+                        # Snapshot tracked attrs from the return object (for trackState)
+                        live_return_state = None
+                        if track_state_attrs and raw_output is not None and hasattr(raw_output, '__dict__'):
+                            live_return_state = snapshot_state(
+                                raw_output,
+                                include_private=True,
+                                attr_filter=track_state_attrs
+                            )
+
                         if effective_fp_mode == 'schema':
                             schema = extract_schema(output_for_fp)
                             fp = fingerprint(input_for_fp, schema, norm_rules, ign_fields)
@@ -954,6 +1027,10 @@ def main():
 
                         hashes.append(fp)
 
+                        # ── Restore RNG state after this input run ──────────────
+                        if saved_rng is not None:
+                            restore_rng(*saved_rng)
+
                         # Track per-input hashes for drift detection
                         input_key = json.dumps(current_input, sort_keys=True)
                         if input_key not in hashes_per_input:
@@ -977,6 +1054,11 @@ def main():
                         # Deep-clone input before calling to prevent mutation from corrupting fingerprint
                         input_for_fp = deep_clone(current_input)
                         input_for_args = deep_clone(current_input)
+
+                        # ── Seed RNG if configured ────────────────────────────
+                        saved_rng = None
+                        if seed_value is not None:
+                            saved_rng = seed_rng(seed_value)
 
                         # Apply input transform if specified (e.g., hex_to_bytes for bytes-argument functions)
                         if input_transform:
@@ -1052,6 +1134,15 @@ def main():
 
                         last_output = output_for_fp
 
+                        # Snapshot tracked attrs from the return object (for trackState)
+                        live_return_state = None
+                        if track_state_attrs and raw_output is not None and hasattr(raw_output, '__dict__'):
+                            live_return_state = snapshot_state(
+                                raw_output,
+                                include_private=True,
+                                attr_filter=track_state_attrs
+                            )
+
                         if effective_fp_mode == 'schema':
                             schema = extract_schema(output_for_fp)
                             fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
@@ -1076,6 +1167,10 @@ def main():
                             fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
                         hashes.append(fp)
+
+                        # ── Restore RNG state after this input run ──────────────
+                        if saved_rng is not None:
+                            restore_rng(*saved_rng)
 
                         # Track per-input hashes for drift detection
                         input_key = json.dumps(current_input, sort_keys=True)
@@ -1216,9 +1311,22 @@ def main():
                     if golden_state_fp and live_state_fp != golden_state_fp:
                         state_match = False
 
+            # Return object state check (for trackState on return values)
+            return_state_match = True
+            if track_state_attrs and golden_return_state is not None and live_return_state is not None:
+                golden_return_fp = fingerprint(golden_return_state, norm_rules=norm_rules, ign_fields=ign_fields)
+                live_return_fp = fingerprint(live_return_state, norm_rules=norm_rules, ign_fields=ign_fields)
+                if golden_return_fp != live_return_fp:
+                    return_state_match = False
+
             if not state_match:
                 print(f"  ❌ {cluster_id:<35} STATE MISMATCH")
                 results.append({'id': cluster_id, 'pass': False, 'state_mismatch': True})
+                continue
+
+            if not return_state_match:
+                print(f"  ❌ {cluster_id:<35} RETURN STATE MISMATCH")
+                results.append({'id': cluster_id, 'pass': False, 'return_state_mismatch': True})
                 continue
 
             # Modes mismatch is a separate failure condition

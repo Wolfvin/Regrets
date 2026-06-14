@@ -15,6 +15,7 @@ import importlib
 import copy
 import types
 import time
+import random
 import asyncio
 import inspect
 from datetime import datetime, timezone
@@ -29,6 +30,71 @@ from fingerprint import (
     object_state_serialize, snapshot_module_globals, restore_module_globals,
     fingerprint_modes
 )
+
+
+# ─── Seeded RNG support ───────────────────────────────────────────────────────
+# When a cluster config includes `seed: N`, we seed Python's random module
+# (and numpy if available) before each input run, then restore the previous
+# state afterwards. This ensures deterministic output for functions that use
+# random number generation.
+
+_numpy_available = False
+_numpy_state = None
+try:
+    import numpy as np
+    _numpy_available = True
+except ImportError:
+    pass
+
+
+def seed_rng(seed_value):
+    """Seed the Python random module and numpy (if available).
+
+    Returns a tuple (saved_python_state, saved_numpy_state) that can be
+    passed to restore_rng() to restore the previous RNG state.
+
+    Args:
+        seed_value: Integer seed value from the cluster config.
+
+    Returns:
+        tuple: (saved_python_state, saved_numpy_state_or_None)
+    """
+    saved_python_state = random.getstate()
+    saved_numpy_state = None
+
+    random.seed(seed_value)
+
+    if _numpy_available:
+        try:
+            saved_numpy_state = np.random.get_state()
+            np.random.seed(seed_value)
+        except Exception:
+            saved_numpy_state = None
+
+    return saved_python_state, saved_numpy_state
+
+
+def restore_rng(saved_python_state, saved_numpy_state):
+    """Restore the Python random module and numpy (if available) to a
+    previously saved state.
+
+    This ensures that seeding for one cluster doesn't affect subsequent
+    clusters or the rest of the program.
+
+    Args:
+        saved_python_state: State tuple from random.getstate()
+        saved_numpy_state: State tuple from np.random.get_state(), or None
+    """
+    try:
+        random.setstate(saved_python_state)
+    except Exception as e:
+        print(f"   ⚠️  Could not restore Python RNG state: {e}")
+
+    if _numpy_available and saved_numpy_state is not None:
+        try:
+            np.random.set_state(saved_numpy_state)
+        except Exception as e:
+            print(f"   ⚠️  Could not restore numpy RNG state: {e}")
 
 
 def freeze_time(frozen_dt_str):
@@ -804,6 +870,7 @@ def main():
         max_yields = cluster.get('maxYields', cluster.get('materializeLimit', None))
         freeze_time_str = cluster.get('freezeTime', None)
         track_state_attrs = cluster.get('trackState', None)  # list of attr names to track on the entry object
+        seed_value = cluster.get('seed', None)  # RNG seed for deterministic random output
         modes = cluster.get('modes', None)
 
         # classMethod support: instantiate a class and call methods on the instance
@@ -821,6 +888,9 @@ def main():
             print(f"   Entry:   {entry}")
         if freeze_time_str:
             print(f"   ⏰ Time frozen: {freeze_time_str}")
+        if seed_value is not None:
+            numpy_note = " + numpy" if _numpy_available else ""
+            print(f"   🎲 Seeded RNG with seed={seed_value}{numpy_note}")
         print(f"   Watches: {', '.join(watches)}")
         if modes:
             print(f"   Modes:   {len(modes)} ({', '.join(m.get('name', f'mode_{i}') for i, m in enumerate(modes))})")
@@ -892,6 +962,11 @@ def main():
                     # Deep-clone input BEFORE calling the function
                     input_for_record = deep_clone(input_val)
                     input_for_args = deep_clone(input_val)
+
+                    # ── Seed RNG if configured ────────────────────────────
+                    saved_rng = None
+                    if seed_value is not None:
+                        saved_rng = seed_rng(seed_value)
 
                     # Create fresh instance for each input
                     c_args = deep_clone(constructor_args) if constructor_args else []
@@ -1000,6 +1075,15 @@ def main():
                     # Apply output transform if specified
                     output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
+                    # Snapshot tracked attrs from the return object (for trackState)
+                    return_state = None
+                    if track_state_attrs and raw_output is not None and hasattr(raw_output, '__dict__'):
+                        return_state = snapshot_state(
+                            raw_output,
+                            include_private=True,
+                            attr_filter=track_state_attrs
+                        )
+
                     if fingerprint_mode == 'schema':
                         schema = extract_schema(output_for_fp)
                         fp = fingerprint(fp_input, schema, normalize_rules, ignore_fields)
@@ -1029,7 +1113,12 @@ def main():
                         'fp': fp,
                         'calls': list(recorder_local),
                         'was_materialized': was_materialized,
+                        'return_state': return_state,
                     })
+
+                    # ── Restore RNG state after this input run ──────────────
+                    if saved_rng is not None:
+                        restore_rng(*saved_rng)
 
             else:
                 # ── Function-based entry (original behavior) ────────────────
@@ -1039,6 +1128,7 @@ def main():
                     dt_cm, time_cm = freeze_time(freeze_time_str)
                     freeze_cms = [dt_cm, time_cm]
 
+                recorder_local = []  # initialized here; reassigned per input in the loop below
                 ghost = create_ghost(mod, watches, recorder_local)
                 entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
                 if entry_fn is None or not callable(entry_fn):
@@ -1054,6 +1144,11 @@ def main():
                     # (immutable record), one for the args (may be mutated by the function)
                     input_for_record = deep_clone(input_val)
                     input_for_args = deep_clone(input_val)
+
+                    # ── Seed RNG if configured ────────────────────────────
+                    saved_rng = None
+                    if seed_value is not None:
+                        saved_rng = seed_rng(seed_value)
 
                     # Apply input transform (e.g., hex_to_bytes for bytes-argument functions)
                     if input_transform:
@@ -1162,6 +1257,15 @@ def main():
                             attr_filter=track_state_attrs
                         )
 
+                    # Also snapshot tracked attrs from the return object (if it has __dict__)
+                    return_state = None
+                    if track_state_attrs and raw_output is not None and hasattr(raw_output, '__dict__'):
+                        return_state = snapshot_state(
+                            raw_output,
+                            include_private=True,
+                            attr_filter=track_state_attrs
+                        )
+
                     if obj_state_before is not None and obj_state_after is not None:
                         obj_state_fingerprint = fingerprint(
                             obj_state_before, obj_state_after,
@@ -1205,7 +1309,12 @@ def main():
                         'obj_state_before': obj_state_before,
                         'obj_state_after': obj_state_after,
                         'obj_state_fingerprint': obj_state_fingerprint,
+                        'return_state': return_state,
                     })
+
+                    # ── Restore RNG state after this input run ──────────────
+                    if saved_rng is not None:
+                        restore_rng(*saved_rng)
 
             # Warn about watched functions that were never called during capture
             # Note: If the entry function is also in the watches list, it IS called
@@ -1413,8 +1522,11 @@ def main():
             # freezeTime metadata
             if freeze_time_str:
                 lines.append(f"freezeTime: {freeze_time_str}")
+            if seed_value is not None:
+                lines.append(f"seed: {seed_value}")
             if track_state_attrs:
-                lines.append(f"trackState: [{', '.join(track_state_attrs)}]")
+                attrs_str = ', '.join(track_state_attrs)
+                lines.append("trackState: [" + attrs_str + "]")
                 if golden.get('obj_state_fingerprint'):
                     lines.append(f"stateFingerprint: {golden['obj_state_fingerprint']}")
 
@@ -1442,6 +1554,8 @@ def main():
             if track_state_attrs and golden.get('obj_state_before') is not None:
                 lines.append(f"STATE_BEFORE {json_serialize(golden['obj_state_before'])}")
                 lines.append(f"STATE_AFTER  {json_serialize(golden['obj_state_after'])}")
+            if track_state_attrs and golden.get('return_state') is not None:
+                lines.append(f"RETURN_STATE {json_serialize(golden['return_state'])}")
 
             # Write mode data section
             if modes and mode_results:
