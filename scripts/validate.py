@@ -103,6 +103,8 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'snapshot':
+            return snapshot_state(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -114,7 +116,7 @@ def apply_output_transform(output, transform):
         else:
             raise ValueError(f"Unknown outputTransform: '{transform}'")
 
-    if isinstance(output, list) and transform not in ('len',):
+    if isinstance(output, list) and transform not in ('len', 'snapshot'):
         return [transform_one(item) for item in output]
     return transform_one(output)
 
@@ -159,6 +161,16 @@ def parse_regret(content):
             meta['trackMutation'] = val.lower() == 'true'
         elif key == 'mutationFingerprint':
             meta['mutationFingerprint'] = val.strip()
+        elif key == 'constructorArgs':
+            try:
+                meta['constructorArgs'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['constructorArgs'] = val
+        elif key == 'setup':
+            try:
+                meta['setup'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['setup'] = val
         elif key == 'classMethod':
             meta['classMethod'] = val
         elif key == 'constructor':
@@ -513,7 +525,11 @@ def main():
                         output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
                         if not materialize_output_flag:
                             output = consume_generator(output)
-                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                        # Apply output transform — for "snapshot", apply snapshot_state BEFORE deep_clone
+                        if output_transform == 'snapshot':
+                            output_for_fp = deep_clone(snapshot_state(output))
+                        else:
+                            output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
                         last_output = output_for_fp
 
@@ -587,7 +603,11 @@ def main():
                             output = consume_generator(output)
 
                         # Apply output transform if specified
-                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                        # For "snapshot" transform, apply snapshot_state BEFORE deep_clone
+                        if output_transform == 'snapshot':
+                            output_for_fp = deep_clone(snapshot_state(output))
+                        else:
+                            output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
                         # Snapshot input state AFTER call (for mutation tracking)
                         mutation_match = True

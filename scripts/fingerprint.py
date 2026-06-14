@@ -318,7 +318,7 @@ def snapshot_state(obj):
                     attrs[k] = snapshot_state(v)
                 except Exception:
                     attrs[k] = f'<unrepresentable:{type(v).__name__}>'
-        return {'__class__': cls_name, **attrs}
+        return {'__type__': cls_name, **attrs}
 
     # Object with __slots__
     if hasattr(obj, '__slots__'):
@@ -329,7 +329,7 @@ def snapshot_state(obj):
                 attrs[slot] = snapshot_state(getattr(obj, slot))
             except AttributeError:
                 pass
-        return {'__class__': cls_name, **attrs}
+        return {'__type__': cls_name, **attrs}
 
     # Fallback: try JSON serialization
     try:

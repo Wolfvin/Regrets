@@ -121,6 +121,20 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'snapshot':
+            # Deep recursive class-to-dict conversion using snapshot_state().
+            # Walks through nested class instances and converts them all to
+            # JSON-serializable dicts with __type__ tags. This is essential for
+            # libraries like musicpy where chord/scale/note objects contain other
+            # class instances inside lists. Unlike "dict" which only does shallow
+            # __dict__ conversion (leaving nested class instances unhashable),
+            # "snapshot" recursively walks through all nested objects.
+            #
+            # IMPORTANT: When using this transform in the fingerprint pipeline,
+            # apply snapshot_state BEFORE deep_clone, not after. deep_clone
+            # already handles class instances via __type__ tags, so applying
+            # snapshot after deep_clone would be a no-op.
+            return snapshot_state(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -134,7 +148,7 @@ def apply_output_transform(output, transform):
 
     # Apply to each element of lists, or to the single object
     # Exception: "len" and "type" apply to the whole collection, not each element
-    if isinstance(output, list) and transform not in ('len',):
+    if isinstance(output, list) and transform not in ('len', 'snapshot'):
         return [transform_one(item) for item in output]
     return transform_one(output)
 
@@ -407,7 +421,14 @@ def main():
                             print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
 
                     # Apply output transform if specified
-                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                    # For "snapshot" transform, apply snapshot_state BEFORE deep_clone
+                    # to ensure nested class instances are properly converted to dicts.
+                    # deep_clone already handles class instances via __type__ tags,
+                    # so applying snapshot after deep_clone would be a no-op.
+                    if output_transform == 'snapshot':
+                        output_for_fp = deep_clone(snapshot_state(output))
+                    else:
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
                     if fingerprint_mode == 'schema':
                         schema = extract_schema(output_for_fp)
@@ -496,7 +517,11 @@ def main():
                             print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
 
                     # Apply output transform if specified (e.g., "str" for Statement objects)
-                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                    # For "snapshot" transform, apply snapshot_state BEFORE deep_clone
+                    if output_transform == 'snapshot':
+                        output_for_fp = deep_clone(snapshot_state(output))
+                    else:
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
                     # Snapshot input state AFTER call (for mutation tracking)
                     input_snapshot_after = None
