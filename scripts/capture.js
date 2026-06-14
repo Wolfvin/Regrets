@@ -233,7 +233,7 @@ for (const cluster of clusters) {
           instanceMethods = {}, kwargs = false, outputTransform = null,
           materializeOutput = false, outputEncoding, resetState, deepCloneInput = true,
           seed, singletonMethod, singletonName, storeDispatch, initialState,
-          adapter, sideEffectWatches = [] } = cluster
+          adapter, sideEffectWatches = [], detectMode = false } = cluster
 
   if (!quiet) {
     console.log(`\n📡 Capturing: ${id}`)
@@ -303,6 +303,65 @@ for (const cluster of clusters) {
 
     // Handle CJS modules — merge default exports for consistent access
     rawModule = mergeCjsModule(rawModule)
+
+    // ─── detectMode: auto-infer execution mode from module structure ────────
+    // When detectMode: true is set in manifest, inspect rawModule to infer
+    // the execution mode. This helps agents who are unsure which mode to use.
+    // If classMethod/singletonMethod/storeDispatch are already set, skip inference.
+    if (detectMode && !classMethod && !singletonMethod && !storeDispatch) {
+      const entryExport = rawModule[entry] ?? rawModule.default?.[entry]
+      const defaultExport = rawModule.default
+
+      if (entryExport && typeof entryExport === 'function') {
+        // Check if it's a class (has prototype with methods)
+        const proto = entryExport.prototype
+        const hasMethods = proto && Object.getOwnPropertyNames(proto).some(
+          name => name !== 'constructor' && typeof proto[name] === 'function'
+        )
+        if (hasMethods) {
+          // It's a class — suggest classMethod mode
+          const methodNames = Object.getOwnPropertyNames(proto)
+            .filter(name => name !== 'constructor' && typeof proto[name] === 'function')
+          console.log(`   ℹ️  Auto-detected mode: class-based (entry "${entry}" is a class)`)
+          console.log(`      Suggested: add "classMethod": "${methodNames[0]}" to manifest`)
+          console.log(`      Available methods: ${methodNames.join(', ')}`)
+        } else {
+          // It's a plain function
+          console.log(`   ℹ️  Auto-detected mode: function-based (entry "${entry}" is a function)`)
+        }
+      } else if (!entryExport && defaultExport && typeof defaultExport === 'object') {
+        // Entry not found at top level but default export has methods — likely a singleton
+        const defaultMethods = Object.entries(defaultExport)
+          .filter(([, v]) => typeof v === 'function')
+          .map(([k]) => k)
+        if (defaultMethods.length > 0) {
+          console.log(`   ℹ️  Auto-detected mode: singleton (default export has methods)`)
+          console.log(`      Suggested: add "singletonMethod": "${defaultMethods[0]}" to manifest`)
+          console.log(`      Available methods: ${defaultMethods.join(', ')}`)
+        } else if (defaultExport[entry] && typeof defaultExport[entry] === 'function') {
+          console.log(`   ℹ️  Auto-detected mode: function-based (default.${entry} is a function)`)
+        } else {
+          console.log(`   ℹ️  Auto-detected mode: unable to infer — entry "${entry}" not found in module or default export`)
+        }
+      } else if (entryExport && typeof entryExport === 'object' && entryExport !== null) {
+        // Entry is an object — likely a singleton or store
+        const objMethods = Object.entries(entryExport)
+          .filter(([, v]) => typeof v === 'function')
+          .map(([k]) => k)
+        if (entryExport.dispatch && (entryExport.getState || entryExport.value !== undefined || entryExport.setState)) {
+          console.log(`   ℹ️  Auto-detected mode: store dispatch (entry "${entry}" looks like a store)`)
+          console.log(`      Suggested: add "storeDispatch": { "store": "${entry}", "action": "ACTION_TYPE" } to manifest`)
+        } else if (objMethods.length > 0) {
+          console.log(`   ℹ️  Auto-detected mode: singleton (entry "${entry}" is an object with methods)`)
+          console.log(`      Suggested: add "singletonMethod": "${objMethods[0]}" to manifest`)
+          console.log(`      Available methods: ${objMethods.join(', ')}`)
+        } else {
+          console.log(`   ℹ️  Auto-detected mode: unable to infer — entry "${entry}" is an object but has no callable methods`)
+        }
+      } else {
+        console.log(`   ℹ️  Auto-detected mode: unable to infer — entry "${entry}" not found in module`)
+      }
+    }
 
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder, instanceMethods)

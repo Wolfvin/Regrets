@@ -94,6 +94,8 @@ function getArg(args, flag) {
 let clusterFilter = null
 let failFast      = false
 let runs          = 1
+let runsExplicit  = false  // whether --runs was explicitly provided via CLI
+let driftModeFlag = false  // whether --drift-mode was passed (from regret drift)
 let updateTarget  = null
 let updateReason  = null
 let manifestPath  = resolve(process.cwd(), 'regrets/manifest.json')
@@ -109,7 +111,14 @@ if (isMainModule) {
   const args          = process.argv.slice(2)
   clusterFilter = getArg(args, '--cluster')
   failFast      = args.includes('--fail-fast')
-  runs          = parseInt(getArg(args, '--runs') ?? '1')
+  const runsArg = getArg(args, '--runs')
+  runs          = parseInt(runsArg ?? '1')
+  runsExplicit  = runsArg != null
+  driftModeFlag = args.includes('--drift-mode')
+  // When --drift-mode is set and --runs is not explicit, default to 5 runs
+  if (driftModeFlag && !runsExplicit) {
+    runs = 5
+  }
   updateTarget  = getArg(args, '--update')
   updateReason  = getArg(args, '--reason')
   manifestPath  = getArg(args, '--manifest') ?? resolve(process.cwd(), 'regrets/manifest.json')
@@ -1315,7 +1324,7 @@ if (jsonOutput) {
 } else if (quiet) {
   // quiet mode: no per-cluster output, only summary at the end
 } else if (updateMode)     console.log(`\n🔄 Update mode — cluster: ${updateTarget}\n   Reason: ${updateReason}\n`)
-else if (driftMode) console.log(`\n🔍 Drift detection — ${runs} runs per cluster...\n`)
+else if (driftMode) console.log(`\n🔍 Drift detection — ${runs} runs${!runsExplicit && manifest.clusters?.some(c => c.driftRuns) ? ' (default, per-cluster driftRuns may override)' : ''} per cluster...\n`)
 else                console.log(`\n🔍 Validating ${regretFiles.length} cluster(s)...\n`)
 
 const results = []
@@ -1351,6 +1360,10 @@ for (const file of regretFiles) {
     continue
   }
 
+  // Compute effective runs for this cluster:
+  // Priority: --runs CLI (explicit) > manifest driftRuns > default runs (5 in drift-mode, 1 otherwise)
+  const effectiveRuns = runsExplicit ? runs : (def.driftRuns ?? runs)
+
   // Compute confidence for this cluster (used in JSON output)
   const clusterConfidence = _confidenceForCluster(id, regret)
 
@@ -1360,7 +1373,7 @@ for (const file of regretFiles) {
             mutationDetected: clusterMutationDetected,
             liveMutationFingerprint: clusterLiveMutationFp,
             lastSideEffectRecording: clusterLastSERecording,
-            goldenSideEffects: clusterGoldenSE } = await runCluster(def, regret)
+            goldenSideEffects: clusterGoldenSE } = await runCluster(def, regret, { runs: effectiveRuns })
     if (skipped) { results.push({ id, pass: true, skipped: true, confidence: clusterConfidence.label }); continue }
 
     // ── trackMutation check: mutation mismatch takes priority over fingerprint match ──
@@ -1462,7 +1475,7 @@ for (const file of regretFiles) {
       } else {
         if (!jsonOutput && !quiet) {
           const icon = isMatch ? '✅' : '❌'
-          console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
+          console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${effectiveRuns}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
           if (!isMatch && !noDiff && regret.output != null && lastOutput != null) {
             const diff = formatDiffOutput(regret.output, lastOutput, { verbose })
             if (diff) console.log(diff)

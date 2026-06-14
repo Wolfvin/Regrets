@@ -39,6 +39,40 @@ Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
 Stack: `js` | `ts` | `css` | `python` | `rust` | `react` | `go` | `php` | `extension`.
 CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed. Rust supports capture + validate via `cargo test`.
 
+### driftRuns — per-cluster drift run count
+
+Override the default 5 drift runs per cluster. Useful for probabilistic functions
+that need more runs for confidence, or deterministic functions where 5 is wasteful.
+
+```json
+{"id":"my-cluster","driftRuns":10,"entry":"fnName","watches":[],"file":"src/index.js","stack":"js","inputs":[]}
+```
+
+Priority: `--runs N` CLI flag (explicit) > `driftRuns` in manifest > default 5 (from `regret drift`).
+Backward compatible: clusters without `driftRuns` use the default.
+
+### detectMode — auto-infer execution mode
+
+Set `"detectMode": true` to have capture inspect the module and report the inferred
+execution mode. Useful when you are unsure whether a module exports a function,
+class, singleton, or store.
+
+```json
+{"id":"my-cluster","detectMode":true,"entry":"MyClass","watches":[],"file":"src/index.js","stack":"js","inputs":[]}
+```
+
+When `detectMode` is true and no explicit mode field (`classMethod`, `singletonMethod`,
+`storeDispatch`) is set, capture inspects the module and prints:
+
+- **Function**: `ℹ️ Auto-detected mode: function-based (entry "fnName" is a function)`
+- **Class**: `ℹ️ Auto-detected mode: class-based (entry "MyClass" is a class)` + suggested `classMethod`
+- **Singleton**: `ℹ️ Auto-detected mode: singleton (entry "obj" is an object with methods)` + suggested `singletonMethod`
+- **Store**: `ℹ️ Auto-detected mode: store dispatch (entry "store" looks like a store)` + suggested `storeDispatch`
+- **Unknown**: `ℹ️ Auto-detected mode: unable to infer — entry "x" not found in module`
+
+The detection is informational only — it does not change capture behavior. Add the
+suggested field to your manifest to use the detected mode.
+
 ### Fingerprint levels
 
 | Level | What gets hashed | When to use | Fallback |
