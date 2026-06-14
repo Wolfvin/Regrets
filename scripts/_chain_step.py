@@ -3,6 +3,7 @@
 _chain_step.py — Helper script for running a single Python chain step.
 Called by contest.mjs when a chain contains Python clusters.
 Receives a JSON payload as argument, runs the entry function, returns JSON result.
+Supports classMethod for instance-method-based clusters.
 """
 import sys
 import os
@@ -27,6 +28,7 @@ def main():
     input_data = payload['input']
     norm_rules = payload.get('normalize', [])
     ign_fields = payload.get('ignore_fields', [])
+    # classMethod support
     class_method = payload.get('class_method', None)
     constructor_name = payload.get('constructor', entry_name)
     constructor_args = payload.get('constructor_args', [])
@@ -43,21 +45,26 @@ def main():
 
     if class_method:
         # ── classMethod mode: fresh instance ─────────────────────────────
-        Cls = getattr(mod, constructor_name, None)
-        if Cls is None or not isinstance(Cls, type):
-            print(f"❌ Constructor '{constructor_name}' not found or not a class in {module_path}", file=sys.stderr)
+        Cls = getattr(mod, constructor_name or entry_name, None)
+        if Cls is None or not (isinstance(Cls, type) or callable(Cls)):
+            print(f"❌ Constructor '{constructor_name or entry_name}' not found or not a class in {module_path}", file=sys.stderr)
             sys.exit(1)
 
         c_args = deep_clone(constructor_args) if constructor_args else []
-        instance = Cls(*c_args)
+        if isinstance(c_args, list):
+            instance = Cls(*c_args)
+        elif isinstance(c_args, dict):
+            instance = Cls(**c_args)
+        else:
+            instance = Cls(c_args)
 
         # Run setup methods
-        for step in setup_steps:
+        for step in (setup_steps or []):
             setup_method = getattr(instance, step.get('method', ''), None)
             if setup_method is not None and callable(setup_method):
                 setup_args = step.get('args', [])
                 if isinstance(setup_args, list):
-                    setup_method(*setup_args)
+                    setup_method(*deep_clone(setup_args))
                 elif isinstance(setup_args, dict):
                     setup_method(**setup_args)
 
@@ -69,8 +76,10 @@ def main():
         input_for_args = deep_clone(input_data)
         if multi_args and isinstance(input_for_args, list):
             output = target_method(*input_for_args)
+        elif input_for_args is not None:
+            output = target_method(input_for_args)
         else:
-            output = target_method(input_for_args) if input_for_args is not None else target_method()
+            output = target_method()
     else:
         # ── Function-based entry ─────────────────────────────────────────
         entry_fn = getattr(mod, entry_name, None)

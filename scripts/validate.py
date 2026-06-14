@@ -487,10 +487,11 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
-            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
-            constructor_name = regret.get('constructor') or cluster_def.get('constructor', entry_name)
-            constructor_args = regret.get('constructorArgs') or cluster_def.get('constructorArgs', [])
-            setup_steps = regret.get('setup') or cluster_def.get('setup', [])
+            # classMethod support for Python
+            class_method = regret.get('classMethod', cluster_def.get('classMethod', None))
+            constructor_name = regret.get('constructor', cluster_def.get('constructor', None))
+            constructor_args = regret.get('constructorArgs', cluster_def.get('constructorArgs', []))
+            setup_steps = regret.get('setup', cluster_def.get('setup', []))
             isolate_globals = cluster_def.get('isolateGlobals', None)
 
             # Check environment snapshot if present in .regret file
@@ -529,9 +530,9 @@ def main():
 
                 if class_method:
                     # ── classMethod mode: fresh instance per input ──────────
-                    Cls = getattr(mod, constructor_name, None) or getattr(mod, entry_name, None)
+                    Cls = getattr(mod, constructor_name or entry_name, None)
                     if Cls is None or not isinstance(Cls, type):
-                        raise TypeError(f"Constructor \"{constructor_name}\" not found or not a class in {module_path}")
+                        raise TypeError(f"Constructor \"{constructor_name or entry_name}\" not found or not a class in {module_path}")
 
                     for current_input in inputs_to_validate:
                         input_for_fp = deep_clone(current_input)
@@ -539,7 +540,12 @@ def main():
 
                         # Create fresh instance for each input
                         c_args = deep_clone(constructor_args) if constructor_args else []
-                        instance = Cls(*c_args)
+                        if kwargs_mode and isinstance(c_args, dict):
+                            instance = Cls(**c_args)
+                        elif isinstance(c_args, list):
+                            instance = Cls(*c_args)
+                        else:
+                            instance = Cls(c_args)
 
                         # Apply ghost proxy to instance methods for watch recording
                         for watch_fn in watches_list:

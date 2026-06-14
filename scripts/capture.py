@@ -381,14 +381,14 @@ def main():
         track_mutation = cluster.get('trackMutation', False)
         isolate_globals = cluster.get('isolateGlobals', None)
         class_method = cluster.get('classMethod', None)
-        constructor_name = cluster.get('constructor', entry)
+        constructor_name = cluster.get('constructor', None)
         constructor_args = cluster.get('constructorArgs', [])
         setup_steps = cluster.get('setup', [])
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
         if class_method:
-            print(f"   Class:   {constructor_name} → {class_method}()")
+            print(f"   Class:   {constructor_name or entry} → {class_method}()")
         else:
             print(f"   Entry:   {entry}")
         print(f"   Watches: {', '.join(watches)}")
@@ -421,10 +421,10 @@ def main():
             #   setup: [{ method, args }, ...]     — setup calls before the target method
 
             if class_method:
-                Cls = getattr(mod, constructor_name, None) or getattr(mod, entry, None)
+                Cls = getattr(mod, constructor_name or entry, None)
                 if Cls is None or not isinstance(Cls, type):
                     raise TypeError(
-                        f"Constructor \"{constructor_name}\" not found or not a class in {module_path}"
+                        f"Constructor \"{constructor_name or entry}\" not found or not a class in {module_path}"
                     )
                 if setup_steps:
                     print(f"   Setup:   {', '.join(s['method'] + '()' for s in setup_steps)}")
@@ -440,7 +440,12 @@ def main():
 
                     # Create fresh instance for each input
                     c_args = deep_clone(constructor_args) if constructor_args else []
-                    instance = Cls(*c_args)
+                    if kwargs_mode and isinstance(c_args, dict):
+                        instance = Cls(**c_args)
+                    elif isinstance(c_args, list):
+                        instance = Cls(*c_args)
+                    else:
+                        instance = Cls(c_args)
 
                     # Apply ghost proxy to instance methods for watch recording
                     for watch_fn in watches:
@@ -602,12 +607,12 @@ def main():
 
                     # Apply output transform if specified (e.g., "str" for Statement objects)
                     output_for_fp = apply_output_transform(deep_clone(output), output_transform)
-
                     # Snapshot input state AFTER call (for mutation tracking)
                     input_snapshot_after = None
                     input_mutation_fingerprint = None
                     if track_mutation:
                         input_snapshot_after = snapshot_state(input_for_args)
+                        # Compute mutation fingerprint — if input changed, this hash will differ
                         input_mutation_fingerprint = fingerprint(
                             input_snapshot_before, input_snapshot_after,
                             normalize_rules, ignore_fields
@@ -694,7 +699,8 @@ def main():
                 f"watches: [{', '.join(watches)}]",
             ]
             if class_method:
-                lines.append(f"constructor: {constructor_name}")
+                if constructor_name:
+                    lines.append(f"constructor: {constructor_name}")
                 lines.append(f"classMethod: {class_method}")
                 if constructor_args:
                     lines.append(f"constructorArgs: {json_serialize(constructor_args)}")
@@ -723,6 +729,7 @@ def main():
                 lines.append(f"outputTransform: {output_transform}")
             if class_method:
                 lines.append(f"classMethod: {class_method}")
+
             if materialize_output_flag:
                 lines.append("materializeOutput: true")
             if track_mutation:
