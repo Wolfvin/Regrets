@@ -1,0 +1,88 @@
+{
+  "fingerprints": {
+    "nbt-role-lookup": {
+      "fingerprint": "jwrdqt5",
+      "golden_hash": "jwrdqt5",
+      "captured": "2026-06-14T03:17:20.966046+00:00",
+      "entry": "lookup_nbt_name_service_role",
+      "golden_input": "AA\u0000",
+      "golden_output": "Workstation/Redirector"
+    },
+    "nbt-name-decode": {
+      "fingerprint": "19wsyep",
+      "golden_hash": "19wsyep",
+      "captured": "2026-06-14T03:17:20.965637+00:00",
+      "entry": "decode_netbios_name",
+      "golden_input": "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "golden_output": "'*'"
+    },
+    "subnet-check": {
+      "fingerprint": "3cao7p4",
+      "golden_hash": "3cao7p4",
+      "captured": "2026-06-14T03:17:20.964569+00:00",
+      "entry": "is_same_subnet",
+      "golden_input": [
+        "192.168.1.1",
+        "192.168.1.2"
+      ],
+      "golden_output": true
+    },
+    "link-local-detect": {
+      "fingerprint": "2lzbvg8",
+      "golden_hash": "2lzbvg8",
+      "captured": "2026-06-14T03:17:20.966864+00:00",
+      "entry": "is_link_local_ipv6",
+      "golden_input": "fe80::1",
+      "golden_output": true
+    },
+    "ipv6-validation": {
+      "fingerprint": "4b7fglp",
+      "golden_hash": "4b7fglp",
+      "captured": "2026-06-14T03:17:20.963866+00:00",
+      "entry": "is_ipv6_address",
+      "golden_input": "::1",
+      "golden_output": true
+    },
+    "ipv6-addr-parse": {
+      "fingerprint": "c3axwv6",
+      "golden_hash": "c3axwv6",
+      "captured": "2026-06-14T03:17:20.966524+00:00",
+      "entry": "parse_ipv6_record_type",
+      "golden_input": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        28,
+        116,
+        101,
+        115,
+        116,
+        0,
+        0,
+        28,
+        0,
+        1
+      ],
+      "golden_output": "False"
+    }
+  },
+  "chains": {
+    "ipv6-classification-flow": {
+      "chain_hash": "2ti4lbk"
+    },
+    "network-analysis-flow": {
+      "chain_hash": "1cd4pcc"
+    }
+  }
+}

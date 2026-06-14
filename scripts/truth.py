@@ -186,16 +186,16 @@ def main():
         print("No Python clusters found in manifest.")
         sys.exit(0)
 
-    # Setup manifest-level pythonPath
+    # Setup pythonPath: manifest-level first, then cluster-level
     manifest_python_path = manifest.get('pythonPath', '')
-    if manifest_python_path:
-        if isinstance(manifest_python_path, str):
-            manifest_paths = [manifest_python_path] if manifest_python_path else []
-        elif isinstance(manifest_python_path, list):
-            manifest_paths = manifest_python_path
-        else:
-            manifest_paths = []
-        for pp in manifest_paths:
+    if isinstance(manifest_python_path, str):
+        manifest_python_paths = [manifest_python_path] if manifest_python_path else []
+    elif isinstance(manifest_python_path, list):
+        manifest_python_paths = manifest_python_path
+    else:
+        manifest_python_paths = []
+    for pp in manifest_python_paths:
+        if pp:
             abs_pp = os.path.join(os.getcwd(), pp) if not os.path.isabs(pp) else pp
             if abs_pp not in sys.path:
                 sys.path.insert(0, abs_pp)
@@ -209,6 +209,8 @@ def main():
             python_paths = raw_python_path
         else:
             python_paths = []
+        if not python_paths:
+            python_paths = manifest_python_paths
         for python_path in python_paths:
             if python_path:
                 abs_python_path = os.path.join(os.getcwd(), python_path) if not os.path.isabs(python_path) else python_path

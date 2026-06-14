@@ -764,14 +764,14 @@ def main():
         try:
             module_path = cluster_def.get('module', cluster_def.get('file', ''))
             entry_name = cluster_def['entry']
+
             norm_rules = cluster_def.get('normalize', [])
             ign_fields = cluster_def.get('ignoreFields', [])
             fp_level = cluster_def.get('fingerprintLevel', 'entry')
-            fp_mode = cluster_def.get('fingerprintMode', 'value')
-
             # Warn about private entry functions with fingerprintLevel=full
             if fp_level == 'full' and entry_name.startswith('_'):
                 print(f"  ⚠️  {cluster_id}: Entry '{entry_name}' is private — ghost proxy cannot wrap it. fingerprintLevel='full' will produce empty-sequence fingerprint. Consider 'entry'.")
+            fp_mode = cluster_def.get('fingerprintMode', 'value')
             value_paths = cluster_def.get('valuePaths', [])
             multi_args = cluster_def.get('multiArgs', False)
             kwargs_mode = regret.get('kwargs', cluster_def.get('kwargs', False))
@@ -797,12 +797,6 @@ def main():
                 for k, v in regret_env.items():
                     if current_env.get(k) != v:
                         print(f"  ⚠️  {cluster_id}: environment changed: {k} was {v}, now {current_env.get(k)}")
-
-            # classMethod support
-            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
-            constructor_name = regret.get('constructor') or cluster_def.get('constructor', None)
-            constructor_args = regret.get('constructorArgs') or cluster_def.get('constructorArgs', [])
-            setup_fn = regret.get('setup') or cluster_def.get('setup', None)
 
             mod = importlib.import_module(module_path)
 

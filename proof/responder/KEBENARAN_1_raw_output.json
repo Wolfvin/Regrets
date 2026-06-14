@@ -1,0 +1,204 @@
+{
+  "ipv6-validation": {
+    "entry": "is_ipv6_address",
+    "module": "lib.ip_utils",
+    "outputs": [
+      {
+        "input": "::1",
+        "output": true
+      },
+      {
+        "input": "fe80::1",
+        "output": true
+      },
+      {
+        "input": "192.168.1.1",
+        "output": false
+      },
+      {
+        "input": "2001:db8::1",
+        "output": true
+      },
+      {
+        "input": "not-an-ip",
+        "output": false
+      },
+      {
+        "input": "::ffff:192.168.1.1",
+        "output": true
+      },
+      {
+        "input": "10.0.0.1",
+        "output": false
+      }
+    ]
+  },
+  "subnet-check": {
+    "entry": "is_same_subnet",
+    "module": "lib.ip_utils",
+    "outputs": [
+      {
+        "input": [
+          "192.168.1.1",
+          "192.168.1.2"
+        ],
+        "output": true
+      },
+      {
+        "input": [
+          "192.168.1.1",
+          "10.0.0.1"
+        ],
+        "output": false
+      },
+      {
+        "input": [
+          "172.16.0.1",
+          "172.16.0.254"
+        ],
+        "output": true
+      },
+      {
+        "input": [
+          "10.0.0.1",
+          "10.0.1.1"
+        ],
+        "output": false
+      }
+    ]
+  },
+  "nbt-name-decode": {
+    "entry": "decode_netbios_name",
+    "module": "lib.nbt_utils",
+    "outputs": [
+      {
+        "input": "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "output": "'*'"
+      },
+      {
+        "input": "EJECHEHECEPFCEFCHCHCHCHCHCHCHCH",
+        "output": "'EJECHEHECEPFCEFCHCHCHCHCHCHCHCH'"
+      }
+    ]
+  },
+  "nbt-role-lookup": {
+    "entry": "lookup_nbt_name_service_role",
+    "module": "lib.nbt_utils",
+    "outputs": [
+      {
+        "input": "AA\u0000",
+        "output": "Workstation/Redirector"
+      },
+      {
+        "input": "BL\u0000",
+        "output": "Domain Master Browser"
+      },
+      {
+        "input": "BM\u0000",
+        "output": "Domain Controller"
+      },
+      {
+        "input": "BN\u0000",
+        "output": "Local Master Browser"
+      },
+      {
+        "input": "BO\u0000",
+        "output": "Browser Election"
+      },
+      {
+        "input": "CA\u0000",
+        "output": "File Server"
+      },
+      {
+        "input": "AB\u0000",
+        "output": "Browser"
+      }
+    ]
+  },
+  "ipv6-addr-parse": {
+    "entry": "parse_ipv6_record_type",
+    "module": "lib.ip_utils",
+    "outputs": [
+      {
+        "input": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          28,
+          116,
+          101,
+          115,
+          116,
+          0,
+          0,
+          28,
+          0,
+          1
+        ],
+        "output": "False"
+      },
+      {
+        "input": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          116,
+          101,
+          115,
+          116,
+          0,
+          0,
+          1,
+          0,
+          1
+        ],
+        "output": "False"
+      }
+    ]
+  },
+  "link-local-detect": {
+    "entry": "is_link_local_ipv6",
+    "module": "lib.ip_utils",
+    "outputs": [
+      {
+        "input": "fe80::1",
+        "output": true
+      },
+      {
+        "input": "2001:db8::1",
+        "output": false
+      },
+      {
+        "input": "::1",
+        "output": false
+      },
+      {
+        "input": "fe80::1234:5678:9abc:def0",
+        "output": true
+      }
+    ]
+  }
+}
