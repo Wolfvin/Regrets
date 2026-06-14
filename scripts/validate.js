@@ -1046,11 +1046,8 @@ if (reporter === 'junit') {
         ...(r.error ? { error: r.error } : {}),
         ...(r.drift ? { drift: true } : {}),
         ...(r.updated ? { updated: true } : {}),
-<<<<<<< HEAD
-        ...(!noDiff && !r.pass && r.goldenOutput != null && r.liveOutput != null ? (() => { try { return { diff: jsonDiff(typeof r.goldenOutput === 'string' ? JSON.parse(r.goldenOutput) : r.goldenOutput, typeof r.liveOutput === 'string' ? JSON.parse(r.liveOutput) : r.liveOutput) } } catch { return {} } })() : {}),
-=======
         ...(r.mutationMismatch ? { mutationMismatch: true, mutationDetected: r.mutationDetected } : {}),
->>>>>>> ca69ec3 (feat: add trackMutation support to validate.js)
+        ...(!noDiff && !r.pass && r.goldenOutput != null && r.liveOutput != null ? (() => { try { return { diff: jsonDiff(typeof r.goldenOutput === 'string' ? JSON.parse(r.goldenOutput) : r.goldenOutput, typeof r.liveOutput === 'string' ? JSON.parse(r.liveOutput) : r.liveOutput) } } catch { return {} } })() : {}),
       }))
   }
   console.log(JSON.stringify(jsonResult, null, 0))
@@ -1091,17 +1088,12 @@ if (reporter === 'junit') {
   results.filter(r => !r.pass).forEach(r => {
     console.log(`  • ${r.id}`)
     if (r.error) console.log(`    ${r.error}`)
-<<<<<<< HEAD
+    else if (r.mutationMismatch) console.log(`    Mutation fingerprint mismatch — function's input mutation behavior changed`)
     else console.log(`    Expected: ${r.expected || r.golden}  Got: ${r.actual || r.live}`)
-    // Show diff in summary if available
     if (!noDiff && r.goldenOutput != null && r.liveOutput != null) {
       const diff = formatDiffOutput(r.goldenOutput, r.liveOutput)
       if (diff) console.log(diff)
     }
-=======
-    else if (r.mutationMismatch) console.log(`    Mutation fingerprint mismatch — function's input mutation behavior changed`)
-    else console.log(`    Expected: ${r.golden}  Got: ${r.live}`)
->>>>>>> ca69ec3 (feat: add trackMutation support to validate.js)
   })
   console.log(`\nFix the CODE — do not edit .regret files.\nRe-run: node scripts/validate.js`)
   process.exit(1)
