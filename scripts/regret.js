@@ -430,6 +430,11 @@ switch (command) {
     break
   }
 
+  case 'branches': {
+    success = run('node', [`${SCRIPTS_DIR}/branches.js`, ...passThroughArgs])
+    break
+  }
+
   case 'risk': {
     success = run('node', [`${SCRIPTS_DIR}/risk.js`, ...passThroughArgs])
     break
@@ -472,11 +477,12 @@ Usage:
                                  [--dry-run]            Preview steps without executing
                                  [--skip-build]         Skip preBuild step
   node scripts/regret.js watch [--dir src/] [--stack]  Watch files & auto-validate on change
+  node scripts/regret.js branches [--cluster <id>] [--json]  Static branch coverage analysis
   node scripts/regret.js risk [--since HEAD~1] [--diff patch.txt] [--json]  Pre-refactor risk signal
 
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
-  --json              Output in machine-readable JSON (validate, health, coverage, scan)
+  --json              Output in machine-readable JSON (validate, health, coverage, scan, branches)
   --quiet             Only print summary line (capture, validate)
   --verbose           Print extra detail — inputs, outputs, call traces (capture, validate)
                       --quiet and --verbose are mutually exclusive (quiet wins)

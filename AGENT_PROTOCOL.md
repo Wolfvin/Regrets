@@ -130,7 +130,11 @@ START: Agent plans to refactor code
 │
 ├─ GATE 5: regret health
 │   FRAGILE → split cluster or add inputs
-│   ALL SOLID → GATE 6
+│   ALL SOLID → GATE 5b
+│
+├─ GATE 5b: regret branches
+│   UNDER-COVERED → add inputs for uncovered branches (see suggested inputs)
+│   WELL-COVERED → GATE 6
 │
 ├─ GATE 6: regret risk --json
 │   HIGH → entry function modified — cluster output WILL change, plan update
@@ -161,7 +165,7 @@ START: Agent plans to refactor code
 | `calls` fallback to `entry` | Add functions to `watches` — `calls` level needs watched functions to count |
 | DRIFT | Add `normalize`: timestamps, uuids, epochs, floatTolerance, seed, dynamicDates |
 | `--update requires --reason` | Provide 4+ word reason describing WHAT changed + WHY |
-| Coverage UNDER-COVERED | Add inputs (use `--suggest-inputs`); aim for inputs >= branches |
+| Coverage UNDER-COVERED | Add inputs (use `--suggest-inputs`); aim for inputs >= branches; use `regret branches` to see uncovered paths |
 | preBuild failed | Run build manually, fix compilation errors |
 | Python module import error | Verify `module` dot-notation path, add `pythonPath` |
 | expectThrow violated | Function stopped throwing — refactoring removed error path; restore or update with reason |
@@ -177,6 +181,7 @@ START: Agent plans to refactor code
 [ ] regret validate — ALL PASS
 [ ] regret drift — ALL STABLE (5 runs, identical hashes)
 [ ] regret health — ALL SOLID (no FRAGILE/UNSTABLE)
+[ ] regret branches — all clusters WELL-COVERED (no UNDER-COVERED)
 [ ] regret risk — no high-risk clusters, or plan for expected changes
 [ ] regret coverage — No cluster UNDER-COVERED
 [ ] regrets/ committed (manifest.json + .regret files + audit.log)
@@ -195,6 +200,7 @@ regret check                      regret drift (×5)       regret health
 regret update <id> --reason ".."  regret coverage         regret diff
 regret scan [--dir src/]          regret chain            regret truth
 regret rollback <id>              regret guard            regret list
+regret branches [--cluster <id>] [--json]  Static branch coverage
 regret risk [--since HEAD~1] [--diff file] [--json]
 ```
 All auto-detect stack from manifest. Add `--skip-build` to skip preBuild.
