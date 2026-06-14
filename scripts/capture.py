@@ -77,6 +77,119 @@ def consume_generator(val):
     return val
 
 
+def dataclass_to_dict(obj):
+    """Recursively convert dataclass instances (and common Python types) to
+    JSON-serializable dicts.
+
+    This handles the common challenge of fingerprinting output from class-heavy
+    Python libraries (e.g., eyecite, pydantic models, dataclass hierarchies)
+    where the default "dict" transform fails because:
+
+    1. Frozen dataclasses don't allow __dict__ mutation but do have __dict__
+    2. Nested dataclasses need recursive conversion
+    3. UserString subclasses (like Token) need special handling — str() gives
+       the string value but we also need to capture dataclass fields
+    4. datetime/date objects need deterministic string conversion
+    5. Sequences of dataclass instances need element-wise conversion
+    6. None values in Optional fields must be preserved (not dropped)
+
+    The resulting dict includes a '__class__' key so that class identity is
+    part of the fingerprint — a FullCaseCitation and a ShortCaseCitation with
+    the same field values will produce different fingerprints, which is correct
+    because they represent different behavioral contracts.
+
+    Handles:
+    - dataclass instances (via dataclasses.fields or __dict__)
+    - UserString subclasses (captures .data field + all dataclass fields)
+    - datetime/date objects → ISO format strings
+    - nested lists, tuples, dicts, sets
+    - None, bool, int, float, str — pass through
+    - objects with to_dict() method
+    - objects with __dict__ — captured as fallback
+    - tuple/Sequence fields in dataclasses — converted to lists
+    - unhashable/complex fields — fall back to repr()
+    """
+    import dataclasses
+    from datetime import date, datetime
+    from collections import UserString
+
+    # Primitives — pass through
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    # datetime/date — deterministic ISO format
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+
+    # bytes → hex string
+    if isinstance(obj, bytes):
+        return obj.hex()
+
+    # Lists — recurse
+    if isinstance(obj, list):
+        return [dataclass_to_dict(v) for v in obj]
+
+    # Tuples → list (JSON-safe) — recurse
+    if isinstance(obj, tuple):
+        return [dataclass_to_dict(v) for v in obj]
+
+    # Sets → sorted list
+    if isinstance(obj, set):
+        return sorted([dataclass_to_dict(v) for v in obj], key=lambda x: str(x))
+
+    # Dicts — recurse
+    if isinstance(obj, dict):
+        return {k: dataclass_to_dict(v) for k, v in obj.items()}
+
+    # Dataclass instances — the primary use case
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        cls_name = type(obj).__name__
+        result = {'__class__': cls_name}
+
+        # UserString subclasses (e.g., Token objects in citation parsers)
+        # str(obj) gives the string value, but we also need all dataclass fields
+        if isinstance(obj, UserString):
+            result['data'] = str(obj)
+
+        # Try dataclasses.fields() first (works for frozen and non-frozen)
+        try:
+            for field in dataclasses.fields(obj):
+                try:
+                    val = getattr(obj, field.name)
+                    result[field.name] = dataclass_to_dict(val)
+                except Exception:
+                    result[field.name] = f'<unrepresentable:{field.name}>'
+        except TypeError:
+            # Not a dataclass after all — fall through to __dict__
+            pass
+
+        return result
+
+    # Objects with to_dict() — use it
+    if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+        try:
+            return dataclass_to_dict(obj.to_dict())
+        except Exception:
+            pass
+
+    # Objects with __dict__ — capture instance attributes
+    if hasattr(obj, '__dict__'):
+        cls_name = type(obj).__name__
+        result = {'__class__': cls_name}
+        for k, v in obj.__dict__.items():
+            if not k.startswith('_'):
+                try:
+                    result[k] = dataclass_to_dict(v)
+                except Exception:
+                    result[k] = f'<unrepresentable:{type(v).__name__}>'
+        return result
+
+    # Fallback — repr() (lossy but deterministic)
+    return repr(obj)
+
+
 def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
@@ -84,6 +197,10 @@ def apply_output_transform(output, transform):
     - "str":     Convert each element to its string representation
     - "repr":    Convert each element to its repr representation
     - "dict":    Convert each element using dict(obj) or obj.__dict__
+    - "dataclass_dict": Recursively convert dataclass instances to JSON-serializable
+      dicts. Handles nested dataclasses, frozen dataclasses, UserString subclasses
+      (like Token objects), datetime objects, and sequences of dataclass instances.
+      Adds __class__ key so class identity is part of the fingerprint.
     - "json":    Attempt obj.to_json() or json.dumps(obj)
     - "len":     Return len(obj) — useful for large collections
     - "type":    Return type names of elements
@@ -121,6 +238,8 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'dataclass_dict':
+            return dataclass_to_dict(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':

@@ -57,6 +57,12 @@ def normalize(obj, rules=None):
     - floatTolerance: Round floats to N decimal places (default 2)
     - floatPrecision: Normalize whole-value floats to int, decimal floats to 2dp,
       strip trailing ".0" from string-encoded floats (OCR/parsing pipelines)
+    - currentYearBound: Integers equal to current year or current year + 1
+      -> <CURRENT_YEAR> / <CURRENT_YEAR+1>. Prevents drift in code that uses
+      date.today().year for validation bounds (e.g., citation year validators).
+    - tokenOffsets: Integers in dict keys "start", "end", "span_start", "span_end",
+      "full_span_start", "full_span_end", "pin_cite_span_start", "pin_cite_span_end"
+      -> <OFFSET>. Prevents brittleness when character offsets shift with input changes.
 
     Handles numpy arrays by converting to list before normalizing.
     """
@@ -99,6 +105,18 @@ def normalize(obj, rules=None):
     if isinstance(obj, (int, float)):
         if 'epochs' in rules and 1_000_000_000 < obj < 9_999_999_999_999:
             return '<EPOCH>'
+        # currentYearBound: replace integers that match the current year or current year + 1
+        # This prevents fingerprint drift in code that uses date.today().year for
+        # validation bounds (e.g., "_highest_valid_year = date.today().year + 1" in
+        # citation year validators). These year bounds change every January, causing
+        # drift detection that is NOT a real regression — it's just the calendar advancing.
+        if 'currentYearBound' in rules and isinstance(obj, int):
+            from datetime import date as _date
+            this_year = _date.today().year
+            if obj == this_year:
+                return '<CURRENT_YEAR>'
+            if obj == this_year + 1:
+                return '<CURRENT_YEAR+1>'
         # floatTolerance: round floating-point numbers to N decimal places before hashing.
         # Prevents false negatives from tiny floating-point representation differences
         # (e.g., 123456.0 vs 123456.00000001 in financial/scientific computing).
@@ -121,6 +139,23 @@ def normalize(obj, rules=None):
         return [normalize(v, rules) for v in obj]
 
     if isinstance(obj, dict):
+        # tokenOffsets: normalize character offset values in known offset keys.
+        # When fingerprinting NLP/citation parsing output, character offsets (start, end,
+        # span_start, etc.) are absolute positions that shift with ANY change to input
+        # text length. They don't represent behavioral contracts — the contract is that
+        # the correct text is identified, not that it's at byte offset 42 vs 44.
+        # This rule replaces offset values with <OFFSET> to prevent false negatives
+        # when the same logical parsing happens at different character positions.
+        if 'tokenOffsets' in rules:
+            offset_keys = {
+                'start', 'end', 'span_start', 'span_end',
+                'full_span_start', 'full_span_end',
+                'pin_cite_span_start', 'pin_cite_span_end',
+            }
+            return {
+                k: ('<OFFSET>' if k in offset_keys and isinstance(v, int) else normalize(v, rules))
+                for k, v in obj.items()
+            }
         return {k: normalize(v, rules) for k, v in obj.items()}
 
     return obj

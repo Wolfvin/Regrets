@@ -186,7 +186,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `goTestPkg` | ❌ | Relative path for `go test` command in Go stack (e.g., `"./pkg/name"`) |
 | `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
-| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `len`, `type`, or `"module.fn"` for custom (Python & JS) |
+| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `dataclass_dict`, `len`, `type`, or `"module.fn"` for custom (Python & JS) |
 | `materializeOutput` | ❌ | `true` → auto-consume generators/iterators into lists before fingerprinting |
 | `trackMutation` | ❌ | `true` → snapshot input state before/after call, detect mutations |
 
@@ -220,10 +220,39 @@ Non-deterministic values are normalized before hashing:
 | `floatTolerance` | Floats rounded to 2dp before hashing | `round(n * 100) / 100` |
 | `floatTolerance:N` | Floats rounded to N decimal places | `round(n * 10^N) / 10^N` |
 | `floatPrecision` | Whole-value floats → integers, decimal floats → 2dp, string floats stripped | `1500000.0` → `1500000` |
+| `currentYearBound` | Integers equal to current year or current year + 1 → placeholders | `2026` → `<CURRENT_YEAR>`, `2027` → `<CURRENT_YEAR+1>` |
+| `tokenOffsets` | Integer values in offset dict keys (start, end, span_start, etc.) → `<OFFSET>` | `{"start": 42}` → `{"start": "<OFFSET>"}` |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
 Use `floatTolerance` for financial/scientific computing where tiny floating-point differences (e.g., `123456.0` vs `123456.00000001`) should not trigger false negatives. `floatTolerance:0` rounds to integers — ideal for IDR amounts.
 Use `floatPrecision` for OCR/parsing pipelines where the same value may appear as `1500000` or `1500000.0` depending on the parsing path — common in financial OCR where integer amounts are sometimes stored as floats. Both rules can coexist: `floatTolerance` handles representation differences, `floatPrecision` handles type equivalence and string normalization.
+Use `currentYearBound` for code that uses `date.today().year` as a validation boundary (e.g., citation year validators that reject years beyond "this year + 1"). Without this rule, fingerprints would silently change every January — not because behavior regressed, but because the calendar advanced.
+Use `tokenOffsets` for NLP/citation parsing libraries where output includes character offset positions (start, end, span_start, etc.). These offsets shift with any change to input text length, but the behavioral contract is about *what* text is identified, not *where* it is at byte offset 42 vs 44.
+
+### dataclass_dict Output Transform
+
+When fingerprinting Python libraries with deep dataclass hierarchies (e.g., citation parsers, NLP libraries, Pydantic models), use `"outputTransform": "dataclass_dict"` to recursively convert dataclass instances into JSON-serializable dicts. This handles:
+
+- Frozen dataclasses (common in immutable value objects)
+- Nested dataclasses (e.g., `CitationBase.Metadata` inside `FullCaseCitation`)
+- `UserString` subclasses (e.g., Token objects that inherit from `str` but also have dataclass fields like `start`, `end`, `groups`)
+- `datetime`/`date` objects → deterministic ISO format strings
+- Sequences of dataclass instances → lists of dicts
+- Class identity is preserved via `__class__` key (a `FullCaseCitation` and `ShortCaseCitation` with the same fields will produce different fingerprints, which is correct)
+
+```json
+{
+  "id": "find-citations",
+  "entry": "get_citations",
+  "watches": ["get_citations"],
+  "module": "regret_adapters",
+  "stack": "python",
+  "outputTransform": "dataclass_dict",
+  "normalize": ["currentYearBound", "tokenOffsets"],
+  "ignoreFields": ["document"],
+  "inputs": ["1 U.S. 1"]
+}
+```
 
 Read `references/fingerprint-spec.md` for edge cases (timestamps, random IDs, etc).
 

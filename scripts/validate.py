@@ -72,6 +72,65 @@ def consume_generator(val):
     return val
 
 
+def dataclass_to_dict(obj):
+    """Recursively convert dataclass instances to JSON-serializable dicts.
+
+    Identical implementation to capture.py — kept in sync.
+    See capture.py for full documentation.
+    """
+    import dataclasses
+    from datetime import date, datetime
+    from collections import UserString
+
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+    if isinstance(obj, bytes):
+        return obj.hex()
+    if isinstance(obj, list):
+        return [dataclass_to_dict(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [dataclass_to_dict(v) for v in obj]
+    if isinstance(obj, set):
+        return sorted([dataclass_to_dict(v) for v in obj], key=lambda x: str(x))
+    if isinstance(obj, dict):
+        return {k: dataclass_to_dict(v) for k, v in obj.items()}
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        cls_name = type(obj).__name__
+        result = {'__class__': cls_name}
+        if isinstance(obj, UserString):
+            result['data'] = str(obj)
+        try:
+            for field in dataclasses.fields(obj):
+                try:
+                    val = getattr(obj, field.name)
+                    result[field.name] = dataclass_to_dict(val)
+                except Exception:
+                    result[field.name] = f'<unrepresentable:{field.name}>'
+        except TypeError:
+            pass
+        return result
+    if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+        try:
+            return dataclass_to_dict(obj.to_dict())
+        except Exception:
+            pass
+    if hasattr(obj, '__dict__'):
+        cls_name = type(obj).__name__
+        result = {'__class__': cls_name}
+        for k, v in obj.__dict__.items():
+            if not k.startswith('_'):
+                try:
+                    result[k] = dataclass_to_dict(v)
+                except Exception:
+                    result[k] = f'<unrepresentable:{type(v).__name__}>'
+        return result
+    return repr(obj)
+
+
 def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
@@ -103,6 +162,8 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'dataclass_dict':
+            return dataclass_to_dict(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
