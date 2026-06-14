@@ -593,7 +593,7 @@ async function runCluster(clusterDef, regret) {
       }
 
       // Compute fingerprint
-      const fpConfig = { normalize, ignoreFields, ignorePaths: regret.ignorePaths || ignorePaths }
+      const fpConfig = { normalize, ignoreFields, ignorePaths }
       let fp
       if (mode === 'schema') {
         const schema = extractSchema(output)
