@@ -214,15 +214,30 @@ Parse: `✅` = green, `❌` = red. Format: `{icon} {cluster-id} {hash-info} {sta
 
 ## 4. Decision Tree
 
-### QUICK PATH (recommended for most cases)
+### Quick Install Workflow (recommended for most cases)
 
 ```
-regret install          → discover + capture entire project
+regret install [--dir src/] [--dry-run]   →  discover + capture entire project
 [do your work]
-regret validate         → verify all GREEN
-regret status           → confirm safe to ship
-regret uninstall        → clean up
+regret validate                           →  verify all GREEN
+regret status                             →  confirm safe to ship
+regret uninstall [--keep-manifest]        →  clean up
 ```
+
+`regret install` is the fastest way to set up Regrets. It:
+1. Scans all source files in `--dir` (default: cwd) for exported functions
+2. Skips functions starting with `_`, skips `node_modules/`, `dist/`, `build/`, `.git/`
+3. Generates one cluster per function with safe defaults: `inputs: [null, {}]`, `fingerprintLevel: "entry"`
+4. Writes `regrets/manifest.json` (merges with existing if present)
+5. Runs `regret capture` automatically — functions that timeout/error are logged to `regrets/install-skipped.txt`
+6. Reports summary: N discovered, N captured, N skipped
+
+Flags:
+- `--dry-run` — preview the manifest without writing or capturing
+- `--dir <path>` — directory to scan (default: cwd)
+- `--stack <js|python>` — only scan files for this stack
+- `--depth N` — max directory depth (default: 3)
+- `--skip-capture` — write manifest but skip the capture step
 
 ### MANUAL PATH (when you need fine-grained control)
 
@@ -384,7 +399,9 @@ create-user                        1       0  today     ██░░░░ FRAGI
 
 ```
 INSTALL WORKFLOW:
-  regret install [--dir src/] [--dry-run]    Auto-discover + capture entire project
+  regret install [--dir src/] [--stack js] [--depth 3]   Auto-discover + capture entire project
+                         [--dry-run]                      Preview only, no write/capture
+                         [--skip-capture]                 Write manifest, skip capture
   regret validate                             Verify all GREEN
   regret status [--json]                      Snapshot: safe to refactor?
   regret uninstall [--keep-manifest]          Clean up safety net

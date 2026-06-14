@@ -107,6 +107,11 @@ if (needsPreBuild.includes(command) && !skipBuild) {
 }
 
 switch (command) {
+  case 'install': {
+    success = run('node', [`${SCRIPTS_DIR}/install.js`, ...passThroughArgs])
+    break
+  }
+
   case 'init': {
     success = run('node', [`${SCRIPTS_DIR}/init.js`, ...passThroughArgs])
     break
@@ -495,7 +500,9 @@ switch (command) {
 regret.js — Unified Regret Runner
 
 INSTALL WORKFLOW:
-  regret install [--dir src/] [--dry-run]            Auto-discover + capture entire project
+  regret install [--dir src/] [--stack js] [--depth 3]  Auto-discover + capture entire project
+                         [--dry-run]                  Preview only, no write/capture
+                         [--skip-capture]             Write manifest, skip capture
   regret validate [--cluster <id>]                   Verify all GREEN
   regret status [--json]                             Snapshot: safe to refactor?
   regret uninstall [--keep-manifest]                 Clean up safety net
