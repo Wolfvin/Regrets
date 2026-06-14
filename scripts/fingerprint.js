@@ -131,6 +131,23 @@ export function normalize(obj, rules = []) {
     if (rules.includes('isoDates')) {
       return obj.replace(/\d{4}-\d{2}-\d{2}(T[\d:.]+(?:[Zz]|[+-]\d{2}:\d{2})?)?/g, '<ISO_DATE>')
     }
+    // randomIds: replace randomly-generated alphanumeric IDs with placeholder.
+    // Matches strings that look like random IDs: 8-24 char lowercase alphanumeric
+    // with high entropy (mix of letters and digits, not dictionary words).
+    // Covers patterns like uniqueID() output: "x8j2k9d3p5f1t7h8", MongoDB ObjectIds,
+    // nanoid output, and similar random identifiers.
+    // Pattern: must be purely [a-z0-9], length 8-24, contain both letters and digits,
+    // and have enough variety (at least 3 distinct chars of each type).
+    if (rules.includes('randomIds') && /^[a-z0-9]{8,24}$/.test(obj)) {
+      const letters = (obj.match(/[a-z]/g) || []).length
+      const digits = (obj.match(/[0-9]/g) || []).length
+      const uniqueChars = new Set(obj.split('')).size
+      // Heuristic: must have both letters AND digits, and enough variety
+      // to distinguish from deterministic strings like "borderleft"
+      if (letters >= 3 && digits >= 2 && uniqueChars >= 6) {
+        return '<RANDOM_ID>'
+      }
+    }
   }
   if (typeof obj === 'number') {
     if (rules.includes('epochs') && obj > 1_000_000_000 && obj < 9_999_999_999_999) {
@@ -209,19 +226,33 @@ export function normalize(obj, rules = []) {
 
 /**
  * Strip ignored fields from output before hashing.
+ * Supports both flat key names (existing behavior) and dot-path selectors.
  */
-export function stripFields(obj, ignoreFields = []) {
-  if (!ignoreFields.length) return obj
-  if (Array.isArray(obj)) return obj.map(v => stripFields(v, ignoreFields))
+export function stripFields(obj, ignoreFields = [], ignorePaths = []) {
+  if (!ignoreFields.length && !ignorePaths.length) return obj
+  if (Array.isArray(obj)) return obj.map(v => stripFields(v, ignoreFields, ignorePaths))
   // Handle TypedArrays — convert to regular arrays before stripping
   if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
-    return Array.from(obj).map(v => stripFields(v, ignoreFields))
+    return Array.from(obj).map(v => stripFields(v, ignoreFields, ignorePaths))
   }
   if (obj && typeof obj === 'object') {
     return Object.fromEntries(
       Object.entries(obj)
         .filter(([k]) => !ignoreFields.includes(k))
-        .map(([k, v]) => [k, stripFields(v, ignoreFields)])
+        .map(([k, v]) => {
+          // Check if any ignorePath matches this key at the current path level
+          // ignorePaths use dot notation: "request.socket" means obj.request.socket
+          const matchingPaths = ignorePaths.filter(p => p.startsWith(k + '.') || p === k)
+          const childPaths = matchingPaths
+            .filter(p => p !== k)
+            .map(p => p.slice(k.length + 1)) // strip "key." prefix for recursion
+          // If the key itself is in ignorePaths, skip it (already filtered above)
+          // If there are child paths, recurse with those child paths
+          if (childPaths.length > 0) {
+            return [k, stripFields(v, ignoreFields, childPaths)]
+          }
+          return [k, stripFields(v, ignoreFields, ignorePaths.filter(p => !p.startsWith(k + '.') && p !== k))]
+        })
     )
   }
   return obj
@@ -232,10 +263,10 @@ export function stripFields(obj, ignoreFields = []) {
  * Produces a 7-char base36 hash from input + output.
  */
 export function fingerprint(input, output, clusterConfig = {}) {
-  const { normalize: normalizeRules = [], ignoreFields = [] } = clusterConfig
+  const { normalize: normalizeRules = [], ignoreFields = [], ignorePaths = [] } = clusterConfig
 
-  const cleanInput  = stripFields(normalize(input, normalizeRules), ignoreFields)
-  const cleanOutput = stripFields(normalize(output, normalizeRules), ignoreFields)
+  const cleanInput  = stripFields(normalize(input, normalizeRules), ignoreFields, ignorePaths)
+  const cleanOutput = stripFields(normalize(output, normalizeRules), ignoreFields, ignorePaths)
 
   const combined = stableStringify(cleanInput) + '|' + stableStringify(cleanOutput)
   const hash = createHash('sha256').update(combined, 'utf8').digest('hex')
@@ -249,12 +280,12 @@ export function fingerprint(input, output, clusterConfig = {}) {
  * Fingerprint an entire call sequence (for fingerprintLevel: "full" or "watched")
  */
 export function fingerprintSequence(calls, clusterConfig = {}) {
-  const { normalize: normalizeRules = [], ignoreFields = [] } = clusterConfig
+  const { normalize: normalizeRules = [], ignoreFields = [], ignorePaths = [] } = clusterConfig
 
   const normalized = calls.map(({ fn, args, result }) => ({
     fn,
-    args: stripFields(normalize(args, normalizeRules), ignoreFields),
-    result: stripFields(normalize(result, normalizeRules), ignoreFields)
+    args: stripFields(normalize(args, normalizeRules), ignoreFields, ignorePaths),
+    result: stripFields(normalize(result, normalizeRules), ignoreFields, ignorePaths)
   }))
 
   const combined = stableStringify(normalized)

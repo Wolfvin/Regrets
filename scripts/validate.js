@@ -60,6 +60,7 @@ function parseRegret(content) {
     if (key === 'watches') meta.watches = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'normalize') meta.normalize = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'ignoreFields') meta.ignoreFields = val.slice(1, -1).split(', ').filter(Boolean)
+    else if (key === 'ignorePaths') meta.ignorePaths = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'fingerprintMode') meta.fingerprintMode = val
     else if (key === 'valuePaths') meta.valuePaths = val.slice(1, -1).split(', ').filter(Boolean)
     else if (key === 'outputTransform') meta.outputTransform = val
@@ -71,12 +72,13 @@ function parseRegret(content) {
     else if (key === 'trackMutation') meta.trackMutation = val === 'true'
     else if (key === 'mutationFingerprint') meta.mutationFingerprint = val
     else if (key === 'version') meta.version = Number(val)
-    else if (key === 'constructorArgs' || key === 'setup') meta[key] = JSON.parse(val)
+    else if (key === 'constructorArgs' || key === 'setup' || key === 'initialState') meta[key] = JSON.parse(val)
     else if (key === 'instanceMethods') {
       try { meta.instanceMethods = JSON.parse(val) } catch { meta.instanceMethods = {} }
     }
     else if (key === 'singletonMethod') meta.singletonMethod = val
     else if (key === 'singletonName') meta.singletonName = val
+    else if (key === 'dispatch') meta.dispatch = val
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
@@ -204,11 +206,13 @@ async function runReactCluster(clusterDef, regret) {
 // ─── Run cluster N times ──────────────────────────────────────────────────────
 
 async function runCluster(clusterDef, regret) {
-  const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
+  const { entry, file, normalize = [], ignoreFields = [], ignorePaths = [],
+          fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, outputTransform: manifestOutputTransform = null,
-          resetState, deepCloneInput = true, seed, singletonMethod, singletonName } = clusterDef
+          resetState, deepCloneInput = true, seed, singletonMethod, singletonName,
+          storeDispatch, initialState } = clusterDef
   const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
 
   // Check environment snapshot if present in .regret file
@@ -269,7 +273,73 @@ async function runCluster(clusterDef, regret) {
       const mode = regret.fingerprintMode || fingerprintMode || 'value'
       const paths = regret.valuePaths || valuePaths || []
 
-      if (classMethod) {
+      if (storeDispatch) {
+        // ── storeDispatch mode ──────────────────────────────────────────────
+        const storeExport = mod[storeDispatch.store] ?? mod.default?.[storeDispatch.store]
+        if (!storeExport) throw new Error(`Store "${storeDispatch.store}" not found in ${file}`)
+
+        let dispatchFn, getStateFn, storeType
+        if (typeof storeExport.dispatch === 'function' && typeof storeExport.value !== 'undefined') {
+          dispatchFn = storeExport.dispatch.bind(storeExport)
+          getStateFn = () => storeExport.value
+          storeType = 'dispatching'
+        } else if (typeof storeExport.dispatch === 'function' && typeof storeExport.getState === 'function') {
+          dispatchFn = storeExport.dispatch.bind(storeExport)
+          getStateFn = storeExport.getState
+          storeType = 'redux'
+        } else if (typeof storeExport.setState === 'function') {
+          dispatchFn = storeExport.setState.bind(storeExport)
+          getStateFn = () => storeExport.getState()
+          storeType = 'zustand'
+        } else {
+          throw new Error(`Store "${storeDispatch.store}" does not match any known store pattern.`)
+        }
+
+        // Reset to initialState if provided
+        const stateInit = regret.initialState || initialState
+        if (stateInit) {
+          if (storeType === 'dispatching' && typeof storeExport.subject?.next === 'function') {
+            storeExport.subject.next(deepClone(stateInit))
+          } else if (storeType === 'zustand') {
+            storeExport.setState(deepClone(stateInit), true)
+          }
+        }
+
+        const inputForFp = deepClone(currentInput)
+        const inputForArgs = deepClone(currentInput)
+
+        if (storeType === 'redux') {
+          dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
+        } else if (storeType === 'dispatching') {
+          dispatchFn(storeDispatch.action, inputForArgs)
+        } else if (storeType === 'zustand') {
+          dispatchFn(inputForArgs)
+        }
+
+        const rawOutput = getStateFn()
+        let consumedOutput = rawOutput
+        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+          consumedOutput = [...rawOutput]
+        }
+
+        const outputTransform = regret.outputTransform || manifestOutputTransform || null
+        let transformedOutput = consumedOutput
+        if (outputTransform) {
+          if (outputTransform === 'json') {
+            transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
+          } else if (outputTransform === 'keys') {
+            if (consumedOutput && typeof consumedOutput === 'object') {
+              transformedOutput = Object.keys(consumedOutput)
+            }
+          }
+        }
+
+        output = deepClone(transformedOutput)
+        lastOutput = output
+        fpInput = inputForFp
+      } else if (classMethod) {
         // ── Class-based entry ─────────────────────────────────────────────
         const Cls = mod[constructorName ?? entry] ?? mod.default?.[constructorName ?? entry]
         if (typeof Cls !== 'function') throw new Error(`Constructor "${constructorName ?? entry}" not found in ${file}`)
@@ -496,10 +566,11 @@ async function runCluster(clusterDef, regret) {
       }
 
       // Compute fingerprint
+      const fpConfig = { normalize, ignoreFields, ignorePaths: regret.ignorePaths || ignorePaths }
       let fp
       if (mode === 'schema') {
         const schema = extractSchema(output)
-        fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+        fp = fingerprint(fpInput, schema, fpConfig)
       } else if (mode === 'mixed') {
         const schema = extractSchema(output)
         const selectedValues = {}
@@ -513,11 +584,11 @@ async function runCluster(clusterDef, regret) {
           if (val !== undefined) selectedValues[path] = val
         }
         const combined = { schema, values: selectedValues }
-        fp = fingerprint(fpInput, combined, { normalize, ignoreFields })
+        fp = fingerprint(fpInput, combined, fpConfig)
       } else {
         fp = fingerprintLevel === 'entry'
-          ? fingerprint(fpInput, output, { normalize, ignoreFields })
-          : fingerprintSequence(recorder, { normalize, ignoreFields })
+          ? fingerprint(fpInput, output, fpConfig)
+          : fingerprintSequence(recorder, fpConfig)
       }
       hashes.push(fp)
 
