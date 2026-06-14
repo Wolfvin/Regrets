@@ -14,8 +14,10 @@ import json
 import importlib
 import copy
 import types
+import time
 from datetime import datetime, timezone
 from functools import wraps
+from unittest.mock import patch
 
 # Import shared fingerprint module (same directory)
 from fingerprint import (
@@ -459,6 +461,113 @@ def apply_output_transform(output, transform):
     return transform_one(output)
 
 
+# ─── Time Freezing ────────────────────────────────────────────────────────────
+
+def _make_frozen_time(freeze_str):
+    """Parse a freezeTime string and return a frozen time.localtime replacement.
+
+    Supported formats:
+    - ISO 8601 datetime: "2025-06-14T12:00:00"
+    - Date only (time defaults to noon): "2025-06-14"
+    - Unix timestamp (integer string): "1749892800"
+
+    Returns a function that returns time.struct_time, replacing time.localtime.
+    """
+    if freeze_str.isdigit():
+        ts = int(freeze_str)
+        frozen_st = time.gmtime(ts)
+    elif 'T' in freeze_str:
+        dt = datetime.fromisoformat(freeze_str)
+        frozen_st = dt.timetuple()
+    else:
+        # Date only — default to noon
+        dt = datetime.fromisoformat(freeze_str + 'T12:00:00')
+        frozen_st = dt.timetuple()
+
+    def frozen_localtime(seconds=None):
+        if seconds is not None:
+            return time.gmtime(seconds)
+        return frozen_st
+
+    return frozen_localtime
+
+
+class FreezeTime:
+    """Context manager that freezes time.localtime() and datetime.now().
+
+    Usage:
+        with FreezeTime("2025-06-14T12:00:00"):
+            result = calendar.parse("tomorrow")  # deterministic!
+
+    This patches:
+    - time.localtime → returns frozen struct_time
+    - datetime.now → returns frozen datetime
+    - time.time → returns frozen timestamp
+
+    Only active within the context manager scope.
+    """
+
+    def __init__(self, freeze_str):
+        self.freeze_str = freeze_str
+        self.patches = []
+
+    def __enter__(self):
+        frozen_localtime = _make_frozen_time(self.freeze_str)
+        # Parse the frozen time once
+        if self.freeze_str.isdigit():
+            dt = datetime.fromtimestamp(int(self.freeze_str))
+        elif 'T' in self.freeze_str:
+            dt = datetime.fromisoformat(self.freeze_str)
+        else:
+            dt = datetime.fromisoformat(self.freeze_str + 'T12:00:00')
+        frozen_timestamp = dt.timestamp()
+
+        # Patch time.localtime
+        p1 = patch.object(time, 'localtime', frozen_localtime)
+        p1.start()
+        self.patches.append(p1)
+
+        # Patch time.time to return frozen timestamp
+        p2 = patch.object(time, 'time', return_value=frozen_timestamp)
+        p2.start()
+        self.patches.append(p2)
+
+        # Patch datetime.datetime.now — C types are immutable, must use
+        # the module-level datetime reference to patch datetime.datetime
+        # Approach: patch the 'now' attribute on the datetime.datetime class
+        # by temporarily replacing it via the datetime module's reference
+        import datetime as _dt_module
+        original_datetime_cls = _dt_module.datetime
+
+        # Create a subclass that overrides now() and utcnow()
+        class FrozenDateTime(_dt_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return dt.replace(tzinfo=tz)
+                return dt
+            @classmethod
+            def utcnow(cls):
+                return dt
+
+        # Replace datetime.datetime in the datetime module
+        _dt_module.datetime = FrozenDateTime
+
+        # Also try to replace it in the builtins if imported differently
+        self._original_datetime_cls = original_datetime_cls
+        self._dt_module = _dt_module
+
+        return self
+
+    def __exit__(self, *args):
+        for p in reversed(self.patches):
+            p.stop()
+        self.patches = []
+        # Restore original datetime.datetime class
+        if hasattr(self, '_dt_module') and hasattr(self, '_original_datetime_cls'):
+            self._dt_module.datetime = self._original_datetime_cls
+
+
 # ─── Ghost decorator ──────────────────────────────────────────────────────────
 
 def create_ghost(module, watch_list, recorder):
@@ -607,6 +716,7 @@ def main():
         constructor_name = cluster.get('constructor', None)
         constructor_args = cluster.get('constructorArgs', [])
         setup_steps = cluster.get('setup', [])
+        instance_methods = cluster.get('instanceMethods', {})
         input_transform = cluster.get('inputTransform', None)
         max_yields = cluster.get('maxYields', cluster.get('materializeLimit', None))
         freeze_time_str = cluster.get('freezeTime', None)
@@ -619,14 +729,11 @@ def main():
             print(f"   Class:   {constructor_name or entry} → {class_method}()")
         else:
             print(f"   Entry:   {entry}")
+        if freeze_time_str:
+            print(f"   ⏰ Time frozen: {freeze_time_str}")
         print(f"   Watches: {', '.join(watches)}")
         if modes:
             print(f"   Modes:   {len(modes)} ({', '.join(m.get('name', f'mode_{i}') for i, m in enumerate(modes))})")
-
-        # Read classMethod-related fields early for display
-        class_method = cluster.get('classMethod', None)
-        if class_method:
-            print(f"   Class:   {cluster.get('constructor', entry)} → {class_method}()")
 
         try:
             # Global state isolation — snapshot before, restore after
@@ -1009,7 +1116,6 @@ def main():
                         'obj_state_fingerprint': obj_state_fingerprint,
                     })
 
-
             # Warn about watched functions that were never called during capture
             called_fns = set()
             for r in results:
@@ -1191,6 +1297,15 @@ def main():
                     lines.append(f"mutationFingerprint: {golden['input_mutation_fingerprint']}")
             if max_yields:
                 lines.append(f"maxYields: {max_yields}")
+            # classMethod metadata
+            if class_method:
+                lines.append(f"constructor: {constructor_name}")
+                lines.append(f"classMethod: {class_method}")
+                if constructor_args:
+                    lines.append(f"constructorArgs: {json_serialize(constructor_args)}")
+                if setup_steps:
+                    lines.append(f"setup: {json_serialize(setup_steps)}")
+            # freezeTime metadata
             if freeze_time_str:
                 lines.append(f"freezeTime: {freeze_time_str}")
             if track_state_attrs:

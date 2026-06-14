@@ -54,6 +54,33 @@ When `freezeTime` is present, Regrets patches the following functions before run
 
 The solution: replace `datetime.datetime` in the `datetime` module with a subclass (`FrozenDateTime`) that overrides `now()` and `utcnow()`. This is the same approach used by [freezegun](https://github.com/spulec/freezegun).
 
+### How It Works
+
+The `FreezeTime` context manager uses `unittest.mock.patch` to replace the time-dependent functions for the duration of each capture/validate call. After the call completes, the patches are removed, restoring normal behavior.
+
+```python
+class FreezeTime:
+    """Context manager that freezes time.localtime() and datetime.now()."""
+
+    def __enter__(self):
+        # Patch time.localtime, time.time, datetime.now
+        ...
+
+    def __exit__(self, *args):
+        # Remove all patches
+        ...
+```
+
+The freeze is stored in the `.regret` file as metadata:
+
+```
+cluster: calendar-parse
+freezeTime: 2025-06-14T12:00:00
+...
+```
+
+During validation, the `freezeTime` value is read from the `.regret` file and the same frozen time is applied, ensuring that the same `time.localtime()` calls produce the same results.
+
 ## Solution 2: FreezeTime in Entry Wrappers
 
 For complex scenarios where manifest-level `freezeTime` isn't enough, use the `FreezeTime` context manager directly in your entry wrapper:
@@ -70,6 +97,37 @@ def calendar_parse(input_str):
         cal = parsedatetime.Calendar()
         return cal.parse(input_str)
 ```
+
+## When to Use freezeTime
+
+| Scenario | Use freezeTime? | Alternative |
+|----------|----------------|-------------|
+| Pure functions (no time dependency) | No | Not needed |
+| Functions that accept sourceTime as parameter | No | Pass sourceTime in inputs |
+| Functions that default to time.localtime() | **Yes** | Or refactor to require sourceTime |
+| Functions that use datetime.now() internally | **Yes** | Or extract pure logic |
+| Functions that read from clock/system | **Yes** | No other option |
+
+## Combined with classMethod
+
+`freezeTime` is especially powerful when combined with `classMethod` for Python classes:
+
+```json
+{
+  "id": "calendar-parse-tomorrow",
+  "entry": "Calendar",
+  "classMethod": "parse",
+  "constructor": "Calendar",
+  "constructorArgs": [],
+  "module": "parsedatetime",
+  "stack": "python",
+  "freezeTime": "2025-06-14T12:00:00",
+  "inputs": ["tomorrow"],
+  "watches": []
+}
+```
+
+This creates a `Calendar` instance, freezes time, then calls `calendar.parse("tomorrow")` — producing a deterministic result that can be reliably fingerprinted.
 
 ## struct_time Serialization
 

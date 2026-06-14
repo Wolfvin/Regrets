@@ -14,9 +14,11 @@ import importlib
 import re
 import hashlib
 import types
+import time
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from unittest.mock import patch
 
 # Import shared fingerprint module (same directory)
 from fingerprint import (
@@ -102,6 +104,81 @@ def parse_args():
             i += 1
 
     return result
+
+# ─── Time Freezing (shared with capture.py) ────────────────────────────────────
+
+def _make_frozen_time(freeze_str):
+    """Parse a freezeTime string and return a frozen time.localtime replacement."""
+    if freeze_str.isdigit():
+        ts = int(freeze_str)
+        frozen_st = time.gmtime(ts)
+    elif 'T' in freeze_str:
+        dt = datetime.fromisoformat(freeze_str)
+        frozen_st = dt.timetuple()
+    else:
+        dt = datetime.fromisoformat(freeze_str + 'T12:00:00')
+        frozen_st = dt.timetuple()
+
+    def frozen_localtime(seconds=None):
+        if seconds is not None:
+            return time.gmtime(seconds)
+        return frozen_st
+
+    return frozen_localtime
+
+
+class FreezeTime:
+    """Context manager that freezes time.localtime() and datetime.now()."""
+
+    def __init__(self, freeze_str):
+        self.freeze_str = freeze_str
+        self.patches = []
+
+    def __enter__(self):
+        frozen_localtime = _make_frozen_time(self.freeze_str)
+        if self.freeze_str.isdigit():
+            dt = datetime.fromtimestamp(int(self.freeze_str))
+        elif 'T' in self.freeze_str:
+            dt = datetime.fromisoformat(self.freeze_str)
+        else:
+            dt = datetime.fromisoformat(self.freeze_str + 'T12:00:00')
+        frozen_timestamp = dt.timestamp()
+
+        p1 = patch.object(time, 'localtime', frozen_localtime)
+        p1.start()
+        self.patches.append(p1)
+
+        p2 = patch.object(time, 'time', return_value=frozen_timestamp)
+        p2.start()
+        self.patches.append(p2)
+
+        # Patch datetime.datetime.now via module-level class replacement
+        import datetime as _dt_module
+        original_datetime_cls = _dt_module.datetime
+
+        class FrozenDateTime(_dt_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return dt.replace(tzinfo=tz)
+                return dt
+            @classmethod
+            def utcnow(cls):
+                return dt
+
+        _dt_module.datetime = FrozenDateTime
+        self._original_datetime_cls = original_datetime_cls
+        self._dt_module = _dt_module
+
+        return self
+
+    def __exit__(self, *args):
+        for p in reversed(self.patches):
+            p.stop()
+        self.patches = []
+        if hasattr(self, '_dt_module') and hasattr(self, '_original_datetime_cls'):
+            self._dt_module.datetime = self._original_datetime_cls
+
 
 # ─── Helpers (shared with capture.py) ─────────────────────────────────────────
 
@@ -689,6 +766,10 @@ def main():
                 if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
                     inputs_to_validate.append(inp)
 
+            # Determine fingerprint mode: .regret file takes precedence over manifest
+            effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
+            effective_value_paths = regret.get('valuePaths') or value_paths or []
+
             for _ in range(cli['runs']):
                 # Global state isolation — snapshot before each run, restore after
                 saved_globals = None
@@ -697,10 +778,6 @@ def main():
 
                 recorder = []
                 watches_list = regret.get('watches', cluster_def.get('watches', []))
-
-                # Determine fingerprint mode: .regret file takes precedence over manifest
-                effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
-                effective_value_paths = regret.get('valuePaths') or value_paths or []
 
                 if class_method:
                     # ── classMethod mode: fresh instance per input ──────────
@@ -805,37 +882,6 @@ def main():
                             output = consume_generator(output)
                         output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
-                        # Run setup methods
-                        for step in setup_steps:
-                            setup_method = getattr(instance, step.get('method', ''), None)
-                            if setup_method is None or not callable(setup_method):
-                                raise TypeError(f"Setup method \"{step.get('method')}\" not found on instance")
-                            setup_args = deep_clone(step.get('args', []))
-                            if isinstance(setup_args, list):
-                                setup_method(*setup_args)
-                            elif isinstance(setup_args, dict):
-                                setup_method(**setup_args)
-                            else:
-                                setup_method(setup_args)
-
-                        # Call the target method
-                        target_method = getattr(instance, class_method, None)
-                        if target_method is None or not callable(target_method):
-                            raise TypeError(f"Method \"{class_method}\" not found on instance")
-
-                        if multi_args and isinstance(input_for_args, list):
-                            raw_output = target_method(*input_for_args)
-                        elif kwargs_mode and isinstance(input_for_args, dict):
-                            raw_output = target_method(**input_for_args)
-                        else:
-                            raw_output = target_method(input_for_args) if input_for_args is not None else target_method()
-
-                        # Materialize and transform output
-                        output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
-                        if not materialize_output_flag:
-                            output = consume_generator(output)
-                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
-
                         last_output = output_for_fp
 
                         if effective_fp_mode == 'schema':
@@ -862,6 +908,8 @@ def main():
                             fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
                         hashes.append(fp)
+
+                        # Track per-input hashes for drift detection
                         input_key = json.dumps(current_input, sort_keys=True)
                         if input_key not in hashes_per_input:
                             hashes_per_input[input_key] = []

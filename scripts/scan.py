@@ -777,6 +777,15 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
         if func.non_serializable_return:
             suggestion['nonSerializableReturn'] = True
             suggestion['warning'] = 'Needs outputTransform — returns non-JSON-serializable type'
+        # If impure due to time dependency, suggest freezeTime
+        if not func.is_pure:
+            # Check for time-related calls
+            time_calls = [c for c in func.calls if c in ('localtime', 'time', 'gmtime', 'now', 'today', 'utcnow')]
+            if time_calls:
+                suggestion['timeDependent'] = True
+                suggestion['freezeTimeHint'] = f"Uses {', '.join(time_calls)} — add freezeTime to manifest for deterministic fingerprinting"
+            else:
+                suggestion['timeDependent'] = False
         suggestions.append(suggestion)
 
     # Also suggest clusters from class methods that look like pure operations

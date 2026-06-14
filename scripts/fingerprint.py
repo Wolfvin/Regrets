@@ -324,6 +324,7 @@ def _serialize_datetime(val):
     return None
 
 
+
 def deep_clone(val):
     """Deep clone via JSON round-trip. Handles numpy arrays by converting to native types.
 
@@ -371,16 +372,16 @@ def deep_clone(val):
             return deep_clone(val.get_val_d())
         except Exception:
             pass
-    # Handle class instances with to_dict() (e.g. many Python data classes)
-    if hasattr(val, 'to_dict') and callable(val.to_dict):
-        try:
-            return deep_clone(val.to_dict())
-        except Exception:
-            pass
     # Handle namedtuples and other classes with _asdict()
     if hasattr(val, '_asdict') and callable(val._asdict):
         try:
             return deep_clone(val._asdict())
+        except Exception:
+            pass
+    # Handle class instances with to_dict() (e.g. many Python data classes)
+    if hasattr(val, 'to_dict') and callable(val.to_dict):
+        try:
+            return deep_clone(val.to_dict())
         except Exception:
             pass
     # Handle arbitrary class instances via __dict__ attribute snapshot
@@ -392,17 +393,24 @@ def deep_clone(val):
         try:
             snapshot = {'__type__': type(val).__name__}
             for k, v in vars(val).items():
-                snapshot[k] = deep_clone(v)
+                try:
+                    snapshot[k] = deep_clone(v)
+                except Exception:
+                    snapshot[k] = f'<unrepresentable:{type(v).__name__}>'
             return snapshot
         except Exception:
             pass
-    # Handle class instances with __slots__ (no __dict__) — use dir()-based scan
-    if hasattr(val, '__slots__') and not hasattr(val, '__dict__'):
+    # Handle class instances with __slots__ (no __dict__) — use slot-based scan
+    # Also handles objects with __slots__ that ARE types (e.g. pdtContext)
+    if hasattr(val, '__slots__'):
         try:
             snapshot = {'__type__': type(val).__name__}
             for slot in val.__slots__:
-                if hasattr(val, slot):
-                    snapshot[slot] = deep_clone(getattr(val, slot))
+                try:
+                    if hasattr(val, slot):
+                        snapshot[slot] = deep_clone(getattr(val, slot))
+                except AttributeError:
+                    pass
             return snapshot
         except Exception:
             pass
