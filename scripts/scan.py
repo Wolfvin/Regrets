@@ -95,12 +95,27 @@ class FunctionCollector(ast.NodeVisitor):
         produce observable side effects (stdout), which matters for
         fingerprint stability in OCR/pipeline projects that use print()
         for timing/logging.
+
+        Extended to detect time-dependent impurity:
+        - time.localtime(), time.time(), time.gmtime()
+        - datetime.now(), datetime.today()
+        - datetime.datetime.now(), datetime.datetime.today()
+
+        These functions produce non-deterministic output, which makes
+        fingerprinting unreliable unless freezeTime is used.
         """
         impurities = 0
         impure_names = {
             'open', 'print', 'input', 'exec', 'eval',
             'urllib', 'requests', 'http', 'socket',
             'os.system', 'subprocess', 'shutil',
+        }
+        # Time-dependent calls that make functions impure
+        time_impure_attrs = {
+            'localtime', 'time', 'gmtime', 'asctime', 'ctime',
+        }
+        time_impure_module_attrs = {
+            'now', 'today', 'utcnow',
         }
         for child in ast.walk(node):
             if isinstance(child, (ast.Global, ast.Nonlocal)):
@@ -118,6 +133,18 @@ class FunctionCollector(ast.NodeVisitor):
                     if child.func.attr in ('random', 'randint', 'choice', 'shuffle', 'getrandbits'):
                         if isinstance(child.func.value, ast.Name) and child.func.value.id == 'random':
                             impurities += 1
+                    # time.localtime(), time.time(), time.gmtime() = impure
+                    if child.func.attr in time_impure_attrs:
+                        if isinstance(child.func.value, ast.Name) and child.func.value.id == 'time':
+                            impurities += 1
+                    # datetime.now(), datetime.today() = impure
+                    if child.func.attr in time_impure_module_attrs:
+                        if isinstance(child.func.value, ast.Name) and child.func.value.id in ('datetime', 'dt'):
+                            impurities += 1
+                        # Also catch datetime.datetime.now()
+                        if isinstance(child.func.value, ast.Attribute):
+                            if child.func.value.attr in ('datetime', 'date', 'time'):
+                                impurities += 1
         return impurities == 0
 
     def _collect_calls(self, node):
