@@ -11,6 +11,9 @@
 #   python scripts/truth.py
 #   python scripts/truth.py --outdir ./proof/myproject
 #   python scripts/truth.py --cluster my-cluster
+#
+# Both truths must be identical in meaning. If they disagree,
+# there's a false negative in Regrets — fix it before refactoring.
 
 import sys
 import os
@@ -74,7 +77,10 @@ def consume_generator(val):
 
 
 def apply_output_transform(output, transform):
-    """Apply an outputTransform to convert complex objects to fingerprintable form."""
+    """Apply an outputTransform to convert complex objects to fingerprintable form.
+
+    See capture.py for full documentation.
+    """
     if transform is None:
         return output
 
@@ -105,6 +111,10 @@ def apply_output_transform(output, transform):
             return len(obj)
         elif transform == 'type':
             return type(obj).__name__
+        elif transform == 'hex':
+            if isinstance(obj, bytes):
+                return obj.hex()
+            return obj
         else:
             raise ValueError(f"Unknown outputTransform: '{transform}'")
 

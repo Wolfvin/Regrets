@@ -422,7 +422,7 @@ Usage:
   node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python+PHP)
   node scripts/regret.js truth [--outdir <dir>]        Save dual truth baselines (JS+Python)
-  node scripts/regret.js scan [--dir src/] [--stack] [--decompose]   Scan project for cluster suggestions
+  node scripts/regret.js scan [--dir src/] [--stack] [--decompose] [--manifest]   Scan project for cluster suggestions
   node scripts/regret.js scan --decompose <path>                    Detect god modules and suggest decomposition
   node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
