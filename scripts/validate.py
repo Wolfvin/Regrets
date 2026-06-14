@@ -25,6 +25,50 @@ from fingerprint import (
     _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot
 )
 
+
+def freeze_time(frozen_dt_str):
+    """Context manager that patches datetime.now() and time.localtime() to return
+    a fixed value during capture/validate.
+
+    Same implementation as capture.py — kept in sync.
+    """
+    from unittest.mock import patch
+    import datetime as dt_module
+    import time as time_module
+
+    frozen_dt = dt_module.datetime.fromisoformat(frozen_dt_str)
+    frozen_date = frozen_dt.date()
+    frozen_struct = time_module.localtime(frozen_dt.timestamp())
+
+    class FrozenDateTime(dt_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is not None:
+                return frozen_dt.replace(tzinfo=tz)
+            return frozen_dt
+
+        @classmethod
+        def utcnow(cls):
+            return frozen_dt.replace(tzinfo=dt_module.timezone.utc)
+
+    class FrozenDate(dt_module.date):
+        @classmethod
+        def today(cls):
+            return frozen_date
+
+    class FrozenTime:
+        @staticmethod
+        def localtime(secs=None):
+            if secs is not None:
+                return time_module.localtime(secs)
+            return frozen_struct
+
+    return patch.multiple(
+        dt_module,
+        datetime=FrozenDateTime,
+        date=FrozenDate,
+    ), patch.object(time_module, 'localtime', FrozenTime.localtime)
+
 # ─── CLI args ─────────────────────────────────────────────────────────────────
 
 def parse_args():
@@ -155,6 +199,14 @@ def parse_regret(content):
             meta['trackMutation'] = val.lower() == 'true'
         elif key == 'mutationFingerprint':
             meta['mutationFingerprint'] = val.strip()
+        elif key == 'maxYields':
+            meta['maxYields'] = int(val)
+        elif key == 'freezeTime':
+            meta['freezeTime'] = val
+        elif key == 'trackState':
+            meta['trackState'] = [s.strip() for s in val.strip('[]').split(',') if s.strip()]
+        elif key == 'stateFingerprint':
+            meta['stateFingerprint'] = val.strip()
         else:
             meta[key] = val
 
@@ -170,6 +222,10 @@ def parse_regret(content):
             meta['mutationBefore'] = json.loads(line[16:])
         elif line.startswith('MUTATION_AFTER '):
             meta['mutationAfter'] = json.loads(line[15:])
+        elif line.startswith('STATE_BEFORE '):
+            meta['stateBefore'] = json.loads(line[13:])
+        elif line.startswith('STATE_AFTER '):
+            meta['stateAfter'] = json.loads(line[12:])
 
     meta['raw'] = content
     return meta
@@ -382,6 +438,10 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
+            max_yields = regret.get('maxYields', cluster_def.get('maxYields', None))
+            freeze_time_str = regret.get('freezeTime', cluster_def.get('freezeTime', None))
+            track_state_attrs = regret.get('trackState', cluster_def.get('trackState', None))
+            golden_state_fp = regret.get('stateFingerprint', None)
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -426,24 +486,55 @@ def main():
                     if track_mutation:
                         input_snapshot_before = snapshot_state(input_for_args)
 
-                    if multi_args and isinstance(input_for_args, list):
-                        raw_output = entry_fn(*input_for_args)
-                        fp_input = input_for_fp
-                    elif kwargs_mode and isinstance(input_for_args, dict):
-                        # kwargs mode: input dict is unpacked as keyword arguments
-                        raw_output = entry_fn(**input_for_args)
-                        fp_input = input_for_fp
-                    elif kwargs_mode and not isinstance(input_for_args, dict):
-                        raise TypeError(
-                            f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
-                            f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                    # Snapshot object state BEFORE call (for trackState)
+                    obj_state_before = None
+                    obj_state_fingerprint = None
+                    if track_state_attrs and isinstance(input_for_args, dict) and 'self' in input_for_args:
+                        obj_state_before = snapshot_state(
+                            input_for_args['self'],
+                            include_private=True,
+                            attr_filter=track_state_attrs
                         )
+                    elif track_state_attrs and hasattr(input_for_args, '__dict__'):
+                        obj_state_before = snapshot_state(
+                            input_for_args,
+                            include_private=True,
+                            attr_filter=track_state_attrs
+                        )
+
+                    # Execute entry function, optionally with frozen time
+                    def _run_entry():
+                        if multi_args and isinstance(input_for_args, list):
+                            return entry_fn(*input_for_args), input_for_fp
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            return entry_fn(**input_for_args), input_for_fp
+                        elif kwargs_mode and not isinstance(input_for_args, dict):
+                            raise TypeError(
+                                f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                                f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                            )
+                        else:
+                            return (entry_fn(input_for_args) if input_for_args is not None else entry_fn()), input_for_fp
+
+                    # Setup freeze_time context managers if needed
+                    freeze_cms = []
+                    if freeze_time_str:
+                        dt_cm, time_cm = freeze_time(freeze_time_str)
+                        freeze_cms = [dt_cm, time_cm]
+
+                    if freeze_cms:
+                        for cm in freeze_cms:
+                            cm.__enter__()
+                        try:
+                            raw_output, fp_input = _run_entry()
+                        finally:
+                            for cm in reversed(freeze_cms):
+                                cm.__exit__(None, None, None)
                     else:
-                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
-                        fp_input = input_for_fp
+                        raw_output, fp_input = _run_entry()
 
                     # Materialize generator/iterator output if configured
-                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                    output, was_materialized = materialize_output(raw_output, max_yields=max_yields) if materialize_output_flag else (raw_output, False)
 
                     # Consume generators/iterators into lists for fingerprinting (always-on fallback)
                     if not materialize_output_flag:
@@ -506,11 +597,40 @@ def main():
                 for input_hashes in hashes_per_input.values()
             )
 
-            # Mutation mismatch is a separate failure condition
-            if track_mutation and not mutation_match:
-                print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
-                results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
-                continue
+                    # Mutation mismatch is a separate failure condition
+                    if track_mutation and not mutation_match:
+                        print(f"  ❌ {cluster_id:<35} MUTATION MISMATCH")
+                        results.append({'id': cluster_id, 'pass': False, 'mutation_mismatch': True})
+                        continue
+
+                    # State mutation check (for trackState)
+                    state_match = True
+                    if track_state_attrs and obj_state_before is not None:
+                        obj_state_after = None
+                        if isinstance(input_for_args, dict) and 'self' in input_for_args:
+                            obj_state_after = snapshot_state(
+                                input_for_args['self'],
+                                include_private=True,
+                                attr_filter=track_state_attrs
+                            )
+                        elif hasattr(input_for_args, '__dict__'):
+                            obj_state_after = snapshot_state(
+                                input_for_args,
+                                include_private=True,
+                                attr_filter=track_state_attrs
+                            )
+                        if obj_state_after is not None:
+                            live_state_fp = fingerprint(
+                                obj_state_before, obj_state_after,
+                                norm_rules, ign_fields
+                            )
+                            if golden_state_fp and live_state_fp != golden_state_fp:
+                                state_match = False
+
+                    if not state_match:
+                        print(f"  ❌ {cluster_id:<35} STATE MISMATCH")
+                        results.append({'id': cluster_id, 'pass': False, 'state_mismatch': True})
+                        continue
 
             if update_mode:
                 if is_match:

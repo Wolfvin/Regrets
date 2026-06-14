@@ -24,6 +24,57 @@ from fingerprint import (
     materialize_output, snapshot_state, get_env_snapshot
 )
 
+
+def freeze_time(frozen_dt_str):
+    """Context manager that patches datetime.now() and time.localtime() to return
+    a fixed value during capture/validate.
+
+    This is critical for functions that default to datetime.now() (e.g., rrule's
+    dtstart default, parser.parse's default). Without freezing, the fingerprint
+    would be different every run.
+
+    Args:
+        frozen_dt_str: ISO 8601 datetime string (e.g., "2024-01-15T10:30:00")
+
+    Returns a context manager that freezes time within the block.
+    """
+    from unittest.mock import patch
+    import datetime as dt_module
+    import time as time_module
+
+    frozen_dt = dt_module.datetime.fromisoformat(frozen_dt_str)
+    frozen_date = frozen_dt.date()
+    frozen_struct = time_module.localtime(frozen_dt.timestamp())
+
+    class FrozenDateTime(dt_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is not None:
+                return frozen_dt.replace(tzinfo=tz)
+            return frozen_dt
+
+        @classmethod
+        def utcnow(cls):
+            return frozen_dt.replace(tzinfo=dt_module.timezone.utc)
+
+    class FrozenDate(dt_module.date):
+        @classmethod
+        def today(cls):
+            return frozen_date
+
+    class FrozenTime:
+        @staticmethod
+        def localtime(secs=None):
+            if secs is not None:
+                return time_module.localtime(secs)
+            return frozen_struct
+
+    return patch.multiple(
+        dt_module,
+        datetime=FrozenDateTime,
+        date=FrozenDate,
+    ), patch.object(time_module, 'localtime', FrozenTime.localtime)
+
 # ─── CLI args ─────────────────────────────────────────────────────────────────
 
 def parse_args():
@@ -258,6 +309,9 @@ def main():
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
         track_mutation = cluster.get('trackMutation', False)
+        max_yields = cluster.get('maxYields', None)
+        freeze_time_str = cluster.get('freezeTime', None)
+        track_state_attrs = cluster.get('trackState', None)  # list of attr names to track on the entry object
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -277,6 +331,12 @@ def main():
             if entry_fn is None or not callable(entry_fn):
                 raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
 
+            # Setup freeze_time context managers if needed
+            freeze_cms = []
+            if freeze_time_str:
+                dt_cm, time_cm = freeze_time(freeze_time_str)
+                freeze_cms = [dt_cm, time_cm]
+
             # Run with provided inputs
             results = []
             for input_val in inputs:
@@ -294,27 +354,65 @@ def main():
                 if track_mutation:
                     input_snapshot_before = snapshot_state(input_for_args)
 
-                if multi_args and isinstance(input_for_args, list):
-                    raw_output = entry_fn(*input_for_args)
-                    fp_input = input_for_record
-                elif kwargs_mode and isinstance(input_for_args, dict):
-                    # kwargs mode: input dict is unpacked as keyword arguments
-                    # e.g., input {"tiles": [...], "win_tile": 36} → entry_fn(tiles=[...], win_tile=36)
-                    raw_output = entry_fn(**input_for_args)
-                    fp_input = input_for_record
-                elif kwargs_mode and not isinstance(input_for_args, dict):
-                    raise TypeError(
-                        f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
-                        f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                # Snapshot object state BEFORE call (for trackState)
+                obj_state_before = None
+                obj_state_fingerprint = None
+                if track_state_attrs and isinstance(input_for_args, dict) and 'self' in input_for_args:
+                    # When input contains a 'self' key pointing to the object instance
+                    obj_state_before = snapshot_state(
+                        input_for_args['self'],
+                        include_private=True,
+                        attr_filter=track_state_attrs
                     )
+                elif track_state_attrs and hasattr(input_for_args, '__dict__'):
+                    # When the input IS the object instance itself
+                    obj_state_before = snapshot_state(
+                        input_for_args,
+                        include_private=True,
+                        attr_filter=track_state_attrs
+                    )
+
+                # Execute entry function, optionally with frozen time
+                def _run_entry():
+                    if multi_args and isinstance(input_for_args, list):
+                        return entry_fn(*input_for_args), input_for_record
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        return entry_fn(**input_for_args), input_for_record
+                    elif kwargs_mode and not isinstance(input_for_args, dict):
+                        raise TypeError(
+                            f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                            f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                        )
+                    else:
+                        return (entry_fn(input_for_args) if input_for_args is not None else entry_fn()), input_for_record
+
+                if freeze_cms:
+                    for cm in freeze_cms:
+                        cm.__enter__()
+                    try:
+                        raw_output, fp_input = _run_entry()
+                    finally:
+                        for cm in reversed(freeze_cms):
+                            cm.__exit__(None, None, None)
                 else:
-                    raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
-                    fp_input = input_for_record
+                    raw_output, fp_input = _run_entry()
 
                 # Materialize generator/iterator output if configured
-                output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
-                if was_materialized:
-                    print(f"   🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)")
+                # Pass max_yields for bounded materialization of infinite generators
+                if materialize_output_flag:
+                    output, was_materialized = materialize_output(raw_output, max_yields=max_yields)
+                    if was_materialized:
+                        trunc_marker = any(
+                            isinstance(item, dict) and item.get('__truncated__')
+                            for item in (output if isinstance(output, list) else [])
+                        )
+                        if trunc_marker:
+                            print(f"   🔄 Output materialized (bounded): {type(raw_output).__name__} → list ({max_yields} items + truncation marker)")
+                        else:
+                            print(f"   🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)")
+                else:
+                    output = raw_output
+                    was_materialized = False
 
                 # Consume generators/iterators into lists for fingerprinting (always-on fallback)
                 if not materialize_output_flag:
@@ -338,6 +436,29 @@ def main():
                     )
                     if input_snapshot_before != input_snapshot_after:
                         print(f"   ⚠️  Input mutation detected! Fingerprint: {input_mutation_fingerprint}")
+
+                # Snapshot object state AFTER call (for trackState)
+                obj_state_after = None
+                if track_state_attrs and isinstance(input_for_args, dict) and 'self' in input_for_args:
+                    obj_state_after = snapshot_state(
+                        input_for_args['self'],
+                        include_private=True,
+                        attr_filter=track_state_attrs
+                    )
+                elif track_state_attrs and hasattr(input_for_args, '__dict__'):
+                    obj_state_after = snapshot_state(
+                        input_for_args,
+                        include_private=True,
+                        attr_filter=track_state_attrs
+                    )
+
+                if obj_state_before is not None and obj_state_after is not None:
+                    obj_state_fingerprint = fingerprint(
+                        obj_state_before, obj_state_after,
+                        normalize_rules, ignore_fields
+                    )
+                    if obj_state_before != obj_state_after:
+                        print(f"   ⚠️  Object state mutation detected! Fingerprint: {obj_state_fingerprint}")
 
                 if fingerprint_mode == 'schema':
                     schema = extract_schema(output_for_fp)
@@ -371,6 +492,9 @@ def main():
                     'input_snapshot_after': input_snapshot_after,
                     'input_mutation_fingerprint': input_mutation_fingerprint,
                     'was_materialized': was_materialized,
+                    'obj_state_before': obj_state_before,
+                    'obj_state_after': obj_state_after,
+                    'obj_state_fingerprint': obj_state_fingerprint,
                 })
 
             # Warn about watched functions that were never called during capture
@@ -424,6 +548,14 @@ def main():
                 lines.append("trackMutation: true")
                 if golden.get('input_mutation_fingerprint'):
                     lines.append(f"mutationFingerprint: {golden['input_mutation_fingerprint']}")
+            if max_yields:
+                lines.append(f"maxYields: {max_yields}")
+            if freeze_time_str:
+                lines.append(f"freezeTime: {freeze_time_str}")
+            if track_state_attrs:
+                lines.append(f"trackState: [{', '.join(track_state_attrs)}]")
+                if golden.get('obj_state_fingerprint'):
+                    lines.append(f"stateFingerprint: {golden['obj_state_fingerprint']}")
 
             # Environment snapshot
             env_str = json.dumps(get_env_snapshot(), sort_keys=True)
@@ -436,6 +568,9 @@ def main():
             if track_mutation and golden.get('input_snapshot_before') is not None:
                 lines.append(f"MUTATION_BEFORE {json_serialize(golden['input_snapshot_before'])}")
                 lines.append(f"MUTATION_AFTER  {json_serialize(golden['input_snapshot_after'])}")
+            if track_state_attrs and golden.get('obj_state_before') is not None:
+                lines.append(f"STATE_BEFORE {json_serialize(golden['obj_state_before'])}")
+                lines.append(f"STATE_AFTER  {json_serialize(golden['obj_state_after'])}")
 
             with open(regret_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))

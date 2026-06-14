@@ -229,7 +229,7 @@ def deep_clone(val):
         return repr(val)
 
 
-def materialize_output(val):
+def materialize_output(val, max_yields=None):
     """Materialize generator/iterator output into a list for fingerprinting.
 
     When a function returns a generator, iterator, or other lazy sequence,
@@ -246,6 +246,14 @@ def materialize_output(val):
     - str, bytes, dict, list, tuple, set (already concrete)
     - numpy arrays (handled by _numpy_to_native)
     - Numbers, booleans, None (primitives)
+
+    Args:
+        val: The value to potentially materialize.
+        max_yields: If set, only consume up to this many items from the generator.
+            This is critical for infinite generators (e.g., rrule with no count/until)
+            where list() would hang. When max_yields is set and the generator has
+            more items, a trailing sentinel {"__truncated__": true, "maxYields": N}
+            is appended to signal that output was bounded.
 
     Returns a tuple: (materialized_value, was_materialized_bool)
     """
@@ -271,7 +279,17 @@ def materialize_output(val):
 
     if is_generator or is_map_filter or is_range or is_iterator or is_iterable_only:
         try:
-            return list(val), True
+            if max_yields is not None and isinstance(max_yields, int) and max_yields > 0:
+                # Bounded materialization: take only max_yields items
+                result = []
+                for i, item in enumerate(val):
+                    if i >= max_yields:
+                        result.append({"__truncated__": True, "maxYields": max_yields})
+                        break
+                    result.append(item)
+                return result, True
+            else:
+                return list(val), True
         except Exception:
             # If materialization fails, return as-is
             return val, False
@@ -279,11 +297,14 @@ def materialize_output(val):
     return val, False
 
 
-def snapshot_state(obj):
+def snapshot_state(obj, include_private=False, attr_filter=None):
     """Create a JSON-serializable snapshot of an object's state.
 
     Used by trackMutation to capture input state before and after
     a function call, so mutations can be detected.
+
+    Also used by trackState to capture object attribute state
+    across method calls.
 
     Handles:
     - JSON-serializable types (dict, list, str, numbers)
@@ -291,19 +312,28 @@ def snapshot_state(obj):
     - Objects with __slots__ (captures slot values)
     - Nested objects (recurses)
 
+    Args:
+        obj: The object to snapshot.
+        include_private: If True, include attributes starting with '_'.
+            This is needed for trackState which monitors internal state
+            like _len, _cache, etc.
+        attr_filter: Optional list of attribute names to include.
+            When set, only these attributes are captured (useful for
+            trackState which specifies exactly which attributes to watch).
+
     Returns a JSON-serializable dict/list/value.
     """
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
 
     if isinstance(obj, (list, tuple)):
-        return [snapshot_state(v) for v in obj]
+        return [snapshot_state(v, include_private, attr_filter) for v in obj]
 
     if isinstance(obj, dict):
-        return {k: snapshot_state(v) for k, v in obj.items()}
+        return {k: snapshot_state(v, include_private, attr_filter) for k, v in obj.items()}
 
     if isinstance(obj, set):
-        return sorted([snapshot_state(v) for v in obj], key=lambda x: str(x))
+        return sorted([snapshot_state(v, include_private, attr_filter) for v in obj], key=lambda x: str(x))
 
     if isinstance(obj, bytes):
         return obj.decode('utf-8', errors='replace')
@@ -313,11 +343,17 @@ def snapshot_state(obj):
         cls_name = type(obj).__name__
         attrs = {}
         for k, v in obj.__dict__.items():
-            if not k.startswith('_'):  # skip private attrs by default
-                try:
-                    attrs[k] = snapshot_state(v)
-                except Exception:
-                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+            # Apply attr_filter if specified
+            if attr_filter is not None:
+                if k not in attr_filter:
+                    continue
+            elif not include_private and k.startswith('_'):
+                # skip private attrs by default
+                continue
+            try:
+                attrs[k] = snapshot_state(v, include_private, attr_filter)
+            except Exception:
+                attrs[k] = f'<unrepresentable:{type(v).__name__}>'
         return {'__class__': cls_name, **attrs}
 
     # Object with __slots__
@@ -325,8 +361,10 @@ def snapshot_state(obj):
         cls_name = type(obj).__name__
         attrs = {}
         for slot in obj.__slots__:
+            if attr_filter is not None and slot not in attr_filter:
+                continue
             try:
-                attrs[slot] = snapshot_state(getattr(obj, slot))
+                attrs[slot] = snapshot_state(getattr(obj, slot), include_private, attr_filter)
             except AttributeError:
                 pass
         return {'__class__': cls_name, **attrs}
