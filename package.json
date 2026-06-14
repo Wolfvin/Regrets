@@ -24,6 +24,12 @@
     "fingerprint",
     "ghost-proxy"
   ],
+  "files": [
+    "scripts/",
+    "bin/",
+    "index.js",
+    "README.md"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=16.0.0"
