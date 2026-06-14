@@ -560,10 +560,16 @@ def main():
                             raw_output = entry_fn_m(**merged_args)
                             fp_input = deep_clone(merged_args)
                         elif effective_kwargs:
-                            raw_output = entry_fn_m(input_for_args, **effective_kwargs)
+                            if multi_args and isinstance(input_for_args, list):
+                                raw_output = entry_fn_m(*input_for_args, **effective_kwargs)
+                            else:
+                                raw_output = entry_fn_m(input_for_args, **effective_kwargs)
                             fp_input = input_for_record
                         else:
-                            raw_output = entry_fn_m(input_for_args) if input_for_args is not None else entry_fn_m()
+                            if multi_args and isinstance(input_for_args, list):
+                                raw_output = entry_fn_m(*input_for_args)
+                            else:
+                                raw_output = entry_fn_m(input_for_args) if input_for_args is not None else entry_fn_m()
                             fp_input = input_for_record
 
                         output = consume_generator(raw_output)
