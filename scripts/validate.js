@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } 
 import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
 import { pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
@@ -100,6 +100,7 @@ function parseRegret(content) {
     else if (key === 'kwargs') meta.kwargs = val === 'true'
     else if (key === 'materializeOutput') meta.materializeOutput = val === 'true'
     else if (key === 'trackMutation') meta.trackMutation = val === 'true'
+    else if (key === 'inputMutated') meta.inputMutated = val === 'true'
     else if (key === 'mutationFingerprint') meta.mutationFingerprint = val
     else if (key === 'version') meta.version = Number(val)
     else if (key === 'constructorArgs' || key === 'setup' || key === 'initialState') meta[key] = JSON.parse(val)
@@ -380,6 +381,9 @@ async function runCluster(clusterDef, regret) {
           resetState, deepCloneInput = true, seed, singletonMethod, singletonName,
           storeDispatch, initialState } = clusterDef
   const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
+  // trackMutation: check from .regret metadata first, then cluster config
+  const trackMutation = regret.trackMutation || clusterDef.trackMutation || false
+  const goldenMutationFingerprint = regret.mutationFingerprint || null
 
   // Check environment snapshot if present in .regret file
   if (regret.env && typeof regret.env === 'object') {
@@ -418,6 +422,10 @@ async function runCluster(clusterDef, regret) {
   const hashes = []           // flat list of all hashes (for backward compat)
   const hashesPerInput = {}   // { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
   let lastOutput = null
+  // trackMutation: collect mutation fingerprints across all runs/inputs
+  let mutationMatch = true
+  let mutationDetected = false
+  let liveMutationFingerprint = null
 
   // Determine which inputs to validate: golden from .regret + all from manifest
   // Note: empty array `[]` in manifest is treated as "no inputs specified"
@@ -434,6 +442,13 @@ async function runCluster(clusterDef, regret) {
       const recorder = []
       let output
       let fpInput
+
+      // trackMutation: snapshot input state BEFORE call to detect mutations
+      let inputSnapshotBefore = null
+      let inputForArgsRef = null  // reference to the actual args object passed to the function
+      if (trackMutation) {
+        inputSnapshotBefore = deepClone(deepCloneInput ? deepClone(currentInput) : currentInput)
+      }
 
       // Determine fingerprint mode (from .regret or manifest)
       const mode = regret.fingerprintMode || fingerprintMode || 'value'
@@ -473,6 +488,7 @@ async function runCluster(clusterDef, regret) {
 
         const inputForFp = deepClone(currentInput)
         const inputForArgs = deepClone(currentInput)
+        inputForArgsRef = inputForArgs  // trackMutation: keep reference for post-call snapshot
 
         if (storeType === 'redux') {
           dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
@@ -522,6 +538,7 @@ async function runCluster(clusterDef, regret) {
         // Call target method
         const inputForFp = deepClone(currentInput)
         const inputForArgs = deepClone(currentInput)
+        inputForArgsRef = inputForArgs  // trackMutation: keep reference for post-call snapshot
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await instance[classMethod](...args_)
 
@@ -554,6 +571,7 @@ async function runCluster(clusterDef, regret) {
         }
         const inputForFp = deepClone(currentInput)
         const inputForArgs = deepClone(currentInput)
+        inputForArgsRef = inputForArgs  // trackMutation: keep reference for post-call snapshot
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await singleton[sMethod](...args_)
 
@@ -597,6 +615,7 @@ async function runCluster(clusterDef, regret) {
         if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
         const inputForFp = deepCloneInput ? deepClone(currentInput) : currentInput
         const inputForArgs = deepCloneInput ? deepClone(currentInput) : currentInput
+        inputForArgsRef = inputForArgs  // trackMutation: keep reference for post-call snapshot
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
 
@@ -613,6 +632,39 @@ async function runCluster(clusterDef, regret) {
         output = deepClone(transformedOutput)
         lastOutput = output
         fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
+      }
+
+      // ── trackMutation: snapshot input state AFTER call to detect mutations ──
+      if (trackMutation && inputSnapshotBefore !== null && inputForArgsRef !== null) {
+        // Snapshot the actual args object after the function call
+        // inputForArgsRef points to the same object that was passed to the entry function,
+        // so if the function mutated it in-place, we'll detect the difference.
+        const inputSnapshotAfter = deepClone(inputForArgsRef)
+        const beforeStr = stableStringify(inputSnapshotBefore)
+        const afterStr = stableStringify(inputSnapshotAfter)
+        const isMutated = beforeStr !== afterStr
+
+        if (isMutated) {
+          mutationDetected = true
+        }
+
+        // Compute mutation fingerprint (same method as capture.js)
+        const mutFpConfig = { normalize, ignoreFields, ignorePaths: regret.ignorePaths || ignorePaths }
+        liveMutationFingerprint = fingerprint(inputSnapshotBefore, inputSnapshotAfter, mutFpConfig)
+
+        // Compare with golden mutation fingerprint from .regret file
+        if (goldenMutationFingerprint) {
+          if (liveMutationFingerprint !== goldenMutationFingerprint) {
+            mutationMatch = false
+          }
+        } else {
+          // .regret file has no mutation fingerprint (old capture) → skip mutation check, print warning
+          // Only warn once (first run, first input)
+          if (i === 0 && currentInput === inputsToValidate[0]) {
+            console.warn(`  ⚠️  ${clusterDef.id}: trackMutation enabled but .regret file has no mutationFingerprint — skipping mutation comparison`)
+            console.warn(`      Re-run capture.js to generate mutation fingerprint`)
+          }
+        }
       }
 
       // Compute fingerprint
@@ -648,7 +700,7 @@ async function runCluster(clusterDef, regret) {
       hashesPerInput[inputKey].push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, hashesPerInput, lastOutput }
+  return { hashes, hashesPerInput, lastOutput, mutationMatch, mutationDetected, liveMutationFingerprint }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -816,8 +868,33 @@ for (const file of regretFiles) {
   }
 
   try {
-    const { hashes, hashesPerInput, lastOutput, skipped } = await runCluster(def, regret)
+    const { hashes, hashesPerInput, lastOutput, skipped,
+            mutationMatch: clusterMutationMatch,
+            mutationDetected: clusterMutationDetected,
+            liveMutationFingerprint: clusterLiveMutationFp } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
+
+    // ── trackMutation check: mutation mismatch takes priority over fingerprint match ──
+    // If the .regret file has a mutationFingerprint and the live one differs, FAIL immediately.
+    // This catches the case where a refactoring introduces a mutation that wasn't there before.
+    const trackMutationFlag = regret.trackMutation || def.trackMutation || false
+    const goldenMutationFp = regret.mutationFingerprint || null
+    if (trackMutationFlag && goldenMutationFp && !clusterMutationMatch) {
+      if (!jsonOutput) {
+        if (!regret.inputMutated && clusterMutationDetected) {
+          console.log(`  ❌ ${id.padEnd(35)} INPUT MUTATION DETECTED — function now mutates argument (was pure)`)
+        } else {
+          console.log(`  ❌ ${id.padEnd(35)} MUTATION MISMATCH  golden=${goldenMutationFp} live=${clusterLiveMutationFp}`)
+        }
+      }
+      results.push({ id, pass: false, mutationMismatch: true, mutationDetected: clusterMutationDetected })
+      if (failFast) {
+        if (!jsonOutput) console.log(`\n  --fail-fast: stopping.`)
+        break
+      }
+      continue
+    }
+
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
     const isDrift  = driftMode && Object.values(hashesPerInput).some(inputHashes => new Set(inputHashes).size > 1)
@@ -963,13 +1040,17 @@ if (reporter === 'junit') {
       .filter(r => !r.skipped)
       .map(r => ({
         id: r.id,
-        status: r.pass ? (r.drift ? 'drift' : 'pass') : (r.error ? 'error' : 'fail'),
+        status: r.pass ? (r.drift ? 'drift' : 'pass') : (r.mutationMismatch ? 'mutation_mismatch' : (r.error ? 'error' : 'fail')),
         ...(r.expected ? { expected: r.expected } : {}),
         ...(r.actual ? { actual: r.actual } : {}),
         ...(r.error ? { error: r.error } : {}),
         ...(r.drift ? { drift: true } : {}),
         ...(r.updated ? { updated: true } : {}),
+<<<<<<< HEAD
         ...(!noDiff && !r.pass && r.goldenOutput != null && r.liveOutput != null ? (() => { try { return { diff: jsonDiff(typeof r.goldenOutput === 'string' ? JSON.parse(r.goldenOutput) : r.goldenOutput, typeof r.liveOutput === 'string' ? JSON.parse(r.liveOutput) : r.liveOutput) } } catch { return {} } })() : {}),
+=======
+        ...(r.mutationMismatch ? { mutationMismatch: true, mutationDetected: r.mutationDetected } : {}),
+>>>>>>> ca69ec3 (feat: add trackMutation support to validate.js)
       }))
   }
   console.log(JSON.stringify(jsonResult, null, 0))
@@ -1010,12 +1091,17 @@ if (reporter === 'junit') {
   results.filter(r => !r.pass).forEach(r => {
     console.log(`  • ${r.id}`)
     if (r.error) console.log(`    ${r.error}`)
+<<<<<<< HEAD
     else console.log(`    Expected: ${r.expected || r.golden}  Got: ${r.actual || r.live}`)
     // Show diff in summary if available
     if (!noDiff && r.goldenOutput != null && r.liveOutput != null) {
       const diff = formatDiffOutput(r.goldenOutput, r.liveOutput)
       if (diff) console.log(diff)
     }
+=======
+    else if (r.mutationMismatch) console.log(`    Mutation fingerprint mismatch — function's input mutation behavior changed`)
+    else console.log(`    Expected: ${r.golden}  Got: ${r.live}`)
+>>>>>>> ca69ec3 (feat: add trackMutation support to validate.js)
   })
   console.log(`\nFix the CODE — do not edit .regret files.\nRe-run: node scripts/validate.js`)
   process.exit(1)

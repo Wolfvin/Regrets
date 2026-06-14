@@ -561,6 +561,10 @@ for (const cluster of clusters) {
           if (resultEntry.inputMutated) {
             if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
           }
+          // Compute mutation fingerprint for validate.js to compare against
+          resultEntry.mutationFingerprint = fingerprint(inputBefore, inputAfterCall, { normalize, ignoreFields })
+          resultEntry.mutationBefore = inputBefore
+          resultEntry.mutationAfter = inputAfterCall
         }
 
         results.push(resultEntry)
@@ -757,6 +761,10 @@ for (const cluster of clusters) {
           if (lastResult.inputMutated) {
             if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
           }
+          // Compute mutation fingerprint for validate.js to compare against
+          lastResult.mutationFingerprint = fingerprint(inputBefore, inputAfterCall, { normalize, ignoreFields })
+          lastResult.mutationBefore = inputBefore
+          lastResult.mutationAfter = inputAfterCall
         }
       }
     }
@@ -807,6 +815,10 @@ for (const cluster of clusters) {
 
     // Use first run as the golden (representative) for the .regret file
     const { input, output, fp } = results[0]
+    // Extract mutation data for .regret file (trackMutation support)
+    const mutationFingerprint = results[0]?.mutationFingerprint ?? null
+    const mutationBefore = results[0]?.mutationBefore
+    const mutationAfter = results[0]?.mutationAfter
 
     // Write .regret file
     const regretPath = join(outDir, `${id}.regret`)
@@ -849,6 +861,7 @@ for (const cluster of clusters) {
       materializeOutput ? `materializeOutput: true` : null,
       cluster.trackMutation ? `trackMutation: true` : null,
       results.some(r => r.inputMutated) ? `inputMutated: true` : null,
+      mutationFingerprint ? `mutationFingerprint: ${mutationFingerprint}` : null,
       outputEncoding ? `outputEncoding: ${outputEncoding}` : null,
       resetState ? `resetState: ${resetState}` : null,
       !deepCloneInput ? `deepCloneInput: false` : null,
@@ -858,6 +871,8 @@ for (const cluster of clusters) {
       `INPUT  ${JSON.stringify(input ?? null)}`,
       `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,
       `HASH   ${fp}`,
+      mutationBefore !== undefined ? `MUTATION_BEFORE ${JSON.stringify(mutationBefore)}` : null,
+      mutationAfter !== undefined ? `MUTATION_AFTER ${JSON.stringify(mutationAfter)}` : null,
     ].filter(Boolean).join('\n')
 
     writeFileSync(regretPath, content, 'utf8')
