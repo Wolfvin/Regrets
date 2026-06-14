@@ -33,6 +33,26 @@ Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
 Stack: `js` | `ts` | `css` | `python` | `rust` | `react` | `go` | `php` | `extension`.
 CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed. Rust supports capture + validate via `cargo test`.
 
+### Error path contracts (expectThrow)
+
+Use `__expectThrow` to declare that a specific input MUST cause the function to throw:
+
+```json
+"inputs": [
+  { "host": "localhost" },
+  { "__expectThrow": true, "value": null },
+  { "__expectThrow": true, "value": { "port": -1 } }
+]
+```
+
+- `__expectThrow: true` — marks this input as an error-path test
+- `value` — the actual argument sent to the function
+- `capture.js` catches the error and fingerprints `{ type, message }` as `ERROR_CONTRACT`
+- `validate.js` FAILs if: function stops throwing, error type changes, or error message changes
+- Works for sync `throw` and async `Promise.reject` / `async` function throws
+- Error messages are normalized: stack traces stripped, line numbers stripped, `normalize` rules applied
+- `.regret` file stores `ERROR_CONTRACT` instead of `OUTPUT`, plus `expectThrow: true` in metadata
+
 ---
 
 ## 3. Output — validate.js stdout
@@ -43,6 +63,9 @@ CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed.
   ✅ compute-total           x7k2m  × 5  PASS+STABLE           ← drift mode
   ❌ fetch-invoice           x7k2m / ff3z           DRIFT
   ✅ transform-user-data     9jadb → x3kp1  UPDATED            ← update mode
+  ❌ parse-input             a3b2k → m7n4p          FAIL       ← expectThrow: function stopped throwing
+    Expected error: TypeError: Invalid input
+    Actual: function did NOT throw (error path removed)
 ```
 
 Summary: `✅ All N tests passed.` = exit 0 (proceed). `❌ N/M FAILED.` = exit 1 (stop).
@@ -109,6 +132,8 @@ START: Agent plans to refactor code
 | Coverage UNDER-COVERED | Add inputs (use `--suggest-inputs`); aim for inputs >= branches |
 | preBuild failed | Run build manually, fix compilation errors |
 | Python module import error | Verify `module` dot-notation path, add `pythonPath` |
+| expectThrow violated | Function stopped throwing — refactoring removed error path; restore or update with reason |
+| Error type/message changed | Error behavior changed — if intentional, `regret update <id> --reason "..."` |
 
 ---
 

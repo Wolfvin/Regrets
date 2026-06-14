@@ -387,6 +387,38 @@ for (const cluster of clusters) {
     const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
     const results = []
 
+    // ─── expectThrow helper ─────────────────────────────────────────────────
+    // Input with { __expectThrow: true, value: ... } means the function MUST throw.
+    // The `value` field is the actual argument sent to the function.
+    // On throw, we fingerprint { type: error.constructor.name, message } instead
+    // of normal output, and store it as ERROR_CONTRACT in the .regret file.
+    function isExpectThrow(inp) {
+      return inp && typeof inp === 'object' && inp.__expectThrow === true
+    }
+    function extractInputValue(inp) {
+      return isExpectThrow(inp) ? inp.value : inp
+    }
+    function normalizeErrorMessage(msg, normalizeRules) {
+      if (typeof msg !== 'string') return String(msg)
+      let m = msg
+      // Strip stack trace (everything after first newline)
+      m = m.split('\n')[0]
+      // Apply existing normalize rules for non-deterministic values
+      if (normalizeRules.includes('timestamps'))  m = m.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<timestamp>')
+      if (normalizeRules.includes('uuids'))        m = m.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
+      if (normalizeRules.includes('epochs'))        m = m.replace(/\b\d{10,13}\b/g, '<epoch>')
+      // Strip file paths and line numbers (common in Node error messages)
+      m = m.replace(/\s*\(.+:\d+:\d+\)/g, '')
+      m = m.replace(/\s+at .+$/s, '')
+      return m.trim()
+    }
+    function buildErrorContract(err) {
+      return {
+        type: err.constructor?.name || 'Error',
+        message: normalizeErrorMessage(err.message, normalize),
+      }
+    }
+
     // ─── Helper: compute fingerprint with full config ──────────────────────
     const fpConfig = { normalize, ignoreFields, ignorePaths }
 
@@ -468,14 +500,12 @@ for (const cluster of clusters) {
         // Reset to initialState if provided
         if (initialState) {
           if (storeType === 'dispatching') {
-            // DispatchingStore: replace the current subject value
             if (typeof storeExport.subject?.next === 'function') {
               storeExport.subject.next(deepClone(initialState))
             } else {
               if (!quiet) console.warn(`   ⚠️  Cannot reset DispatchingStore — no accessible subject. State may be dirty.`)
             }
           } else if (storeType === 'redux') {
-            // Redux: no standard reset, warn
             if (!quiet) console.warn(`   ⚠️  initialState reset not supported for Redux stores. State may be dirty.`)
           } else if (storeType === 'zustand') {
             storeExport.setState(deepClone(initialState), true /* replace */)
@@ -483,17 +513,40 @@ for (const cluster of clusters) {
         }
 
         const inputForRecord = deepClone(input)
-        const inputForArgs = deepClone(input)
+        const actualInput = extractInputValue(input)
+        const inputForArgs = deepClone(actualInput)
+        const expectThrow = isExpectThrow(input)
 
-        // Dispatch the action
+        // ─── expectThrow: catch error from dispatch ──────────────────────
+        if (expectThrow) {
+          let caughtError = null
+          try {
+            if (storeType === 'redux') {
+              dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
+            } else if (storeType === 'dispatching') {
+              dispatchFn(storeDispatch.action, inputForArgs)
+            } else if (storeType === 'zustand') {
+              dispatchFn(inputForArgs)
+            }
+          } catch (err) {
+            caughtError = err
+          }
+          if (!caughtError) {
+            throw new Error(`expectThrow: dispatch did not throw for input ${JSON.stringify(actualInput)}`)
+          }
+          const errorContract = buildErrorContract(caughtError)
+          const fp = fingerprint(inputForRecord, errorContract, fpConfig)
+          if (!quiet) console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          continue
+        }
+
+        // Dispatch the action (normal path)
         if (storeType === 'redux') {
-          // Redux: dispatch expects { type, payload }
           dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
         } else if (storeType === 'dispatching') {
-          // DispatchingStore: dispatch(actionName, payload)
           dispatchFn(storeDispatch.action, inputForArgs)
         } else if (storeType === 'zustand') {
-          // Zustand: setState with partial
           dispatchFn(inputForArgs)
         }
 
@@ -568,8 +621,30 @@ for (const cluster of clusters) {
           throw new Error(`Method "${classMethod}" not found on instance`)
         }
         const inputForRecord = deepClone(input)
-        const inputForArgs = deepClone(input)
+        const actualInput = extractInputValue(input)
+        const inputForArgs = deepClone(actualInput)
+        const expectThrow = isExpectThrow(input)
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+
+        // ─── expectThrow: catch error from method call ──────────────────────
+        if (expectThrow) {
+          let caughtError = null
+          try {
+            await instance[classMethod](...args_)
+          } catch (err) {
+            caughtError = err
+          }
+          if (!caughtError) {
+            throw new Error(`expectThrow: method did not throw for input ${JSON.stringify(actualInput)}`)
+          }
+          const errorContract = buildErrorContract(caughtError)
+          const fp = fingerprint(inputForRecord, errorContract, fpConfig)
+          if (!quiet) console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          continue
+        }
+
+        // Normal path: call the target method
         const rawOutput = await instance[classMethod](...args_)
 
         // Consume generators/iterators into arrays for fingerprinting.
@@ -660,8 +735,29 @@ for (const cluster of clusters) {
       for (const input of testInputs) {
         recorder.length = 0
         const inputForRecord = deepClone(input)
-        const inputForArgs = deepClone(input)
+        const actualInput = extractInputValue(input)
+        const inputForArgs = deepClone(actualInput)
+        const expectThrow = isExpectThrow(input)
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+
+        // ─── expectThrow: catch error from singleton method ────────────────
+        if (expectThrow) {
+          let caughtError = null
+          try {
+            await singleton[singletonMethod](...args_)
+          } catch (err) {
+            caughtError = err
+          }
+          if (!caughtError) {
+            throw new Error(`expectThrow: singleton method did not throw for input ${JSON.stringify(actualInput)}`)
+          }
+          const errorContract = buildErrorContract(caughtError)
+          const fp = fingerprint(inputForRecord, errorContract, fpConfig)
+          if (!quiet) console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          continue
+        }
+
         const rawOutput = await singleton[singletonMethod](...args_)
 
         // Consume generators/iterators into arrays for fingerprinting
@@ -744,10 +840,6 @@ for (const cluster of clusters) {
         recorder.length = 0  // clear between runs
 
         // ─── resetState: reset module-level mutable state before each run ─────
-        // When a module uses global mutable variables (e.g., let counter = 0),
-        // calling the same function twice may produce different results because
-        // the counter has already been incremented. resetState allows specifying
-        // a function name exported by the same module that resets these variables.
         if (resetState) {
           const resetFn = rawModule[resetState] ?? rawModule.default?.[resetState]
           if (typeof resetFn === 'function') {
@@ -757,15 +849,36 @@ for (const cluster of clusters) {
           }
         }
 
-        // ─── deepCloneInput: clone inputs to prevent mutation ──────────────────
-        // When true (default), inputs are deep-cloned before each call so that
-        // functions that mutate their input objects don't corrupt the test data
-        // for subsequent runs or validations.
+        // ─── expectThrow: extract actual input value from { __expectThrow, value } ──
         const inputForRecord = deepCloneInput ? deepClone(input) : input
-        const inputForArgs = deepCloneInput ? deepClone(input) : input
-        // kwargs is a no-op for JS: JS has no **kwargs syntax, so dict inputs are
-        // always passed as a single object argument regardless of the kwargs flag.
+        const actualInput = extractInputValue(input)
+        const inputForArgs = deepCloneInput ? deepClone(actualInput) : actualInput
+        const expectThrow = isExpectThrow(input)
+
         const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+
+        // ─── expectThrow: catch error and build error contract ──────────────
+        if (expectThrow) {
+          let caughtError = null
+          try {
+            await entryFn(...args_)
+          } catch (err) {
+            caughtError = err
+          }
+          if (!caughtError) {
+            throw new Error(`expectThrow: function did not throw for input ${JSON.stringify(actualInput)}`)
+          }
+          const errorContract = buildErrorContract(caughtError)
+          const fpInput = inputForRecord
+          const fp = fingerprint(fpInput, errorContract, fpConfig)
+          if (!quiet) {
+            console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
+          }
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          continue
+        }
+
+        // ─── Normal (non-expectThrow) path ──────────────────────────────────
         const rawOutput = await entryFn(...args_)
 
         // Materialize generator/iterator output if configured
@@ -873,11 +986,14 @@ for (const cluster of clusters) {
     }
 
     // Use first run as the golden (representative) for the .regret file
-    const { input, output, fp } = results[0]
+    const golden = results[0]
+    const { input, output, fp } = golden
+    const threw = golden.threw ?? false
+    const errorContract = golden.error ?? null
     // Extract mutation data for .regret file (trackMutation support)
-    const mutationFingerprint = results[0]?.mutationFingerprint ?? null
-    const mutationBefore = results[0]?.mutationBefore
-    const mutationAfter = results[0]?.mutationAfter
+    const mutationFingerprint = golden.mutationFingerprint ?? null
+    const mutationBefore = golden.mutationBefore
+    const mutationAfter = golden.mutationAfter
 
     // Write .regret file
     const regretPath = join(outDir, `${id}.regret`)
@@ -925,10 +1041,13 @@ for (const cluster of clusters) {
       resetState ? `resetState: ${resetState}` : null,
       !deepCloneInput ? `deepCloneInput: false` : null,
       seed != null ? `seed: ${seed}` : null,
+      threw ? `expectThrow: true` : null,
       `env: ${JSON.stringify(getEnvSnapshot())}`,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
-      `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,
+      threw
+        ? `ERROR_CONTRACT ${JSON.stringify(errorContract)}`
+        : `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,
       `HASH   ${fp}`,
       mutationBefore !== undefined ? `MUTATION_BEFORE ${JSON.stringify(mutationBefore)}` : null,
       mutationAfter !== undefined ? `MUTATION_AFTER ${JSON.stringify(mutationAfter)}` : null,
