@@ -430,6 +430,11 @@ switch (command) {
     break
   }
 
+  case 'risk': {
+    success = run('node', [`${SCRIPTS_DIR}/risk.js`, ...passThroughArgs])
+    break
+  }
+
   case 'help':
   default:
     console.log(`
@@ -467,6 +472,7 @@ Usage:
                                  [--dry-run]            Preview steps without executing
                                  [--skip-build]         Skip preBuild step
   node scripts/regret.js watch [--dir src/] [--stack]  Watch files & auto-validate on change
+  node scripts/regret.js risk [--since HEAD~1] [--diff patch.txt] [--json]  Pre-refactor risk signal
 
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)

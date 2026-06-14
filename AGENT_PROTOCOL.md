@@ -76,7 +76,13 @@ START: Agent plans to refactor code
 │
 ├─ GATE 5: regret health
 │   FRAGILE → split cluster or add inputs
-│   ALL SOLID → PROCEED TO REFACTOR
+│   ALL SOLID → GATE 6
+│
+├─ GATE 6: regret risk --json
+│   HIGH → entry function modified — cluster output WILL change, plan update
+│   MEDIUM → watched function modified — cluster output MAY change, verify after refactor
+│   UNTRACKED → function has no cluster coverage — consider adding watches
+│   NO RISK → PROCEED TO REFACTOR
 │
 ├─ REFACTOR: Edit code freely. NEVER edit regrets/ directory.
 │
@@ -114,6 +120,7 @@ START: Agent plans to refactor code
 [ ] regret validate — ALL PASS
 [ ] regret drift — ALL STABLE (5 runs, identical hashes)
 [ ] regret health — ALL SOLID (no FRAGILE/UNSTABLE)
+[ ] regret risk — no high-risk clusters, or plan for expected changes
 [ ] regret coverage — No cluster UNDER-COVERED
 [ ] regrets/ committed (manifest.json + .regret files + audit.log)
 [ ] No manual edits to .regret files after first green pass
@@ -131,5 +138,6 @@ regret check                      regret drift (×5)       regret health
 regret update <id> --reason ".."  regret coverage         regret diff
 regret scan [--dir src/]          regret chain            regret truth
 regret rollback <id>              regret guard            regret list
+regret risk [--since HEAD~1] [--diff file] [--json]
 ```
 All auto-detect stack from manifest. Add `--skip-build` to skip preBuild.
