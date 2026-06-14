@@ -7,7 +7,7 @@
 // without spawning child processes.
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'fs'
-import { resolve, join, basename } from 'path'
+import { resolve, join, basename, relative } from 'path'
 import { pathToFileURL } from 'url'
 import { parseRegret, runCluster, runReactCluster, formatDiffOutput, jsonDiff, generateJUnitXml } from './validate.js'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
@@ -164,7 +164,9 @@ export async function capture(options = {}) {
             valuePaths = [], inputs, classMethod, constructor: constructorName,
             constructorArgs, setup, instanceMethods = {}, kwargs = false,
             outputTransform = null, materializeOutput = false, seed,
-            singletonMethod, singletonName, storeDispatch, initialState } = cluster
+            singletonMethod, singletonName, storeDispatch, initialState,
+            multiArgs = false, deepCloneInput = true, resetState = null,
+            trackMutation = false, adapter = null, outputEncoding = null } = cluster
 
     // Skip non-JS stacks
     if (stack && stack !== 'js' && stack !== 'ts' && stack !== 'css') {
@@ -190,141 +192,355 @@ export async function capture(options = {}) {
       let rawModule = await import(moduleUrl)
       rawModule = mergeCjsModule(rawModule)
 
-      const input = (inputs && inputs.length > 0) ? inputs[0] : null
+      // Mirror capture.js: testInputs is the full array, defaulting to [undefined]
+      const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
+      const runResults = []   // collects { input, output, fp, calls } per input
+      const recorder = []     // ghost proxy call recorder
 
-      let output
-      let fp
+      const fpConfig = { normalize, ignoreFields, ignorePaths }
 
       if (storeDispatch) {
-        // Store dispatch mode
+        // ── storeDispatch mode ─────────────────────────────────────────────
         const storeExport = rawModule[storeDispatch.store] ?? rawModule.default?.[storeDispatch.store]
         if (!storeExport) throw new Error(`Store "${storeDispatch.store}" not found in ${file}`)
 
-        let dispatchFn, getStateFn
+        let dispatchFn, getStateFn, storeType
         if (typeof storeExport.dispatch === 'function' && typeof storeExport.value !== 'undefined') {
           dispatchFn = storeExport.dispatch.bind(storeExport)
           getStateFn = () => storeExport.value
+          storeType = 'dispatching'
         } else if (typeof storeExport.dispatch === 'function' && typeof storeExport.getState === 'function') {
           dispatchFn = storeExport.dispatch.bind(storeExport)
           getStateFn = storeExport.getState
+          storeType = 'redux'
         } else if (typeof storeExport.setState === 'function') {
           dispatchFn = storeExport.setState.bind(storeExport)
           getStateFn = () => storeExport.getState()
+          storeType = 'zustand'
         } else {
-          throw new Error(`Store "${storeDispatch.store}" does not match any known store pattern.`)
+          throw new Error(`Store "${storeDispatch.store}" does not match any known store pattern (DispatchingStore, Redux, Zustand).`)
         }
 
-        if (initialState) {
-          if (typeof storeExport.setState === 'function') {
-            storeExport.setState(deepClone(initialState), true)
+        for (const input of testInputs) {
+          recorder.length = 0
+
+          // Reset to initialState if provided
+          if (initialState) {
+            if (storeType === 'dispatching') {
+              if (typeof storeExport.subject?.next === 'function') {
+                storeExport.subject.next(deepClone(initialState))
+              }
+            } else if (storeType === 'zustand') {
+              storeExport.setState(deepClone(initialState), true)
+            }
           }
-        }
 
-        const inputForArgs = deepClone(input)
-        if (typeof storeExport.dispatch === 'function' && typeof storeExport.getState === 'function') {
-          dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
-        } else {
-          dispatchFn(storeDispatch.action, inputForArgs)
-        }
+          const inputForRecord = deepClone(input)
+          const inputForArgs = deepClone(input)
 
-        output = deepClone(getStateFn())
+          if (storeType === 'redux') {
+            dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
+          } else if (storeType === 'dispatching') {
+            dispatchFn(storeDispatch.action, inputForArgs)
+          } else if (storeType === 'zustand') {
+            dispatchFn(inputForArgs)
+          }
+
+          const rawOutput = getStateFn()
+          const { result: consumedOutput } = await consumeIterator(rawOutput)
+          let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, cwd)
+          const output = deepClone(transformedOutput)
+
+          let fp
+          if (fingerprintMode === 'schema') {
+            fp = fingerprint(inputForRecord, extractSchema(output), fpConfig)
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const p of (valuePaths || [])) {
+              const key = p.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const part of parts) { val = val?.[part] }
+              if (val !== undefined) selectedValues[p] = val
+            }
+            fp = fingerprint(inputForRecord, { schema, values: selectedValues }, fpConfig)
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(inputForRecord, output, fpConfig)
+              : fingerprintSequence(recorder, fpConfig)
+          }
+
+          runResults.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+        }
       } else if (classMethod) {
-        // Class-based entry
+        // ── Class-based entry ──────────────────────────────────────────────
         const Cls = rawModule[constructorName ?? entry] ?? rawModule.default?.[constructorName ?? entry]
-        if (typeof Cls !== 'function') throw new Error(`Constructor "${constructorName ?? entry}" not found in ${file}`)
+        if (typeof Cls !== 'function') throw new Error(`Constructor "${constructorName ?? entry}" not found or not a class in ${file}`)
         const cArgs = constructorArgs ? deepClone(constructorArgs) : []
-        const instance = new Cls(...cArgs)
 
-        if (setup && setup.length > 0) {
-          for (const step of setup) {
-            instance[step.method](...(step.args ? deepClone(step.args) : []))
+        for (const input of testInputs) {
+          recorder.length = 0
+          const instance = new Cls(...cArgs)
+
+          // Apply ghost proxy to instance methods for watch recording
+          for (const watchFn of watches) {
+            if (typeof instance[watchFn] === 'function') {
+              const original = instance[watchFn].bind(instance)
+              instance[watchFn] = new Proxy(original, {
+                apply(target, thisArg, args) {
+                  const result = target(...args)
+                  recorder.push({ fn: watchFn, args: deepClone(args), result: deepClone(result) })
+                  return result
+                }
+              })
+            }
           }
-        }
 
-        const inputForArgs = deepClone(input)
-        const args_ = kwargs && typeof inputForArgs === 'object' && inputForArgs !== null
-          ? [inputForArgs]
-          : [inputForArgs]
-        output = await instance[classMethod](...args_)
+          if (setup && setup.length > 0) {
+            for (const step of setup) {
+              instance[step.method](...(step.args ? deepClone(step.args) : []))
+            }
+          }
+
+          const inputForRecord = deepClone(input)
+          const inputForArgs = deepClone(input)
+          const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+          const rawOutput = await instance[classMethod](...args_)
+
+          const { result: consumedOutput } = await consumeIterator(rawOutput)
+          let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, cwd)
+
+          let inputAfterCall = null
+          if (trackMutation) {
+            inputAfterCall = deepClone(inputForArgs)
+          }
+
+          const output = deepClone(transformedOutput)
+
+          let fp
+          if (fingerprintMode === 'schema') {
+            fp = fingerprint(inputForRecord, extractSchema(output), fpConfig)
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const p of (valuePaths || [])) {
+              const key = p.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const part of parts) { val = val?.[part] }
+              if (val !== undefined) selectedValues[p] = val
+            }
+            fp = fingerprint(inputForRecord, { schema, values: selectedValues }, fpConfig)
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(inputForRecord, output, fpConfig)
+              : fingerprintSequence(recorder, fpConfig)
+          }
+
+          const resultEntry = { input: inputForRecord, output, fp, calls: [...recorder] }
+          if (trackMutation && inputAfterCall !== null) {
+            const beforeStr = stableStringify(inputForRecord)
+            const afterStr = stableStringify(inputAfterCall)
+            resultEntry.inputMutated = beforeStr !== afterStr
+            resultEntry.mutationFingerprint = fingerprint(inputForRecord, inputAfterCall, fpConfig)
+            resultEntry.mutationBefore = inputForRecord
+            resultEntry.mutationAfter = inputAfterCall
+          }
+          runResults.push(resultEntry)
+        }
       } else if (singletonMethod) {
-        const sName = singletonName || entry
-        let singleton = rawModule[sName] ?? rawModule.default?.[sName]
+        // ── Singleton method entry ──────────────────────────────────────────
+        const singletonExportName = singletonName ?? entry
+        let singleton = rawModule[singletonExportName] ?? rawModule.default?.[singletonExportName]
         if (!singleton && rawModule.default && typeof rawModule.default === 'object' && typeof rawModule.default[singletonMethod] === 'function') {
           singleton = rawModule.default
         }
-        if (!singleton) throw new Error(`Singleton "${sName}" not found in ${file}`)
-        const inputForArgs = deepClone(input)
-        output = await singleton[singletonMethod](inputForArgs)
-      } else {
-        // Function-based entry
-        const recorder = []
-        const ghostModule = createGhost(rawModule, watches, recorder, instanceMethods)
-        const entryFn = ghostModule[entry]
-          ?? rawModule[entry]
-          ?? rawModule.default?.[entry]
-          ?? ((entry === 'default' || entry === 'module.exports') && typeof rawModule.default === 'function' ? rawModule.default : null)
-        if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
-        const inputForArgs = deepClone(input)
-        output = await entryFn(inputForArgs)
-      }
-
-      // Consume iterators
-      if (output && typeof output[Symbol.iterator] === 'function' &&
-          typeof output.next === 'function' && !Array.isArray(output) &&
-          !(output instanceof Map) && !(output instanceof Set)) {
-        output = [...output]
-      }
-
-      // Apply outputTransform
-      if (outputTransform) {
-        output = await applyOutputTransformAsync(output, outputTransform)
-      }
-
-      // Compute fingerprint
-      const fpConfig = { normalize, ignoreFields, ignorePaths }
-      if (fingerprintMode === 'schema') {
-        const schema = extractSchema(output)
-        fp = fingerprint(input, schema, fpConfig)
-      } else if (fingerprintMode === 'mixed') {
-        const schema = extractSchema(output)
-        const selectedValues = {}
-        for (const path of (valuePaths || [])) {
-          const key = path.replace(/^\$\./, '')
-          const parts = key.split('.')
-          let val = output
-          for (const p of parts) { val = val?.[p] }
-          if (val !== undefined) selectedValues[path] = val
+        if (!singleton || typeof singleton !== 'object') {
+          throw new Error(`Singleton "${singletonExportName}" not found or not an object in ${file}`)
         }
-        fp = fingerprint(input, { schema, values: selectedValues }, fpConfig)
+        if (typeof singleton[singletonMethod] !== 'function') {
+          throw new Error(`Method "${singletonMethod}" not found on singleton "${singletonExportName}" in ${file}`)
+        }
+
+        for (const input of testInputs) {
+          recorder.length = 0
+          const inputForRecord = deepClone(input)
+          const inputForArgs = deepClone(input)
+          const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+          const rawOutput = await singleton[singletonMethod](...args_)
+
+          const { result: consumedOutput } = await consumeIterator(rawOutput)
+          const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, cwd)
+          const output = deepClone(transformedOutput)
+
+          let fp
+          if (fingerprintMode === 'schema') {
+            fp = fingerprint(inputForRecord, extractSchema(output), fpConfig)
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const p of (valuePaths || [])) {
+              const key = p.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const part of parts) { val = val?.[part] }
+              if (val !== undefined) selectedValues[p] = val
+            }
+            fp = fingerprint(inputForRecord, { schema, values: selectedValues }, fpConfig)
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(inputForRecord, output, fpConfig)
+              : fingerprintSequence(recorder, fpConfig)
+          }
+
+          runResults.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+        }
       } else {
-        fp = fingerprintLevel === 'entry'
-          ? fingerprint(input, output, fpConfig)
-          : fingerprintSequence(recorder || [], fpConfig)
+        // ── Function-based entry ────────────────────────────────────────────
+        let entryFn
+        if (adapter) {
+          const adapterPath = resolve(cwd, adapter)
+          const adapterUrl = pathToFileURL(adapterPath).href
+          const adapterModule = await import(adapterUrl)
+          const adapterFn = adapterModule.default ?? adapterModule.createAdapter
+          if (typeof adapterFn !== 'function') {
+            throw new Error(`Adapter "${adapter}" must export a function (default or createAdapter)`)
+          }
+          const adapterResult = adapterFn(rawModule)
+          entryFn = adapterResult.entryFn
+          if (!entryFn) {
+            throw new Error(`Adapter "${adapter}" returned no entryFn`)
+          }
+          if (adapterResult.defaultInputs && (!inputs || inputs.length === 0)) {
+            testInputs.splice(0, testInputs.length, ...adapterResult.defaultInputs)
+          }
+        } else {
+          const ghostModule = createGhost(rawModule, watches, recorder, instanceMethods)
+          entryFn = ghostModule[entry]
+            ?? rawModule[entry]
+            ?? rawModule.default?.[entry]
+            ?? ((entry === 'default' || entry === 'module.exports') && typeof rawModule.default === 'function' ? rawModule.default : null)
+        }
+        if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found or not a function in ${file}`)
+
+        for (const input of testInputs) {
+          recorder.length = 0
+
+          // resetState: reset module-level mutable state before each run
+          if (resetState) {
+            const resetFn = rawModule[resetState] ?? rawModule.default?.[resetState]
+            if (typeof resetFn === 'function') resetFn()
+          }
+
+          const inputForRecord = deepCloneInput ? deepClone(input) : input
+          const inputForArgs = deepCloneInput ? deepClone(input) : input
+          const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+          const rawOutput = await entryFn(...args_)
+
+          // Consume generators/iterators
+          const { result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutput })
+
+          const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, cwd)
+
+          let inputAfterCall = null
+          if (trackMutation) {
+            inputAfterCall = deepClone(inputForArgs)
+          }
+
+          const output = deepClone(transformedOutput)
+
+          let fp
+          if (fingerprintMode === 'schema') {
+            fp = fingerprint(inputForRecord, extractSchema(output), fpConfig)
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const p of (valuePaths || [])) {
+              const key = p.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const part of parts) { val = val?.[part] }
+              if (val !== undefined) selectedValues[p] = val
+            }
+            fp = fingerprint(inputForRecord, { schema, values: selectedValues }, fpConfig)
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(inputForRecord, output, fpConfig)
+              : fingerprintSequence(recorder, fpConfig)
+          }
+
+          const resultEntry = { input: inputForRecord, output, fp, calls: [...recorder] }
+          if (trackMutation && inputAfterCall !== null) {
+            const beforeStr = stableStringify(inputForRecord)
+            const afterStr = stableStringify(inputAfterCall)
+            resultEntry.inputMutated = beforeStr !== afterStr
+            resultEntry.mutationFingerprint = fingerprint(inputForRecord, inputAfterCall, fpConfig)
+            resultEntry.mutationBefore = inputForRecord
+            resultEntry.mutationAfter = inputAfterCall
+          }
+          runResults.push(resultEntry)
+        }
       }
+
+      // Use first run as the golden (representative) for the .regret file —
+      // identical to capture.js line 876
+      const { input, output, fp } = runResults[0]
+      const mutationFingerprint = runResults[0]?.mutationFingerprint ?? null
+      const mutationBefore = runResults[0]?.mutationBefore
+      const mutationAfter = runResults[0]?.mutationAfter
 
       // Write .regret file
       const regretPath = join(regretDir, `${id}.regret`)
       const now = new Date().toISOString()
       const env = getEnvSnapshot()
+
+      let outputForFile = output
+      if (outputEncoding === 'base64' && Array.isArray(output) && output.every(v => typeof v === 'number' && v >= 0 && v <= 255)) {
+        try {
+          outputForFile = Buffer.from(output).toString('base64')
+        } catch { /* keep as array */ }
+      }
+
       const content = [
         `cluster: ${id}`,
         `version: 1`,
         `fingerprint: ${fp}`,
         `captured: ${now}`,
         `watches: [${watches.join(', ')}]`,
-        `entry: ${entry}`,
+        storeDispatch ? `store: ${storeDispatch.store}` : (classMethod ? `constructor: ${constructorName ?? entry}` : `entry: ${entry}`),
+        storeDispatch ? `dispatch: ${storeDispatch.action}` : null,
+        classMethod && !storeDispatch ? `classMethod: ${classMethod}` : null,
+        singletonMethod ? `singletonName: ${singletonName ?? entry}` : null,
+        singletonMethod ? `singletonMethod: ${singletonMethod}` : null,
         `stack: ${stack || 'js'}`,
         `fingerprintLevel: ${fingerprintLevel}`,
-        kwargs ? `kwargs: true` : null,
-        materializeOutput ? `materializeOutput: true` : null,
-        outputTransform ? `outputTransform: ${outputTransform}` : null,
+        fingerprintMode !== 'value' ? `fingerprintMode: ${fingerprintMode}` : null,
+        valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
+        normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
         ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
         ignorePaths.length ? `ignorePaths: [${ignorePaths.join(', ')}]` : null,
+        initialState ? `initialState: ${JSON.stringify(initialState)}` : null,
+        outputTransform ? `outputTransform: ${outputTransform}` : null,
+        constructorArgs?.length ? `constructorArgs: ${JSON.stringify(constructorArgs)}` : null,
+        setup?.length ? `setup: ${JSON.stringify(setup)}` : null,
+        Object.keys(instanceMethods).length ? `instanceMethods: ${JSON.stringify(instanceMethods)}` : null,
+        kwargs ? `kwargs: ${kwargs}` : null,
+        materializeOutput ? `materializeOutput: true` : null,
+        trackMutation ? `trackMutation: true` : null,
+        runResults.some(r => r.inputMutated) ? `inputMutated: true` : null,
+        mutationFingerprint ? `mutationFingerprint: ${mutationFingerprint}` : null,
+        outputEncoding ? `outputEncoding: ${outputEncoding}` : null,
+        resetState ? `resetState: ${resetState}` : null,
+        !deepCloneInput ? `deepCloneInput: false` : null,
+        seed != null ? `seed: ${seed}` : null,
         `env: ${JSON.stringify(env)}`,
         `---`,
         `INPUT  ${JSON.stringify(input ?? null)}`,
-        `OUTPUT ${JSON.stringify(output ?? null)}`,
+        `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,
         `HASH   ${fp}`,
+        mutationBefore !== undefined ? `MUTATION_BEFORE ${JSON.stringify(mutationBefore)}` : null,
+        mutationAfter !== undefined ? `MUTATION_AFTER ${JSON.stringify(mutationAfter)}` : null,
       ].filter(Boolean).join('\n')
 
       writeFileSync(regretPath, content, 'utf8')
