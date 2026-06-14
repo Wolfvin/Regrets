@@ -7,6 +7,8 @@
 //   node scripts/validate.js --update transform-user-data --reason "tax rate changed to 12%"
 //   node scripts/validate.js --fail-fast
 //   node scripts/validate.js --no-diff
+//   node scripts/validate.js --quiet           Only print summary line
+//   node scripts/validate.js --verbose         Print extra detail (input, output, calls)
 
 import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } from 'fs'
 import { createHash } from 'crypto'
@@ -35,6 +37,21 @@ const regretDir     = resolve(process.cwd(), 'regrets')
 const auditLog      = join(regretDir, 'audit.log')
 const jsonOutput    = args.includes('--json')
 const noDiff        = args.includes('--no-diff')
+
+// ─── --quiet / --verbose flags ─────────────────────────────────────────────────
+
+let quiet   = args.includes('--quiet')
+let verbose = args.includes('--verbose')
+
+if (quiet && verbose) {
+  console.warn('⚠️  --quiet and --verbose are mutually exclusive; using --quiet')
+  verbose = false
+}
+
+// --json already implies quiet for human-readable output; --quiet/--verbose don't affect JSON
+// quiet: only print summary line
+// verbose: print everything + extra detail (input, full output, call sequence)
+// default (neither): current behavior unchanged
 
 // ─── Validate --update usage ──────────────────────────────────────────────────
 
@@ -775,6 +792,8 @@ const driftMode  = runs > 1 && !updateMode
 
 if (jsonOutput) {
   // silent in JSON mode
+} else if (quiet) {
+  // quiet mode: no per-cluster output, only summary at the end
 } else if (updateMode)     console.log(`\n🔄 Update mode — cluster: ${updateTarget}\n   Reason: ${updateReason}\n`)
 else if (driftMode) console.log(`\n🔍 Drift detection — ${runs} runs per cluster...\n`)
 else                console.log(`\n🔍 Validating ${regretFiles.length} cluster(s)...\n`)
@@ -786,7 +805,10 @@ for (const file of regretFiles) {
   const regretPath = join(regretDir, file)
   const regret     = parseRegret(readFileSync(regretPath, 'utf8'))
   const def        = manifest.clusters.find(c => c.id === id)
-  if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
+  if (!def) {
+    if (!quiet && !jsonOutput) console.warn(`  ⚠️  ${id}: not in manifest — skipping`)
+    continue
+  }
 
   try {
     const { hashes, hashesPerInput, lastOutput, skipped } = await runCluster(def, regret)
@@ -795,18 +817,34 @@ for (const file of regretFiles) {
     const isMatch  = liveHash === regret.goldenHash
     const isDrift  = driftMode && Object.values(hashesPerInput).some(inputHashes => new Set(inputHashes).size > 1)
 
+    // ─── Verbose: print extra detail before status line ────────────────────
+    if (verbose && !jsonOutput) {
+      console.log(`  ┌─ ${id} ────────────────────────────────────`)
+      console.log(`  │ Input:      ${JSON.stringify(regret.input)}`)
+      console.log(`  │ Expected:   ${regret.goldenHash}`)
+      console.log(`  │ Actual:     ${liveHash}`)
+      console.log(`  │ Output:     ${JSON.stringify(lastOutput)?.slice(0, 200)}${JSON.stringify(lastOutput)?.length > 200 ? '…' : ''}`)
+      if (regret.watches?.length) {
+        console.log(`  │ Watches:    ${regret.watches.join(', ')}`)
+      }
+      if (driftMode && hashesPerInput && Object.keys(hashesPerInput).length > 0) {
+        console.log(`  │ Per-input:  ${JSON.stringify(hashesPerInput)}`)
+      }
+      console.log(`  └────────────────────────────────────────────`)
+    }
+
     if (updateMode) {
       if (isMatch) {
-        if (!jsonOutput) console.log(`  ℹ️  ${id.padEnd(35)} unchanged — no update needed`)
+        if (!jsonOutput && !quiet) console.log(`  ℹ️  ${id.padEnd(35)} unchanged — no update needed`)
         results.push({ id, pass: true })
       } else {
         const { oldHash, newHash } = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason)
-        if (!jsonOutput) console.log(`  ✅ ${id.padEnd(35)} ${oldHash} → ${newHash}  UPDATED`)
+        if (!jsonOutput && !quiet) console.log(`  ✅ ${id.padEnd(35)} ${oldHash} → ${newHash}  UPDATED`)
         results.push({ id, pass: true, updated: true })
       }
     } else if (driftMode) {
       if (isDrift) {
-        if (!jsonOutput) {
+        if (!jsonOutput && !quiet) {
           console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
           if (!noDiff && regret.output != null && lastOutput != null) {
             const diff = formatDiffOutput(regret.output, lastOutput)
@@ -815,7 +853,7 @@ for (const file of regretFiles) {
         }
         results.push({ id, pass: false, drift: true, goldenOutput: regret.output, liveOutput: lastOutput })
       } else {
-        if (!jsonOutput) {
+        if (!jsonOutput && !quiet) {
           const icon = isMatch ? '✅' : '❌'
           console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
           if (!isMatch && !noDiff && regret.output != null && lastOutput != null) {
@@ -826,7 +864,7 @@ for (const file of regretFiles) {
         results.push({ id, pass: isMatch, goldenOutput: regret.output, liveOutput: lastOutput })
       }
     } else {
-      if (!jsonOutput) {
+      if (!jsonOutput && !quiet) {
         const icon = isMatch ? '✅' : '❌'
         const hstr = isMatch ? regret.goldenHash : `${regret.goldenHash} → ${liveHash}`
         console.log(`  ${icon} ${id.padEnd(35)} ${hstr.padEnd(22)} ${isMatch ? 'PASS' : 'FAIL'}`)
@@ -839,12 +877,12 @@ for (const file of regretFiles) {
     }
 
   } catch (err) {
-    if (!jsonOutput) console.log(`  ❌ ${id.padEnd(35)} ERROR: ${err.message}`)
+    if (!jsonOutput && !quiet) console.log(`  ❌ ${id.padEnd(35)} ERROR: ${err.message}`)
     results.push({ id, pass: false, error: err.message })
   }
 
   if (!results.at(-1).pass && failFast) {
-    if (!jsonOutput) console.log(`\n  --fail-fast: stopping.`)
+    if (!jsonOutput && !quiet) console.log(`\n  --fail-fast: stopping.`)
     break
   }
 }
@@ -875,6 +913,23 @@ if (jsonOutput) {
   }
   console.log(JSON.stringify(jsonResult, null, 0))
   process.exit(failed > 0 ? 1 : 0)
+} else if (quiet) {
+  // ─── Quiet summary: only one line ─────────────────────────────────────────
+  const failedIds = results.filter(r => !r.pass).map(r => r.id)
+  if (updateMode) {
+    console.log(`✅ Update complete. ${results.filter(r => r.updated).length} updated.`)
+    process.exit(0)
+  }
+  if (driftMode && drifted > 0) {
+    console.log(`❌ ${drifted}/${results.length} drifted: [${failedIds.join(', ')}]`)
+    process.exit(1)
+  }
+  if (failed === 0) {
+    console.log(`✅ ${passed}/${results.length} passed`)
+    process.exit(0)
+  }
+  console.log(`❌ ${failed}/${results.length} failed: [${failedIds.join(', ')}]`)
+  process.exit(1)
 } else {
   console.log(`\n${'─'.repeat(60)}`)
 

@@ -10,6 +10,8 @@
 //   node scripts/capture.js --only-new
 //   node scripts/capture.js --stale [hours]          (default: 24)
 //   node scripts/capture.js --only-new --stale 48
+//   node scripts/capture.js --quiet           Only print summary line
+//   node scripts/capture.js --verbose         Print extra detail (call trace, ghost intercepts, normalize)
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { resolve, dirname, join } from 'path'
@@ -38,6 +40,20 @@ if (args.includes('--stale')) {
     ? Number(nextArg)
     : 24  // default: 24 hours
 }
+
+// ─── --quiet / --verbose flags ─────────────────────────────────────────────────
+
+let quiet   = args.includes('--quiet')
+let verbose = args.includes('--verbose')
+
+if (quiet && verbose) {
+  console.warn('⚠️  --quiet and --verbose are mutually exclusive; using --quiet')
+  verbose = false
+}
+
+// --quiet: only print summary line
+// --verbose: print everything + extra detail (call trace, ghost proxy intercepts, normalize applied)
+// default (neither): current behavior unchanged
 
 // ─── Load manifest ────────────────────────────────────────────────────────────
 
@@ -160,18 +176,34 @@ for (const cluster of clusters) {
           seed, singletonMethod, singletonName, storeDispatch, initialState,
           adapter } = cluster
 
-  console.log(`\n📡 Capturing: ${id}`)
-  console.log(`   File:    ${file}`)
-  if (storeDispatch) {
-    console.log(`   Store:   ${storeDispatch.store} → dispatch("${storeDispatch.action}")`)
-  } else if (classMethod) {
-    console.log(`   Class:   ${constructorName ?? entry} → ${classMethod}()`)
-  } else if (singletonMethod) {
-    console.log(`   Singleton: ${singletonName ?? entry} → ${singletonMethod}()`)
-  } else {
-    console.log(`   Entry:   ${entry}`)
+  if (!quiet) {
+    console.log(`\n📡 Capturing: ${id}`)
+    console.log(`   File:    ${file}`)
+    if (storeDispatch) {
+      console.log(`   Store:   ${storeDispatch.store} → dispatch("${storeDispatch.action}")`)
+    } else if (classMethod) {
+      console.log(`   Class:   ${constructorName ?? entry} → ${classMethod}()`)
+    } else if (singletonMethod) {
+      console.log(`   Singleton: ${singletonName ?? entry} → ${singletonMethod}()`)
+    } else {
+      console.log(`   Entry:   ${entry}`)
+    }
+    console.log(`   Watches: ${watches.join(', ')}`)
   }
-  console.log(`   Watches: ${watches.join(', ')}`)
+
+  // ─── Verbose: print extra cluster config ──────────────────────────────────
+  if (verbose) {
+    console.log(`   ┌─ ${id} config ──────────────────────────────`)
+    console.log(`   │ fingerprintLevel: ${fingerprintLevel}`)
+    console.log(`   │ fingerprintMode:  ${fingerprintMode}`)
+    if (normalize.length) console.log(`   │ normalize:        [${normalize.join(', ')}]`)
+    if (ignoreFields.length) console.log(`   │ ignoreFields:     [${ignoreFields.join(', ')}]`)
+    if (ignorePaths.length) console.log(`   │ ignorePaths:      [${ignorePaths.join(', ')}]`)
+    if (outputTransform) console.log(`   │ outputTransform:  ${outputTransform}`)
+    if (seed != null) console.log(`   │ seed:             ${seed}`)
+    if (resetState) console.log(`   │ resetState:       ${resetState}`)
+    console.log(`   └────────────────────────────────────────────`)
+  }
 
   if (stack && stack !== 'js' && stack !== 'ts') {
     const stackScripts = {
@@ -180,10 +212,12 @@ for (const cluster of clusters) {
       rust: 'bash scripts/capture_rust.sh capture',
       go: 'bash scripts/capture_go.sh capture',
     }
-    if (stackScripts[stack]) {
-      console.log(`   ⏭️  Stack "${stack}" — use: ${stackScripts[stack]}`)
-    } else {
-      console.log(`   ⚠️  Stack "${stack}" is not supported — see references/ for available stacks`)
+    if (!quiet) {
+      if (stackScripts[stack]) {
+        console.log(`   ⏭️  Stack "${stack}" — use: ${stackScripts[stack]}`)
+      } else {
+        console.log(`   ⚠️  Stack "${stack}" is not supported — see references/ for available stacks`)
+      }
     }
     continue
   }
@@ -213,7 +247,7 @@ for (const cluster of clusters) {
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder, instanceMethods)
 
-    if (Object.keys(instanceMethods).length > 0) {
+    if (Object.keys(instanceMethods).length > 0 && !quiet) {
       console.log(`   Instance methods: ${Object.entries(instanceMethods).map(([k,v]) => `${k}.${v.join('/')}`).join(', ')}`)
     }
 
@@ -288,7 +322,7 @@ for (const cluster of clusters) {
         }
       }
 
-      console.log(`   🎲 Seeded RNG with seed=${seed}${cryptoAvailable ? ' (+ crypto API)' : ''}`)
+      if (!quiet) console.log(`   🎲 Seeded RNG with seed=${seed}${cryptoAvailable ? ' (+ crypto API)' : ''}`)
     }
 
     const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
@@ -367,7 +401,7 @@ for (const cluster of clusters) {
         throw new Error(`Store "${storeDispatch.store}" does not match any known store pattern (DispatchingStore, Redux, Zustand). Ensure the store has dispatch/getState or setState/getState methods.`)
       }
 
-      console.log(`   Store type: ${storeType}`)
+      if (!quiet) console.log(`   Store type: ${storeType}`)
 
       for (const input of testInputs) {
         recorder.length = 0
@@ -379,11 +413,11 @@ for (const cluster of clusters) {
             if (typeof storeExport.subject?.next === 'function') {
               storeExport.subject.next(deepClone(initialState))
             } else {
-              console.warn(`   ⚠️  Cannot reset DispatchingStore — no accessible subject. State may be dirty.`)
+              if (!quiet) console.warn(`   ⚠️  Cannot reset DispatchingStore — no accessible subject. State may be dirty.`)
             }
           } else if (storeType === 'redux') {
             // Redux: no standard reset, warn
-            console.warn(`   ⚠️  initialState reset not supported for Redux stores. State may be dirty.`)
+            if (!quiet) console.warn(`   ⚠️  initialState reset not supported for Redux stores. State may be dirty.`)
           } else if (storeType === 'zustand') {
             storeExport.setState(deepClone(initialState), true /* replace */)
           }
@@ -525,7 +559,7 @@ for (const cluster of clusters) {
           const afterStr = stableStringify(inputAfterCall)
           resultEntry.inputMutated = beforeStr !== afterStr
           if (resultEntry.inputMutated) {
-            console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+            if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
           }
         }
 
@@ -632,7 +666,7 @@ for (const cluster of clusters) {
         if (adapterResult.defaultInputs && (!inputs || inputs.length === 0)) {
           testInputs.splice(0, testInputs.length, ...adapterResult.defaultInputs)
         }
-        console.log(`   Adapter: ${adapter}`)
+        if (!quiet) console.log(`   Adapter: ${adapter}`)
       } else {
         entryFn = ghostModule[entry]
           ?? rawModule[entry]
@@ -656,7 +690,7 @@ for (const cluster of clusters) {
           if (typeof resetFn === 'function') {
             resetFn()
           } else {
-            console.warn(`   ⚠️  resetState function "${resetState}" not found in ${file}`)
+            if (!quiet) console.warn(`   ⚠️  resetState function "${resetState}" not found in ${file}`)
           }
         }
 
@@ -674,7 +708,7 @@ for (const cluster of clusters) {
         // Materialize generator/iterator output if configured
         const { consumed: wasConsumed, result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutput })
         if (wasConsumed && materializeOutput) {
-          console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${consumedOutput.length} items)`)
+          if (!quiet) console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${consumedOutput.length} items)`)
         }
 
         // Apply outputTransform if specified in manifest
@@ -721,7 +755,7 @@ for (const cluster of clusters) {
           const afterStr = stableStringify(inputAfterCall)
           lastResult.inputMutated = beforeStr !== afterStr
           if (lastResult.inputMutated) {
-            console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+            if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
           }
         }
       }
@@ -741,13 +775,17 @@ for (const cluster of clusters) {
         // The Ghost Proxy only intercepts module-level exports, not internal calls.
         // The entry function calls watched functions internally, but the proxy
         // doesn't see those calls — it only sees calls through the proxied module.
-        console.log(`   ℹ️  Watched function(s) not called through proxy: ${uncalledWatches.join(', ')}`)
-        console.log(`      This is expected with fingerprintLevel: "entry" — internal calls aren't proxied.`)
-        console.log(`      The fingerprint is still valid (based on entry function output).`)
+        if (!quiet) {
+          console.log(`   ℹ️  Watched function(s) not called through proxy: ${uncalledWatches.join(', ')}`)
+          console.log(`      This is expected with fingerprintLevel: "entry" — internal calls aren't proxied.`)
+          console.log(`      The fingerprint is still valid (based on entry function output).`)
+        }
       } else {
-        console.warn(`   ⚠️  Watched function(s) never called during capture: ${uncalledWatches.join(', ')}`)
-        console.warn(`      The fingerprint may be based on incomplete data.`)
-        console.warn(`      Consider splitting into separate clusters or adjusting the entry function.`)
+        if (!quiet) {
+          console.warn(`   ⚠️  Watched function(s) never called during capture: ${uncalledWatches.join(', ')}`)
+          console.warn(`      The fingerprint may be based on incomplete data.`)
+          console.warn(`      Consider splitting into separate clusters or adjusting the entry function.`)
+        }
       }
     }
 
@@ -758,10 +796,12 @@ for (const cluster of clusters) {
     if (fingerprintLevel === 'watched' || fingerprintLevel === 'full') {
       const totalCalls = results.reduce((sum, r) => sum + r.calls.length, 0)
       if (totalCalls === 0) {
-        console.error(`   ❌ fingerprintLevel is "${fingerprintLevel}" but NO watched functions were called!`)
-        console.error(`      This means the fingerprint is based on an empty call sequence — it tests NOTHING.`)
-        console.error(`      For class-based APIs, use 'classMethod' in manifest or add 'instanceMethods' config.`)
-        console.error(`      Example: { "instanceMethods": { "Track": ["addEvent", "buildData"] } }`)
+        if (!quiet) {
+          console.error(`   ❌ fingerprintLevel is "${fingerprintLevel}" but NO watched functions were called!`)
+          console.error(`      This means the fingerprint is based on an empty call sequence — it tests NOTHING.`)
+          console.error(`      For class-based APIs, use 'classMethod' in manifest or add 'instanceMethods' config.`)
+          console.error(`      Example: { "instanceMethods": { "Track": ["addEvent", "buildData"] } }`)
+        }
       }
     }
 
@@ -822,12 +862,44 @@ for (const cluster of clusters) {
 
     writeFileSync(regretPath, content, 'utf8')
 
-    console.log(`   ✅ Fingerprint: ${fp}`)
-    console.log(`   📄 Saved: regrets/${id}.regret`)
+    if (!quiet) {
+      console.log(`   ✅ Fingerprint: ${fp}`)
+      console.log(`   📄 Saved: regrets/${id}.regret`)
+    }
+
+    // ─── Verbose: print ghost proxy intercepts & call trace ──────────────────
+    if (verbose) {
+      for (let ri = 0; ri < results.length; ri++) {
+        const r = results[ri]
+        console.log(`   ┌─ ${id} input[${ri}] call trace ──────────────────`)
+        console.log(`   │ Input:  ${JSON.stringify(r.input)?.slice(0, 120)}${JSON.stringify(r.input)?.length > 120 ? '…' : ''}`)
+        console.log(`   │ Output: ${JSON.stringify(r.output)?.slice(0, 120)}${JSON.stringify(r.output)?.length > 120 ? '…' : ''}`)
+        console.log(`   │ Hash:   ${r.fp}`)
+        if (r.calls?.length) {
+          console.log(`   │ Ghost proxy intercepts (${r.calls.length}):`)
+          for (const call of r.calls) {
+            const argsStr = JSON.stringify(call.args)?.slice(0, 80)
+            const resStr = JSON.stringify(call.result)?.slice(0, 80)
+            console.log(`   │   → ${call.fn}(${argsStr}${argsStr?.length >= 80 ? '…' : ''}) => ${resStr}${resStr?.length >= 80 ? '…' : ''}`)
+          }
+        } else {
+          console.log(`   │ Ghost proxy intercepts: (none)`)
+        }
+        if (normalize.length) {
+          console.log(`   │ Normalize applied: [${normalize.join(', ')}]`)
+        }
+        if (r.inputMutated) {
+          console.log(`   │ ⚠️  Input was mutated by function!`)
+        }
+        console.log(`   └────────────────────────────────────────────`)
+      }
+    }
+
     passed++
 
   } catch (err) {
-    console.error(`   ❌ Capture failed: ${err.message}`)
+    if (!quiet) console.error(`   ❌ Capture failed: ${err.message}`)
+    if (verbose) console.error(`   Stack: ${err.stack}`)
     failed++
   } finally {
     // Restore original Math.random if we seeded it
@@ -842,14 +914,24 @@ for (const cluster of clusters) {
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
-console.log(`\n${'─'.repeat(50)}`)
-console.log(`Capture complete: ${passed} captured, ${failed} failed`)
+if (quiet) {
+  // ─── Quiet summary: only one line ─────────────────────────────────────────
+  if (failed > 0) {
+    console.log(`❌ ${failed} cluster(s) failed`)
+    process.exit(1)
+  }
+  console.log(`✅ Captured ${passed} cluster(s)`)
+  process.exit(0)
+} else {
+  console.log(`\n${'─'.repeat(50)}`)
+  console.log(`Capture complete: ${passed} captured, ${failed} failed`)
 
-if (failed > 0) {
-  console.log(`\n⚠️  Fix failed captures before proceeding to PHASE 2.`)
-  console.log(`   Hint: Check that 'entry' and 'watches' names match exports in your file.`)
-  process.exit(1)
+  if (failed > 0) {
+    console.log(`\n⚠️  Fix failed captures before proceeding to PHASE 2.`)
+    console.log(`   Hint: Check that 'entry' and 'watches' names match exports in your file.`)
+    process.exit(1)
+  }
+
+  console.log(`\nNext: node scripts/validate.js`)
+  console.log(`If all green → you are clear to refactor.`)
 }
-
-console.log(`\nNext: node scripts/validate.js`)
-console.log(`If all green → you are clear to refactor.`)
