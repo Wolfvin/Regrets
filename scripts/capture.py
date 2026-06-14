@@ -22,7 +22,8 @@ from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
     materialize_output, snapshot_state, get_env_snapshot,
-    object_state_serialize, snapshot_module_globals, restore_module_globals
+    object_state_serialize, snapshot_module_globals, restore_module_globals,
+    fingerprint_modes
 )
 
 
@@ -610,6 +611,7 @@ def main():
         max_yields = cluster.get('maxYields', cluster.get('materializeLimit', None))
         freeze_time_str = cluster.get('freezeTime', None)
         track_state_attrs = cluster.get('trackState', None)  # list of attr names to track on the entry object
+        modes = cluster.get('modes', None)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -618,6 +620,8 @@ def main():
         else:
             print(f"   Entry:   {entry}")
         print(f"   Watches: {', '.join(watches)}")
+        if modes:
+            print(f"   Modes:   {len(modes)} ({', '.join(m.get('name', f'mode_{i}') for i, m in enumerate(modes))})")
 
         # Read classMethod-related fields early for display
         class_method = cluster.get('classMethod', None)
@@ -1040,6 +1044,98 @@ def main():
                 print(f"      With fingerprintLevel=full, this produces an empty-sequence fingerprint.")
                 print(f"      RECOMMENDATION: Change fingerprintLevel to 'entry' for this cluster.")
 
+            # ── Modes support ────────────────────────────────────────────────
+            # When a cluster has 'modes', each mode represents a behavioral
+            # variant of the same function (e.g., method='equinox' vs method='romme').
+            # Each mode runs its own inputs and produces its own fingerprint.
+            # A combined modes fingerprint is also computed.
+            mode_results = []
+            modes_fingerprint = None
+
+            if modes:
+                for mode_def in modes:
+                    mode_name = mode_def.get('name', 'default')
+                    mode_kwargs = mode_def.get('kwargs', {})
+                    mode_inputs = mode_def.get('inputs', inputs)
+                    # Merge cluster-level kwargs with mode-specific kwargs
+                    # Mode kwargs override cluster-level kwargs
+                    effective_kwargs = {**({} if not kwargs_mode else {}), **mode_kwargs}
+                    mode_kwargs_mode = bool(effective_kwargs)
+
+                    mode_fps = []
+                    mode_outputs = []
+                    for input_val in mode_inputs:
+                        recorder_local = []
+                        ghost = create_ghost(mod, watches, recorder_local)
+                        entry_fn_mode = getattr(ghost, entry, None) or getattr(mod, entry, None)
+                        input_for_record = deep_clone(input_val)
+                        input_for_args = deep_clone(input_val)
+
+                        # Build call: merge positional input with mode kwargs
+                        if mode_kwargs_mode and isinstance(input_for_args, dict):
+                            # Merge: mode kwargs override input dict keys
+                            merged_args = {**input_for_args, **effective_kwargs}
+                            raw_output = entry_fn_mode(**merged_args)
+                            fp_input = deep_clone(merged_args)
+                        elif mode_kwargs_mode:
+                            # Input is positional, kwargs are separate
+                            if multi_args and isinstance(input_for_args, list):
+                                raw_output = entry_fn_mode(*input_for_args, **effective_kwargs)
+                            else:
+                                raw_output = entry_fn_mode(input_for_args, **effective_kwargs)
+                            fp_input = input_for_record
+                        else:
+                            if multi_args and isinstance(input_for_args, list):
+                                raw_output = entry_fn_mode(*input_for_args)
+                            else:
+                                raw_output = entry_fn_mode(input_for_args) if input_for_args is not None else entry_fn_mode()
+                            fp_input = input_for_record
+
+                        output = consume_generator(raw_output)
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+                        if fingerprint_mode == 'schema':
+                            schema = extract_schema(output_for_fp)
+                            fp = fingerprint(fp_input, schema, normalize_rules, ignore_fields)
+                        elif fingerprint_mode == 'mixed':
+                            schema = extract_schema(output_for_fp)
+                            selected_values = {}
+                            for path in value_paths:
+                                key = path.replace('$.', '')
+                                parts = key.split('.')
+                                val = output_for_fp
+                                for p in parts:
+                                    val = val.get(p) if isinstance(val, dict) else None
+                                    if val is None:
+                                        break
+                                if val is not None:
+                                    selected_values[path] = val
+                            combined = {'schema': schema, 'values': selected_values}
+                            fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
+                        elif fingerprint_level == 'entry':
+                            fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
+                        else:
+                            fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
+
+                        mode_fps.append(fp)
+                        mode_outputs.append({'input': input_for_record, 'output': output_for_fp, 'fp': fp})
+
+                    # Use first mode input result as the mode's representative
+                    mode_fp = mode_fps[0] if mode_fps else ''
+                    mode_results.append({
+                        'mode_name': mode_name,
+                        'input': mode_outputs[0]['input'] if mode_outputs else None,
+                        'output': mode_outputs[0]['output'] if mode_outputs else None,
+                        'fp': mode_fp,
+                        'all_fps': mode_fps,
+                        'kwargs': effective_kwargs,
+                    })
+                    print(f"   🏷️  Mode '{mode_name}': {mode_fp}")
+
+                # Compute combined modes fingerprint
+                modes_fingerprint = fingerprint_modes(mode_results, normalize_rules, ignore_fields)
+                print(f"   🔗 Modes fingerprint: {modes_fingerprint}")
+
             # Use first result as golden
             golden = results[0]
             fp = golden['fp']
@@ -1105,6 +1201,13 @@ def main():
             if input_transform:
                 lines.append(f"inputTransform: {input_transform}")
 
+            # Modes metadata
+            if modes and mode_results:
+                lines.append(f"modes: {len(mode_results)}")
+                lines.append(f"modesFingerprint: {modes_fingerprint}")
+                for mr in mode_results:
+                    lines.append(f"mode: {mr['mode_name']}={mr['fp']}")
+
             # Environment snapshot
             env_str = json.dumps(get_env_snapshot(), sort_keys=True)
             lines.append(f"env: {env_str}")
@@ -1119,6 +1222,17 @@ def main():
             if track_state_attrs and golden.get('obj_state_before') is not None:
                 lines.append(f"STATE_BEFORE {json_serialize(golden['obj_state_before'])}")
                 lines.append(f"STATE_AFTER  {json_serialize(golden['obj_state_after'])}")
+
+            # Write mode data section
+            if modes and mode_results:
+                lines.append(f"MODES_FINGERPRINT {modes_fingerprint}")
+                for mr in mode_results:
+                    lines.append(f"MODE {mr['mode_name']}")
+                    lines.append(f"  INPUT  {json_serialize(mr['input'])}")
+                    lines.append(f"  OUTPUT {json_serialize(mr['output'])}")
+                    lines.append(f"  HASH   {mr['fp']}")
+                    if mr.get('kwargs'):
+                        lines.append(f"  KWARGS {json_serialize(mr['kwargs'])}")
 
             with open(regret_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))

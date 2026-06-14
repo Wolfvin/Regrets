@@ -722,6 +722,52 @@ def snapshot_output(val, transform=None):
         return deep_clone(val)
 
 
+def fingerprint_modes(mode_results, rules=None, ignore_fields=None):
+    """Fingerprint multiple behavioral modes of a single function.
+
+    Each mode result is a dict with 'mode_name', 'input', 'output', and 'fp' keys.
+    The combined fingerprint ensures that ALL modes produce the same output
+    after refactoring — if any mode changes, the combined hash changes.
+
+    This is critical for functions with behavioral modes (e.g., method='equinox'
+    vs method='romme' in calendar libraries, or eve=True vs eve=False in
+    holiday calculations). Without modes, an agent would have to create separate
+    clusters for each mode, which is verbose and doesn't express the relationship.
+
+    The fingerprint is computed by:
+    1. Sorting modes by name (deterministic ordering)
+    2. Concatenating mode_name:fingerprint pairs
+    3. Hashing the combined string
+
+    Args:
+        mode_results: List of dicts, each with 'mode_name', 'input', 'output', 'fp'
+        rules: Normalization rules (same as fingerprint())
+        ignore_fields: Fields to ignore (same as fingerprint())
+
+    Returns:
+        str: 7-char base36 hash representing all modes combined
+    """
+    if rules is None:
+        rules = []
+    if ignore_fields is None:
+        ignore_fields = []
+
+    # Sort by mode name for deterministic ordering
+    sorted_results = sorted(mode_results, key=lambda x: x.get('mode_name', ''))
+
+    # Combine mode name + fingerprint for each mode
+    combined_parts = []
+    for r in sorted_results:
+        mode_name = r.get('mode_name', 'default')
+        mode_fp = r.get('fp', '')
+        combined_parts.append(f"{mode_name}:{mode_fp}")
+
+    combined = '|'.join(combined_parts)
+    hash_hex = hashlib.sha256(combined.encode('utf-8')).hexdigest()
+    big_num = int(hash_hex, 16)
+    return to_base36(big_num)[:7]
+
+
 def get_env_snapshot():
     """Capture a snapshot of the current Python environment for reproducibility.
 
