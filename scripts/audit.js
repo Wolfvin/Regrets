@@ -324,14 +324,14 @@ console.log('╚═════════════════════�
 console.log()
 
 const checks = [
-  ('Manifest', checkManifest),
-  ('Regret Files', checkRegretFiles),
-  ('Validation', checkValidate),
-  ('Drift Detection', checkDrift),
-  ('Cluster Health', checkHealth),
-  ('Branch Coverage', checkCoverage),
-  ('Mutation Risks', checkMutationRisks),
-  ('Chains', checkChains),
+  ['Manifest', checkManifest],
+  ['Regret Files', checkRegretFiles],
+  ['Validation', checkValidate],
+  ['Drift Detection', checkDrift],
+  ['Cluster Health', checkHealth],
+  ['Branch Coverage', checkCoverage],
+  ['Mutation Risks', checkMutationRisks],
+  ['Chains', checkChains],
 ]
 
 let allPass = true
