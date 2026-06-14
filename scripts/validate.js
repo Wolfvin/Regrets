@@ -630,6 +630,96 @@ async function runCluster(clusterDef, regret) {
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
 
+/**
+ * Parse a .regret file into structured sections for targeted field updates.
+ *
+ * The file format is:
+ *   <metadata lines>     — key: value pairs, one per line
+ *   ---                  — separator
+ *   INPUT  <json>
+ *   OUTPUT <json>        ← may span multiple lines (pretty-printed JSON)
+ *   HASH   <hash>
+ *
+ * The line-by-line parser avoids regex .replace() which has two bugs:
+ *   1. /^OUTPUT .+$/m only matches the FIRST line of multiline OUTPUT,
+ *      silently dropping subsequent lines.
+ *   2. /^fingerprint: .+$/m can match a line inside OUTPUT data that
+ *      happens to start with "fingerprint:", corrupting the file.
+ */
+function parseRegretStructure(raw) {
+  const lines = raw.split('\n')
+  const metaLines = []
+  const dataLines = []
+  let pastSeparator = false
+  let outputStartIdx = -1  // index within dataLines where OUTPUT begins
+  let hashIdx = -1         // index within dataLines where HASH begins
+
+  for (const line of lines) {
+    if (line === '---') {
+      pastSeparator = true
+      continue
+    }
+    if (!pastSeparator) {
+      metaLines.push(line)
+    } else {
+      if (line.startsWith('OUTPUT ') && outputStartIdx === -1) {
+        outputStartIdx = dataLines.length
+      }
+      if (line.startsWith('HASH ') && hashIdx === -1) {
+        hashIdx = dataLines.length
+      }
+      dataLines.push(line)
+    }
+  }
+
+  return { metaLines, dataLines, outputStartIdx, hashIdx }
+}
+
+/**
+ * Reconstruct a .regret file from its parsed structure,
+ * applying targeted field updates.
+ *
+ * Updates are applied by key matching on metadata lines (startsWith check)
+ * and by section-boundary-aware replacement for OUTPUT (which may be multiline).
+ */
+function reconstructRegret(structure, updates) {
+  const { metaLines, dataLines, outputStartIdx, hashIdx } = structure
+
+  // Update metadata lines — only replace lines whose key STARTS WITH the target
+  const updatedMeta = metaLines.map(line => {
+    for (const [key, value] of Object.entries(updates.meta)) {
+      // Match "fingerprint: " at the start of the line (not inside data body)
+      if (line.startsWith(key + ': ')) {
+        return `${key}: ${value}`
+      }
+    }
+    return line
+  })
+
+  // Update data lines
+  const updatedData = [...dataLines]
+
+  // Replace OUTPUT section: from the OUTPUT line to (but not including) the HASH line
+  if (outputStartIdx !== -1 && 'output' in updates) {
+    const endIdx = hashIdx !== -1 ? hashIdx : dataLines.length
+    // Remove all lines from OUTPUT start up to HASH
+    updatedData.splice(outputStartIdx, endIdx - outputStartIdx)
+    // Insert the new OUTPUT line(s) at the same position
+    updatedData.splice(outputStartIdx, 0, updates.output)
+  }
+
+  // Replace HASH line
+  if (hashIdx !== -1 && 'hash' in updates) {
+    // Recalculate hashIdx in case OUTPUT changed the array length
+    const adjustedHashIdx = updatedData.findIndex(l => l.startsWith('HASH '))
+    if (adjustedHashIdx !== -1) {
+      updatedData[adjustedHashIdx] = updates.hash
+    }
+  }
+
+  return [...updatedMeta, '---', ...updatedData].join('\n')
+}
+
 function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
   const oldHash = regret.goldenHash
   const now = new Date().toISOString()
@@ -639,11 +729,16 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
   const serializableOutput = ArrayBuffer.isView(liveOutput) && !(liveOutput instanceof DataView)
     ? Array.from(liveOutput)
     : liveOutput
-  const newContent = regret.raw
-    .replace(/^fingerprint: .+$/m, `fingerprint: ${newHash}`)
-    .replace(/^captured: .+$/m,    `captured: ${now}`)
-    .replace(/^OUTPUT .+$/m,       `OUTPUT ${JSON.stringify(serializableOutput)}`)
-    .replace(/^HASH .+$/m,         `HASH   ${newHash}`)
+
+  const structure = parseRegretStructure(regret.raw)
+  const newContent = reconstructRegret(structure, {
+    meta: {
+      fingerprint: newHash,
+      captured: now,
+    },
+    output: `OUTPUT ${JSON.stringify(serializableOutput)}`,
+    hash: `HASH   ${newHash}`,
+  })
   writeFileSync(regretPath, newContent, 'utf8')
 
   // ─── Hash chain ────────────────────────────────────────────────────────────
