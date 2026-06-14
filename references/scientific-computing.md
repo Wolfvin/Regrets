@@ -1,186 +1,245 @@
-# Scientific Computing & Color Science Variant
+# Scientific Computing / DSP Library Integration
 
-Regression fingerprinting for numerical/scientific libraries — capturing behavioral contracts in matrix math, color space conversions, and floating-point computations.
+## When to Use This Pattern
 
-## Why Scientific Code Needs Regrets
+This pattern applies when the target repo is a **scientific computing** or **digital signal processing (DSP)** library that:
 
-Scientific computing code has unique characteristics that make it both an excellent and challenging target for regression testing:
+- Returns **NumPy arrays** as primary outputs (often 100+ elements)
+- Uses **complex numbers** (`complex128`, `numpy.complex128`) extensively
+- Has **class-based APIs** with internal state (e.g., modulators, filters, oscillators)
+- Involves **floating-point math** with inherent precision differences across platforms
+- Has **pure mathematical functions** alongside **stateful signal processing objects**
 
-1. **Floating-point sensitivity**: Tiny algorithmic changes can cascade into different rounding results. A refactor that inlines a function may change operation order, producing different results in the least significant bits.
-2. **Matrix transformations**: Color space conversions (RGB↔LMS↔XYZ), coordinate transforms, and signal processing involve matrix multiplications where every coefficient matters.
-3. **Clamping and rounding**: Scientific code often includes sanitization steps (clamp to [0,255], round to nearest integer) that create behavioral boundaries.
-4. **Pure functions by nature**: Scientific computations are typically stateless — same input always produces same output. This makes them perfect candidates for Regrets fingerprinting.
+Examples: `mhostetter/sdr` (software-defined radio), `scipy/signal`, audio processing libraries, radar simulation tools.
 
-## Lessons from Testing a Color Blindness Simulator
+## Key Challenges
 
-The `@bjornlu/colorblind` library (RGB→LMS color space transformation + deficiency simulation matrices) revealed several insights:
+### 1. Large Array Outputs
 
-### 1. multiArgs is Essential for Multi-Parameter Functions
+DSP functions typically return arrays with hundreds or thousands of samples. For example, `sdr.sinusoid(1.0, freq=10, sample_rate=1000)` returns a 1000-element complex128 array. Serializing every element into the `.regret` file creates massive files and slow comparisons.
 
-Scientific functions often take a data input + a configuration parameter:
-
-```js
-// simulate(rgb, deficiency) — two separate arguments
-export function simulate(rgb, deficiency) { ... }
-```
-
-In the manifest, use `multiArgs: true` with array inputs:
+**Solution**: Use `"outputTransform": "array_summary"` in the manifest. This computes a compact summary (shape, dtype, mean, std, min, max, head/tail elements) instead of serializing every element. The summary is deterministic — if the algorithm changes, at least one statistic will change.
 
 ```json
 {
-  "id": "simulate-deuteranopia",
-  "entry": "simulate",
-  "multiArgs": true,
+  "id": "sinusoid-complex",
+  "entry": "sinusoid_complex",
+  "watches": ["sinusoid_complex"],
+  "module": "regret_adapters",
+  "stack": "python",
+  "outputTransform": "array_summary",
+  "normalize": ["floatTolerance"],
   "inputs": [
-    [{"r":255,"g":0,"b":0}, "deuteranopia"],
-    [{"r":0,"g":255,"b":0}, "deuteranopia"]
+    {"duration": 0.1, "freq": 10, "sample_rate": 1000}
   ]
 }
 ```
 
-Without `multiArgs`, Regrets passes the entire input as a single object argument, which fails for functions expecting separate parameters.
+### 2. Complex Number Outputs
 
-### 2. Bundle Multi-File Libraries into a Single Module
+Many DSP functions return complex-valued arrays (e.g., I/Q samples in SDR). Python's `json.dumps()` cannot serialize `complex` objects natively.
 
-TypeScript libraries with multiple source files (`index.ts`, `util.ts`, `sim-matrix.ts`) need compilation before Regrets can import them. However, the compiled output may still use relative imports that don't resolve correctly via dynamic `import()`.
+**Solution**: Regrets' `fingerprint.py` now handles complex numbers at three levels:
+- `_numpy_to_native()`: Converts `numpy.complex128` → Python `complex`
+- `_complex_to_json()`: Converts Python `complex` → `{"__complex__": true, "real": ..., "imag": ...}`
+- `normalize()`: Supports `floatTolerance` and `floatPrecision` for complex numbers
 
-**Solution**: Create a single-file bundle that inlines all dependencies:
+You don't need to do anything special — just use the manifest as normal.
 
-```js
-// colorblind-bundle.mjs — single file, no relative imports
-const rgbToLmsMatrix = [0.31399022, 0.63951294, 0.04649755, ...]
+### 3. Floating-Point Precision Differences
 
-export function simulate(rgb, deficiency) { ... }
-export { convertRgbToLms, sanitizeRgb }
-```
+DSP computations often produce slightly different results depending on:
+- NumPy version
+- BLAS/LAPACK implementation
+- CPU architecture (AVX vs SSE)
+- Python version
 
-This eliminates import resolution issues and makes the target module self-contained for fingerprinting.
+A function that returns `[0.70710678, 0.70710677]` on one run might return `[0.70710678, 0.70710679]` on another. These are **not regressions** — they're floating-point noise.
 
-### 3. Boundary Conditions Deserve Their Own Clusters
-
-Scientific code has edge cases at numerical boundaries. Create dedicated clusters for sanitization/clamping functions:
-
-```json
-{
-  "id": "sanitize-rgb-boundaries",
-  "entry": "sanitizeRgb",
-  "inputs": [
-    {"r":-50,"g":0,"b":300},
-    {"r":0.5,"g":127.7,"b":255},
-    {"r":-0.1,"g":0,"b":0}
-  ]
-}
-```
-
-This catches regressions in clamping logic that might not be triggered by normal-range inputs in the main simulation clusters.
-
-### 4. Matrix Transformation Clusters Verify Core Math
-
-Isolate the core mathematical transformation into its own cluster:
+**Solution**: Use `"normalize": ["floatTolerance:6"]` to round floats to 6 decimal places before hashing. This eliminates false positives from floating-point noise while still catching real regressions.
 
 ```json
 {
-  "id": "convert-rgb-lms-roundtrip",
-  "entry": "convertRgbToLms",
-  "inputs": [
-    {"r":255,"g":0,"b":0},
-    {"r":128,"g":128,"b":128},
-    {"r":255,"g":255,"b":255}
-  ]
+  "normalize": ["floatTolerance:6"]
 }
 ```
 
-This verifies that the matrix coefficients haven't been accidentally modified during refactoring — a critical concern in scientific code where coefficients come from published research papers.
+For integer-valued outputs (e.g., symbol decisions, bit arrays), no normalization is needed.
 
-### 5. Floating-Point Output Requires Exact Match
+### 4. Class-Based APIs with State
 
-Unlike web APIs where `timestamps` and `uuids` need normalization, scientific output should match EXACTLY. The default `fingerprintMode: "value"` is correct for scientific code because:
+DSP libraries often expose class-based APIs like:
 
-- Floating-point arithmetic is deterministic for the same operations on the same hardware
-- Any difference in output indicates a genuine behavioral change
-- Do NOT use `"normalize": ["timestamps"]` or similar rules on pure computational output
+```python
+psk = sdr.PSK(4, phase_offset=45, pulse_shape="srrc")
+tx_samples = psk.modulate(symbols)
+rx_symbols = psk.demodulate(rx_samples)
+```
 
-The only exception: if the computation involves `Math.random()`, `Date.now()`, or platform-dependent operations (like GPU computation), add appropriate normalization.
+These require the **adapter pattern** — thin wrapper functions that instantiate classes and call methods.
 
-### 6. Refactoring Scientific Code Safely
+**Adapter example:**
 
-The 3-phase refactoring approach works exceptionally well for scientific code:
+```python
+# regret_adapters.py
+import sdr
+import numpy as np
 
-**What can be safely refactored:**
-- Inlining trivial wrapper functions (e.g., `convertLmsToMatrix(lms)` → `[lms.l, lms.m, lms.s]`)
-- Renaming variables for clarity (e.g., `simRgbMetrix` typo → `simRgbVec`)
-- Replacing intermediate conversion functions with direct computation
-- Adding `dotProduct3` helper to replace `multiplyMatrix3x1And3x1`
+# For pure functions — just re-export
+def db_value(x):
+    return sdr.db(x, type="value")
 
-**What Regrets will catch if broken:**
-- Changed matrix coefficients (fingerprint will differ)
-- Different operation order in floating-point arithmetic (fingerprint will differ)
-- Removed or modified clamping/rounding steps (fingerprint will differ)
-- Missing sanitization on input or output (fingerprint will differ)
+def db_power(x):
+    return sdr.db(x, type="power")
 
-### 7. The Typo Test: Did Refactoring Fix or Preserve Bugs?
+def linear_value(x):
+    return sdr.linear(x, type="value")
 
-During the colorblind refactoring, we found `simRgbMetrix` — clearly a typo for "simRgbMatrix". The question: should we fix it?
+# For class-based APIs — instantiate and call
+def psk4_modulate(symbols):
+    """Adapter: QPSK modulation with SRRC pulse shape."""
+    psk = sdr.PSK(4, phase_offset=45, pulse_shape="srrc")
+    return psk.modulate(symbols)
 
-Since it's just a variable name (not a functional bug), renaming to `simRgbVec` is safe — Regrets confirms the output is identical. But if the typo had been in a matrix coefficient, Regrets would catch the change immediately.
+def psk4_demodulate(noisy_samples):
+    """Adapter: QPSK demodulation."""
+    psk = sdr.PSK(4, phase_offset=45, pulse_shape="srrc")
+    return psk.demodulate(noisy_samples)
+```
 
-## Manifest Template for Color Science Projects
+### 5. Non-Deterministic Functions
+
+Some DSP functions involve randomness (e.g., noise generation, channel simulation). These require normalization or input fixing.
+
+```python
+# Non-deterministic: sdr.awgn(x, snr=10) adds random noise
+# Solution: Don't test noise generators directly. Test deterministic processing
+# that operates on noisy signals by providing fixed input arrays.
+```
+
+## Adapter Module Template
+
+```python
+# regret_adapters.py — Adapter for scientific computing / DSP libraries
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+import numpy as np
+import sdr
+
+# ─── Pure function adapters ─────────────────────────────────────────────
+
+def db_value(x):
+    """Convert linear value to decibels."""
+    return sdr.db(x, type="value")
+
+def db_power(x):
+    """Convert linear power to decibels."""
+    return sdr.db(x, type="power")
+
+def linear_value(x):
+    """Convert decibels to linear value."""
+    return sdr.linear(x, type="value")
+
+# ─── Class-based API adapters ───────────────────────────────────────────
+
+def nco_exp_increment(increment_str):
+    """NCO with constant increment, exponential output."""
+    nco = sdr.NCO(increment=float(increment_str))
+    return nco.step(100)
+
+def psk4_map_symbols(symbols):
+    """Map QPSK decimal symbols to complex symbols."""
+    psk = sdr.PSK(4, phase_offset=45, pulse_shape="srrc")
+    return psk.map_symbols(symbols)
+```
+
+## Manifest Template
 
 ```json
 {
   "clusters": [
     {
-      "id": "simulate-deficiency-type",
-      "entry": "simulate",
-      "watches": ["simulate", "simulateDichromatic", "convertRgbToLms", "convertLmsToRgb", "sanitizeRgb"],
-      "file": "js/colorblind-bundle.mjs",
-      "stack": "js",
+      "id": "db-value",
+      "entry": "db_value",
+      "watches": ["db_value"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
       "fingerprintLevel": "entry",
-      "multiArgs": true,
-      "inputs": [
-        [{"r":255,"g":0,"b":0}, "deuteranopia"],
-        [{"r":0,"g":255,"b":0}, "deuteranopia"],
-        [{"r":0,"g":0,"b":255}, "deuteranopia"]
-      ]
+      "inputs": [50, 100, 0.001]
     },
     {
-      "id": "sanitize-boundaries",
-      "entry": "sanitizeRgb",
-      "watches": ["sanitizeRgb"],
-      "file": "js/colorblind-bundle.mjs",
-      "stack": "js",
+      "id": "sinusoid-complex",
+      "entry": "sinusoid_complex",
+      "watches": ["sinusoid_complex"],
+      "module": "regret_adapters",
+      "pythonPath": ".",
+      "stack": "python",
       "fingerprintLevel": "entry",
+      "outputTransform": "array_summary",
+      "normalize": ["floatTolerance:6"],
       "inputs": [
-        {"r":-50,"g":0,"b":300},
-        {"r":0.5,"g":127.7,"b":255}
-      ]
-    },
-    {
-      "id": "color-space-transform",
-      "entry": "convertRgbToLms",
-      "watches": ["convertRgbToLms"],
-      "file": "js/colorblind-bundle.mjs",
-      "stack": "js",
-      "fingerprintLevel": "entry",
-      "inputs": [
-        {"r":255,"g":0,"b":0},
-        {"r":0,"g":255,"b":0},
-        {"r":255,"g":255,"b":255}
+        {"duration": 0.01, "freq": 10, "sample_rate": 1000}
       ]
     }
   ]
 }
 ```
 
-## Applicable Domains
+## outputTransform Options for DSP
 
-This pattern applies to any scientific computing library:
+| Transform | Use Case | What It Fingerprints |
+|-----------|----------|---------------------|
+| `"array_summary"` | Large numpy arrays (100+ elements) | Shape, dtype, mean, std, min, max, head/tail samples |
+| `"len"` | Only care about output size | Array length |
+| `"repr"` | Complex objects without `.to_dict()` | String representation |
+| Custom `"module.fn"` | Domain-specific summary | Whatever your function returns |
 
-| Domain | Example | Key Functions |
-|--------|---------|---------------|
-| Color science | Color blindness simulation, color space conversion | Matrix transforms, clamping |
-| Signal processing | FFT, filtering, convolution | Window functions, coefficient arrays |
-| Geometry | Coordinate transforms, projection matrices | Matrix multiplication, normalization |
-| Statistics | Distribution functions, hypothesis testing | Accumulation, rounding |
-| Physics | Unit conversion, equation solving | Constants, precision handling |
-| Cryptography | Hash functions, encoding | Bit operations, exact byte matching |
+## floatTolerance Recommendations by Domain
+
+| Domain | Recommended Tolerance | Rationale |
+|--------|----------------------|-----------|
+| Financial (IDR amounts) | `floatTolerance:0` | Rounding to integers |
+| OCR/parsing | `floatPrecision` | 1500000.0 vs 1500000 |
+| DSP/signal processing | `floatTolerance:6` | Platform-dependent floating-point |
+| Scientific computing | `floatTolerance:10` | Numerical methods with accumulated error |
+| Pure math/encoding | No tolerance needed | Results must be exact |
+
+## Chain Testing for DSP Pipelines
+
+DSP systems often have multi-step processing pipelines:
+
+```
+Bits → Pack → Modulate → Pulse Shape → Channel → Filter → Demodulate → Unpack → Bits
+```
+
+Define chains in `regrets/chains.json`:
+
+```json
+{
+  "chains": [
+    {
+      "id": "qpsk-roundtrip",
+      "steps": [
+        {"cluster": "pack-bits", "input": [1, 0, 1, 1, 0, 0, 1, 0]},
+        {"cluster": "psk4-modulate", "input": [5, 2]},
+        {"cluster": "psk4-demodulate", "input": null}
+      ]
+    }
+  ]
+}
+```
+
+Note: For chain steps where the input depends on the previous step's output (like demodulate), use `null` as input and implement the piping in a custom adapter.
+
+## Common Pitfalls
+
+1. **Don't fingerprint noise generators** — `sdr.awgn()` is non-deterministic. Test the deterministic functions that process noisy signals instead.
+
+2. **Use `array_summary` for large outputs** — A 1000-element float64 array is 8KB. With `array_summary`, it's ~200 bytes.
+
+3. **Complex numbers need `floatTolerance`** — Complex arithmetic accumulates more floating-point error than real arithmetic.
+
+4. **Stateful objects need fresh instances** — Always create a new class instance in the adapter function, not a module-level singleton. Singleton state can leak between test runs.

@@ -14,7 +14,7 @@ def _numpy_to_native(obj):
     """Convert numpy types to native Python types for JSON serialization.
 
     Handles: ndarray -> list, numpy scalars (int64, float64, etc.) -> Python int/float,
-    numpy bool_ -> Python bool.
+    numpy bool_ -> Python bool, numpy complexfloating -> Python complex.
     This is a no-op if numpy is not installed.
     """
     try:
@@ -25,6 +25,8 @@ def _numpy_to_native(obj):
             return int(obj)
         if isinstance(obj, np.floating):
             return float(obj)
+        if isinstance(obj, np.complexfloating):
+            return complex(obj)
         if isinstance(obj, np.bool_):
             return bool(obj)
         if isinstance(obj, (list, tuple)):
@@ -40,9 +42,29 @@ def stable_dumps(obj):
     """Stable JSON serialization — keys sorted recursively (mirrors JS stableStringify).
 
     Handles numpy arrays and scalars by converting to native Python types first.
+    Also handles Python complex numbers by converting to {__complex__: true, real: ..., imag: ...}.
     """
     obj = _numpy_to_native(obj)
+    # Convert any remaining complex numbers to JSON-safe dicts
+    obj = _complex_to_json(obj)
     return json.dumps(obj, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
+
+def _complex_to_json(obj):
+    """Recursively convert Python complex numbers to JSON-serializable dicts.
+
+    This is needed because json.dumps() cannot serialize complex numbers.
+    Complex numbers are converted to {"__complex__": true, "real": ..., "imag": ...}.
+    """
+    if isinstance(obj, complex):
+        return {'__complex__': True, 'real': obj.real, 'imag': obj.imag}
+    if isinstance(obj, list):
+        return [_complex_to_json(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _complex_to_json(v) for k, v in obj.items()}
+    if isinstance(obj, tuple):
+        return [_complex_to_json(v) for v in obj]
+    return obj
 
 
 def normalize(obj, rules=None):
@@ -105,6 +127,19 @@ def normalize(obj, rules=None):
         # Strips trailing ".0" from number-like strings (including negative).
         if 'floatPrecision' in rules:
             return re.sub(r'^-?(\d+)\.0+$', r'\1', obj)
+        return obj
+
+    # Handle Python complex numbers (common in DSP/SDR libraries like mhostetter/sdr)
+    if isinstance(obj, complex):
+        ft_rule = next((r for r in rules if r.startswith('floatTolerance')), None)
+        if ft_rule:
+            decimals = int(ft_rule.split(':')[1]) if ':' in ft_rule else 2
+            factor = 10 ** decimals
+            return complex(round(obj.real * factor) / factor, round(obj.imag * factor) / factor)
+        if 'floatPrecision' in rules:
+            real = int(obj.real) if obj.real == int(obj.real) else round(obj.real, 2)
+            imag = int(obj.imag) if obj.imag == int(obj.imag) else round(obj.imag, 2)
+            return complex(real, imag)
         return obj
 
     if isinstance(obj, (int, float)):
@@ -193,6 +228,10 @@ def deep_clone(val):
     instead of an actual clone, which causes mutation corruption in the ghost recorder.
     """
     val = _numpy_to_native(val)
+    # Handle complex numbers → dict with real/imag (JSON-safe, deterministic)
+    # This is critical for DSP/SDR libraries where numpy complex128 arrays are common
+    if isinstance(val, complex):
+        return {'__complex__': True, 'real': val.real, 'imag': val.imag}
     # Handle bytes → hex string (deterministic, recoverable)
     if isinstance(val, bytes):
         return val.hex()
