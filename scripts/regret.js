@@ -440,6 +440,18 @@ switch (command) {
     break
   }
 
+  case 'discover': {
+    if (passThroughArgs.includes('--static')) {
+      // Zero-execution static analysis — no import, no run
+      const staticArgs = passThroughArgs.filter(a => a !== '--static')
+      success = run('node', [`${SCRIPTS_DIR}/discover-static.js`, ...staticArgs])
+    } else {
+      // Runtime discover (tracing-based) — delegate to discover.js
+      success = run('node', [`${SCRIPTS_DIR}/discover.js`, ...passThroughArgs])
+    }
+    break
+  }
+
   case 'help':
   default:
     console.log(`
@@ -478,6 +490,8 @@ Usage:
                                  [--skip-build]         Skip preBuild step
   node scripts/regret.js watch [--dir src/] [--stack]  Watch files & auto-validate on change
   node scripts/regret.js branches [--cluster <id>] [--json]  Static branch coverage analysis
+  node scripts/regret.js discover --static --entry <fn> --file <path>  Zero-execution static analysis
+                                   [--out regrets/manifest.json]        Save draft manifest
   node scripts/regret.js risk [--since HEAD~1] [--diff patch.txt] [--json]  Pre-refactor risk signal
 
 Global flags:
