@@ -7,6 +7,7 @@
 #   python scripts/coverage.py
 #   python scripts/coverage.py --cluster my-cluster
 #   python scripts/coverage.py --detailed
+#   python scripts/coverage.py --json
 #
 # This addresses the gap where Regrets captures ONE execution path per input
 # but doesn't warn the agent that other branches exist untested.
@@ -167,6 +168,7 @@ def main():
     args = sys.argv[1:]
     cluster_filter = None
     detailed = '--detailed' in args
+    json_output = '--json' in args
 
     i = 0
     while i < len(args):
@@ -182,7 +184,10 @@ def main():
         with open(manifest_path, 'r', encoding='utf-8') as f:
             manifest = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        print("❌ regrets/manifest.json not found. Run `regret init` first.")
+        if json_output:
+            print(json.dumps({'error': 'regrets/manifest.json not found. Run `regret init` first.'}))
+        else:
+            print("❌ regrets/manifest.json not found. Run `regret init` first.")
         sys.exit(1)
 
     # Load .regret files for input counts
@@ -206,25 +211,30 @@ def main():
         clusters = [c for c in clusters if c['id'] == cluster_filter]
 
     if not clusters:
-        print("No clusters found.")
+        if json_output:
+            print(json.dumps({'clusters': []}))
+        else:
+            print("No clusters found.")
         sys.exit(0)
 
-    print("\nBRANCH COVERAGE REPORT")
-    print('─' * 72)
+    if not json_output:
+        print("\nBRANCH COVERAGE REPORT")
+        print('─' * 72)
 
-    COL = {'cluster': 35, 'branches': 10, 'paths': 10, 'inputs': 8, 'coverage': 12}
-    print(
-        f"{'cluster':<{COL['cluster']}}"
-        f"{'branches':<{COL['branches']}}"
-        f"{'min_paths':<{COL['paths']}}"
-        f"{'inputs':<{COL['inputs']}}"
-        f"{'coverage'}"
-    )
-    print('─' * 72)
+        COL = {'cluster': 35, 'branches': 10, 'paths': 10, 'inputs': 8, 'coverage': 12}
+        print(
+            f"{'cluster':<{COL['cluster']}}"
+            f"{'branches':<{COL['branches']}}"
+            f"{'min_paths':<{COL['paths']}}"
+            f"{'inputs':<{COL['inputs']}}"
+            f"{'coverage'}"
+        )
+        print('─' * 72)
 
     total_clusters = 0
     undercovered = 0
     warnings = []
+    results = []
 
     for cluster in clusters:
         cid = cluster['id']
@@ -233,7 +243,8 @@ def main():
 
         # Only analyze Python clusters with this tool
         if stack != 'python':
-            print(f"  ⏭️  {cid:<{COL['cluster']}}stack={stack} — use JS coverage tool")
+            if not json_output:
+                print(f"  ⏭️  {cid:<{COL['cluster']}}stack={stack} — use JS coverage tool")
             continue
 
         total_clusters += 1
@@ -252,7 +263,8 @@ def main():
                 src_file = os.path.join(os.getcwd(), file_path)
 
         if not src_file or not os.path.isfile(src_file):
-            print(f"  ⚠️  {cid:<{COL['cluster']}}source file not found")
+            if not json_output:
+                print(f"  ⚠️  {cid:<{COL['cluster']}}source file not found")
             continue
 
         # Read and analyze source
@@ -260,7 +272,8 @@ def main():
             with open(src_file, 'r', encoding='utf-8') as f:
                 source = f.read()
         except Exception as e:
-            print(f"  ❌ {cid:<{COL['cluster']}}error reading source: {e}")
+            if not json_output:
+                print(f"  ❌ {cid:<{COL['cluster']}}error reading source: {e}")
             continue
 
         branches = count_branches_in_function(source, entry)
@@ -269,30 +282,48 @@ def main():
 
         # Coverage estimate
         if min_paths <= 1:
-            coverage = "✅ FULL"
             coverage_pct = 100
+            coverage_label = 'WELL-COVERED'
         elif input_count >= min_paths:
-            coverage = "✅ LIKELY FULL"
             coverage_pct = 100
+            coverage_label = 'WELL-COVERED'
         elif input_count >= min_paths * 0.5:
-            coverage = f"🟡 PARTIAL ~{int(input_count / min_paths * 100)}%"
             coverage_pct = int(input_count / min_paths * 100)
+            coverage_label = 'UNDER-COVERED'
             undercovered += 1
         else:
-            coverage = f"🔴 LOW ~{int(input_count / min_paths * 100)}%"
             coverage_pct = int(input_count / min_paths * 100)
+            coverage_label = 'UNDER-COVERED'
             undercovered += 1
 
-        branch_str = str(len(branches)) if branches else "0"
-        print(
-            f"  {cid:<{COL['cluster']}}"
-            f"{branch_str:<{COL['branches']}}"
-            f"{min_paths:<{COL['paths']}}"
-            f"{input_count:<{COL['inputs']}}"
-            f"{coverage}"
-        )
+        results.append({
+            'id': cid,
+            'branches': len(branches),
+            'covered': input_count,
+            'coveragePercent': coverage_pct,
+            'coverage': coverage_label,
+        })
 
-        if detailed and branches:
+        if not json_output:
+            if min_paths <= 1:
+                coverage = "✅ FULL"
+            elif input_count >= min_paths:
+                coverage = "✅ LIKELY FULL"
+            elif input_count >= min_paths * 0.5:
+                coverage = f"🟡 PARTIAL ~{coverage_pct}%"
+            else:
+                coverage = f"🔴 LOW ~{coverage_pct}%"
+
+            branch_str = str(len(branches)) if branches else "0"
+            print(
+                f"  {cid:<{COL['cluster']}}"
+                f"{branch_str:<{COL['branches']}}"
+                f"{min_paths:<{COL['paths']}}"
+                f"{input_count:<{COL['inputs']}}"
+                f"{coverage}"
+            )
+
+        if detailed and not json_output and branches:
             print(f"     Branch details for {entry}:")
             for b in branches:
                 if b['type'] == 'if':
@@ -324,7 +355,27 @@ def main():
                 'watch_branches': watch_branches,
             })
 
-    # Summary
+    # ─── JSON output ─────────────────────────────────────────────────────────
+
+    if json_output:
+        # Match JS coverage.js --json format
+        json_result = {
+            'clusters': [
+                {
+                    'id': r['id'],
+                    'coveragePercent': r['coveragePercent'],
+                    'coverage': r['coverage'],
+                    'branches': r['branches'],
+                    'covered': r['covered'],
+                }
+                for r in results
+            ]
+        }
+        print(json.dumps(json_result, separators=(',', ':')))
+        sys.exit(1 if any(r['coveragePercent'] < 50 for r in results) else 0)
+
+    # ─── Human-readable summary ─────────────────────────────────────────────
+
     print('─' * 72)
     if undercovered > 0:
         print(f"\n⚠️  {undercovered}/{total_clusters} cluster(s) may have uncovered branches.")

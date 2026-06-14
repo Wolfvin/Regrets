@@ -5,6 +5,7 @@
 # Usage:
 #   python scripts/health.py
 #   python scripts/health.py --sort fragile
+#   python scripts/health.py --json
 
 import sys
 import os
@@ -17,16 +18,20 @@ from datetime import datetime, timezone
 def parse_args():
     args = sys.argv[1:]
     sort_by = 'health'
+    json_output = False
 
     i = 0
     while i < len(args):
         if args[i] == '--sort' and i + 1 < len(args):
             sort_by = args[i + 1]
             i += 2
+        elif args[i] == '--json':
+            json_output = True
+            i += 1
         else:
             i += 1
 
-    return sort_by
+    return sort_by, json_output
 
 
 # ─── Parse audit.log ──────────────────────────────────────────────────────────
@@ -119,7 +124,7 @@ def health_label(score, *, is_new=False):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    sort_by = parse_args()
+    sort_by, json_output = parse_args()
     regret_dir = os.path.join(os.getcwd(), 'regrets')
     audit_log = os.path.join(regret_dir, 'audit.log')
 
@@ -127,11 +132,17 @@ def main():
     try:
         regret_files = [f for f in os.listdir(regret_dir) if f.endswith('.regret')]
     except FileNotFoundError:
-        print("❌ regrets/ directory not found. Run capture first.")
+        if json_output:
+            print(json.dumps({'error': 'regrets/ directory not found. Run capture first.'}))
+        else:
+            print("❌ regrets/ directory not found. Run capture first.")
         sys.exit(1)
 
     if not regret_files:
-        print("No .regret files found. Nothing to report.")
+        if json_output:
+            print(json.dumps({'clusters': []}))
+        else:
+            print("No .regret files found. Nothing to report.")
         sys.exit(0)
 
     audit_data = parse_audit_log(audit_log)
@@ -178,7 +189,29 @@ def main():
     else:
         sorted_clusters = sorted(clusters, key=lambda c: c['score'], reverse=True)
 
-    # ─── Render ───────────────────────────────────────────────────────────────
+    # ─── JSON output ─────────────────────────────────────────────────────────
+
+    if json_output:
+        # Match JS health.js --json format
+        json_result = {
+            'clusters': [
+                {
+                    'id': c['id'],
+                    'fragility': max(0, 100 - c['score']) / 100,
+                    'lastCapture': 'today' if c['ageDays'] == 0 else f"{c['ageDays']}d ago",
+                    'score': c['score'],
+                    'label': c['health']['label'],
+                    'isNew': c['isNew'],
+                    'updates': c['updates'],
+                    'drifts': c['drifts'],
+                }
+                for c in sorted_clusters
+            ]
+        }
+        print(json.dumps(json_result, separators=(',', ':')))
+        return
+
+    # ─── Human-readable render ───────────────────────────────────────────────
 
     COL = {'id': 30, 'updates': 8, 'drifts': 7, 'age': 9}
 
