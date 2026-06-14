@@ -624,6 +624,28 @@ def parse_regret(content):
                 meta['setup'] = json.loads(val)
             except (json.JSONDecodeError, ValueError):
                 meta['setup'] = val
+        elif key == 'singletonMethod':
+            meta['singletonMethod'] = val
+        elif key == 'singletonName':
+            meta['singletonName'] = val
+        elif key == 'storeDispatch':
+            try:
+                meta['storeDispatch'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['storeDispatch'] = val
+        elif key == 'initialState':
+            try:
+                meta['initialState'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['initialState'] = val
+        elif key == 'adapter':
+            # adapter can be a boolean string or a file path string
+            if val.lower() == 'true':
+                meta['adapter'] = True
+            elif val.lower() == 'false':
+                meta['adapter'] = False
+            else:
+                meta['adapter'] = val
         elif key == 'inputTransform':
             meta['inputTransform'] = val
         elif key == 'maxYields':
@@ -967,6 +989,14 @@ def main():
             constructor_name = regret.get('constructor', cluster_def.get('constructor', None))
             constructor_args = regret.get('constructorArgs', cluster_def.get('constructorArgs', []))
             setup_steps = regret.get('setup', cluster_def.get('setup', []))
+            # singletonMethod support for Python
+            singleton_method = regret.get('singletonMethod', cluster_def.get('singletonMethod', None))
+            singleton_name = regret.get('singletonName', cluster_def.get('singletonName', None))
+            # storeDispatch support for Python
+            store_dispatch = regret.get('storeDispatch', cluster_def.get('storeDispatch', None))
+            initial_state = regret.get('initialState', cluster_def.get('initialState', None))
+            # adapter support for Python
+            adapter_config = regret.get('adapter', cluster_def.get('adapter', None))
             isolate_globals = cluster_def.get('isolateGlobals', None)
             input_transform = regret.get('inputTransform', cluster_def.get('inputTransform', None))
             max_yields = regret.get('maxYields', cluster_def.get('maxYields', cluster_def.get('materializeLimit', None)))
@@ -1164,6 +1194,224 @@ def main():
                         if input_key not in hashes_per_input:
                             hashes_per_input[input_key] = []
                         hashes_per_input[input_key].append(fp)
+                elif store_dispatch:
+                    # ── storeDispatch mode ──────────────────────────────────
+                    # For state management stores: import the store, dispatch
+                    # the action, and fingerprint the resulting state.
+                    #
+                    # Manifest fields:
+                    #   storeDispatch: { "store": "storeName", "action": "actionName" }
+                    #   initialState: { ... } — optional state to reset before each dispatch
+                    #
+                    # Supports: DispatchingStore, Redux-like, and simple object stores.
+                    store_export_name = store_dispatch.get('store', '')
+                    action_name = store_dispatch.get('action', '')
+                    get_state_name = store_dispatch.get('getState', 'getState')
+
+                    store_obj = getattr(mod, store_export_name, None)
+                    if store_obj is None:
+                        raise TypeError(f"Store \"{store_export_name}\" not found in {module_path}")
+
+                    # Detect store type and extract dispatch/getState methods
+                    dispatch_fn = None
+                    get_state_fn = None
+                    store_type = None
+
+                    if hasattr(store_obj, 'dispatch') and callable(store_obj.dispatch):
+                        if hasattr(store_obj, 'getState') and callable(store_obj.getState):
+                            # Redux-like pattern: store.dispatch({type, payload}), store.getState()
+                            dispatch_fn = store_obj.dispatch
+                            get_state_fn = store_obj.getState
+                            store_type = 'redux'
+                        elif hasattr(store_obj, 'value'):
+                            # DispatchingStore pattern: store.dispatch(action, payload), store.value
+                            dispatch_fn = store_obj.dispatch
+                            get_state_fn = lambda: store_obj.value
+                            store_type = 'dispatching'
+                    if dispatch_fn is None and hasattr(store_obj, 'setState') and callable(store_obj.setState):
+                        # Zustand-like pattern: store.setState(partial), store.getState()
+                        dispatch_fn = store_obj.setState
+                        get_state_fn = getattr(store_obj, 'getState', None)
+                        store_type = 'zustand'
+
+                    if dispatch_fn is None or get_state_fn is None:
+                        raise TypeError(
+                            f"Store \"{store_export_name}\" does not match any known store pattern "
+                            f"(DispatchingStore, Redux, Zustand). Ensure the store has "
+                            f"dispatch/getState or setState/getState methods."
+                        )
+
+                    for current_input in inputs_to_validate:
+                        input_for_fp = deep_clone(current_input)
+                        input_for_args = deep_clone(current_input)
+
+                        # ── Seed RNG if configured ────────────────────────
+                        saved_rng = None
+                        if seed_value is not None:
+                            saved_rng = seed_rng(seed_value)
+
+                        # Reset to initialState if provided
+                        state_init = regret.get('initialState', initial_state)
+                        if state_init:
+                            if store_type == 'zustand' and hasattr(store_obj, 'setState'):
+                                store_obj.setState(deep_clone(state_init), True)
+                            # Redux reset is not straightforward — warn
+                            elif store_type == 'redux':
+                                pass  # State may be dirty between inputs
+
+                        # Dispatch the action
+                        if store_type == 'redux':
+                            dispatch_fn({'type': action_name, 'payload': input_for_args})
+                        elif store_type == 'dispatching':
+                            dispatch_fn(action_name, input_for_args)
+                        elif store_type == 'zustand':
+                            dispatch_fn(input_for_args)
+
+                        raw_output = get_state_fn()
+                        output = consume_generator(raw_output)
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                        last_output = output_for_fp
+
+                        if effective_fp_mode == 'schema':
+                            schema = extract_schema(output_for_fp)
+                            fp = fingerprint(input_for_fp, schema, norm_rules, ign_fields)
+                        elif effective_fp_mode == 'mixed':
+                            schema = extract_schema(output_for_fp)
+                            selected_values = {}
+                            for path in effective_value_paths:
+                                key = path.replace('$.', '')
+                                parts = key.split('.')
+                                val = output_for_fp
+                                for p in parts:
+                                    val = val.get(p) if isinstance(val, dict) else None
+                                    if val is None:
+                                        break
+                                if val is not None:
+                                    selected_values[path] = val
+                            combined = {'schema': schema, 'values': selected_values}
+                            fp = fingerprint(input_for_fp, combined, norm_rules, ign_fields)
+                        elif fp_level == 'entry':
+                            fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                        else:
+                            fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
+
+                        hashes.append(fp)
+
+                        # ── Restore RNG state after this input run ──────────
+                        if saved_rng is not None:
+                            restore_rng(*saved_rng)
+
+                        # Track per-input hashes for drift detection
+                        input_key = json.dumps(current_input, sort_keys=True)
+                        if input_key not in hashes_per_input:
+                            hashes_per_input[input_key] = []
+                        hashes_per_input[input_key].append(fp)
+
+                elif singleton_method:
+                    # ── singletonMethod mode ──────────────────────────────
+                    # For modules that export a singleton object with methods.
+                    # Example: PorterStemmer = new Stemmer() → PorterStemmer.stem("running")
+                    #
+                    # Manifest fields:
+                    #   singletonMethod: "methodName" — the method to call on the singleton
+                    #   singletonName: "ExportedName" — the exported name (default: entry)
+                    #
+                    # The flow is:
+                    #   1. Get the singleton object from the module
+                    #   2. Call singleton.singletonMethod(input) → output
+                    #   3. Fingerprint the output
+                    singleton_export_name = singleton_name or entry_name
+                    singleton_obj = getattr(mod, singleton_export_name, None)
+                    # Fallback: if the module itself is the singleton (common in Python)
+                    if singleton_obj is None and hasattr(mod, singleton_method) and callable(getattr(mod, singleton_method)):
+                        singleton_obj = mod
+                    if singleton_obj is None:
+                        raise TypeError(f"Singleton \"{singleton_export_name}\" not found in {module_path}")
+                    if not hasattr(singleton_obj, singleton_method) or not callable(getattr(singleton_obj, singleton_method)):
+                        raise TypeError(f"Method \"{singleton_method}\" not found on singleton \"{singleton_export_name}\" in {module_path}")
+
+                    # Setup freeze_time context managers if needed
+                    freeze_cms = []
+                    if freeze_time_str:
+                        dt_cm, time_cm = freeze_time(freeze_time_str)
+                        freeze_cms = [dt_cm, time_cm]
+
+                    for current_input in inputs_to_validate:
+                        input_for_fp = deep_clone(current_input)
+                        input_for_args = deep_clone(current_input)
+
+                        # ── Seed RNG if configured ────────────────────────
+                        saved_rng = None
+                        if seed_value is not None:
+                            saved_rng = seed_rng(seed_value)
+
+                        # Get the method from the singleton
+                        target_fn = getattr(singleton_obj, singleton_method)
+
+                        # Execute, optionally with frozen time
+                        if freeze_cms:
+                            for cm in freeze_cms:
+                                cm.__enter__()
+                            try:
+                                if multi_args and isinstance(input_for_args, list):
+                                    raw_output = target_fn(*input_for_args)
+                                elif kwargs_mode and isinstance(input_for_args, dict):
+                                    raw_output = target_fn(**input_for_args)
+                                else:
+                                    raw_output = target_fn(input_for_args) if input_for_args is not None else target_fn()
+                            finally:
+                                for cm in reversed(freeze_cms):
+                                    cm.__exit__(None, None, None)
+                        else:
+                            if multi_args and isinstance(input_for_args, list):
+                                raw_output = target_fn(*input_for_args)
+                            elif kwargs_mode and isinstance(input_for_args, dict):
+                                raw_output = target_fn(**input_for_args)
+                            else:
+                                raw_output = target_fn(input_for_args) if input_for_args is not None else target_fn()
+
+                        # Materialize and transform output
+                        output, was_materialized = materialize_output(raw_output, max_yields=max_yields) if materialize_output_flag else (raw_output, False)
+                        if not materialize_output_flag:
+                            output = consume_generator(output)
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                        last_output = output_for_fp
+
+                        if effective_fp_mode == 'schema':
+                            schema = extract_schema(output_for_fp)
+                            fp = fingerprint(input_for_fp, schema, norm_rules, ign_fields)
+                        elif effective_fp_mode == 'mixed':
+                            schema = extract_schema(output_for_fp)
+                            selected_values = {}
+                            for path in effective_value_paths:
+                                key = path.replace('$.', '')
+                                parts = key.split('.')
+                                val = output_for_fp
+                                for p in parts:
+                                    val = val.get(p) if isinstance(val, dict) else None
+                                    if val is None:
+                                        break
+                                if val is not None:
+                                    selected_values[path] = val
+                            combined = {'schema': schema, 'values': selected_values}
+                            fp = fingerprint(input_for_fp, combined, norm_rules, ign_fields)
+                        elif fp_level == 'entry':
+                            fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                        else:
+                            fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
+
+                        hashes.append(fp)
+
+                        # ── Restore RNG state after this input run ──────────
+                        if saved_rng is not None:
+                            restore_rng(*saved_rng)
+
+                        # Track per-input hashes for drift detection
+                        input_key = json.dumps(current_input, sort_keys=True)
+                        if input_key not in hashes_per_input:
+                            hashes_per_input[input_key] = []
+                        hashes_per_input[input_key].append(fp)
+
                 else:
                     # ── Function-based entry (original behavior) ────────────
                     # Setup freeze_time context managers if needed
@@ -1172,11 +1420,39 @@ def main():
                         dt_cm, time_cm = freeze_time(freeze_time_str)
                         freeze_cms = [dt_cm, time_cm]
 
-                    ghost = create_ghost(mod, watches_list, recorder)
-
-                    entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                    if entry_fn is None or not callable(entry_fn):
-                        raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+                    # ── adapter mode ──────────────────────────────────────────
+                    # If adapter is specified in manifest, use it to resolve the entry function.
+                    #   adapter: true  → call mod.adapt(input) as the entry
+                    #   adapter: "path/to/adapter.py" → import adapter, call adapterFn(mod) to get entryFn
+                    if adapter_config:
+                        if adapter_config is True or (isinstance(adapter_config, str) and adapter_config.lower() == 'true'):
+                            # adapter: true → call mod.adapt(input) as the entry function
+                            adapt_fn = getattr(mod, 'adapt', None)
+                            if adapt_fn is None or not callable(adapt_fn):
+                                raise TypeError(f"adapter: true but 'adapt' method not found in {module_path}")
+                            entry_fn = adapt_fn
+                        elif isinstance(adapter_config, str):
+                            # adapter: "path/to/adapter.py" → import and get entryFn
+                            adapter_path = adapter_config
+                            if not os.path.isabs(adapter_path):
+                                adapter_path = os.path.join(os.getcwd(), adapter_path)
+                            spec = importlib.util.spec_from_file_location("regret_adapter", adapter_path)
+                            adapter_mod = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(adapter_mod)
+                            adapter_fn = getattr(adapter_mod, 'create_adapter', None) or getattr(adapter_mod, 'createAdapter', None)
+                            if adapter_fn is None or not callable(adapter_fn):
+                                raise TypeError(f"Adapter \"{adapter_config}\" must define create_adapter() function")
+                            adapter_result = adapter_fn(mod)
+                            entry_fn = adapter_result.get('entryFn') if isinstance(adapter_result, dict) else getattr(adapter_result, 'entry_fn', None)
+                            if entry_fn is None or not callable(entry_fn):
+                                raise TypeError(f"Adapter \"{adapter_config}\" returned no callable entryFn")
+                        else:
+                            raise TypeError(f"adapter must be true or a file path string, got {type(adapter_config).__name__}")
+                    else:
+                        ghost = create_ghost(mod, watches_list, recorder)
+                        entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                        if entry_fn is None or not callable(entry_fn):
+                            raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
 
                     for current_input in inputs_to_validate:
                         # Deep-clone input before calling to prevent mutation from corrupting fingerprint
