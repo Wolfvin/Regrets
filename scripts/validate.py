@@ -469,6 +469,11 @@ def parse_regret(content):
             meta['trackState'] = [s.strip() for s in val.strip('[]').split(',') if s.strip()]
         elif key == 'stateFingerprint':
             meta['stateFingerprint'] = val.strip()
+        elif key == 'instanceMethods':
+            try:
+                meta['instanceMethods'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['instanceMethods'] = val
         else:
             meta[key] = val
 
@@ -552,6 +557,46 @@ def create_ghost(mod, watch_list, recorder):
         setattr(ghost, fn_name, make_ghost(original, fn_name))
 
     return ghost
+
+
+def create_instance_ghost(instance, watch_list, recorder):
+    """Wrap watched methods on a class instance with recording decorators."""
+    originals = {}
+    for fn_name in (watch_list or []):
+        original = getattr(instance, fn_name, None)
+        if original is None or not callable(original):
+            continue
+        originals[fn_name] = original
+
+        def make_ghost(orig, name):
+            @wraps(orig)
+            def wrapper(*args, **kwargs):
+                try:
+                    result = orig(*args, **kwargs)
+                    recorder.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'result': deep_clone(result),
+                    })
+                    return result
+                except Exception as err:
+                    recorder.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'error': str(err),
+                    })
+                    raise
+            return wrapper
+
+        setattr(instance, fn_name, make_ghost(original, fn_name))
+
+    return instance, originals
+
+
+def restore_instance(instance, originals):
+    """Restore original methods on an instance after ghost validation."""
+    for name, original in originals.items():
+        setattr(instance, name, original)
 
 
 # ─── Update .regret file ─────────────────────────────────────────────────────
@@ -752,6 +797,12 @@ def main():
                 for k, v in regret_env.items():
                     if current_env.get(k) != v:
                         print(f"  ⚠️  {cluster_id}: environment changed: {k} was {v}, now {current_env.get(k)}")
+
+            # classMethod support
+            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
+            constructor_name = regret.get('constructor') or cluster_def.get('constructor', None)
+            constructor_args = regret.get('constructorArgs') or cluster_def.get('constructorArgs', [])
+            setup_fn = regret.get('setup') or cluster_def.get('setup', None)
 
             mod = importlib.import_module(module_path)
 

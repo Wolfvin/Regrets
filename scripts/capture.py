@@ -629,6 +629,65 @@ def create_ghost(module, watch_list, recorder):
     return ghost
 
 
+def create_instance_ghost(instance, watch_list, recorder):
+    """
+    Wrap watched methods on a class instance with recording decorators.
+    Returns the original instance with methods replaced by ghost wrappers.
+
+    Unlike create_ghost which wraps module-level functions, this wraps
+    bound methods on an instance. This is needed for class-based APIs
+    where the entry point is a method like mesh.area or mesh.is_watertight.
+
+    The instance is modified in-place — methods are swapped with wrappers.
+    After capture, the original methods are restored.
+    """
+    import types as _types
+
+    originals = {}  # name → original bound method
+
+    for fn_name in watch_list:
+        original = getattr(instance, fn_name, None)
+        if original is None:
+            print(f"  ⚠️  Watch target \"{fn_name}\" not found on instance — skipping")
+            continue
+        if not callable(original):
+            print(f"  ⚠️  Watch target \"{fn_name}\" is not callable (probably a property) — skipping")
+            continue
+
+        originals[fn_name] = original
+
+        def make_ghost(orig, name, rec):
+            @wraps(orig)
+            def wrapper(*args, **kwargs):
+                try:
+                    result = orig(*args, **kwargs)
+                    rec.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'result': deep_clone(result),
+                    })
+                    return result
+                except Exception as err:
+                    rec.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'error': str(err),
+                    })
+                    raise
+            return wrapper
+
+        # Replace the method on the instance with the ghost wrapper
+        setattr(instance, fn_name, make_ghost(original, fn_name, recorder))
+
+    return instance, originals
+
+
+def restore_instance(instance, originals):
+    """Restore original methods on an instance after ghost capture."""
+    for name, original in originals.items():
+        setattr(instance, name, original)
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -723,6 +782,13 @@ def main():
         track_state_attrs = cluster.get('trackState', None)  # list of attr names to track on the entry object
         modes = cluster.get('modes', None)
 
+        # classMethod support: instantiate a class and call methods on the instance
+        class_method = cluster.get('classMethod', None)
+        constructor_name = cluster.get('constructor', None)
+        constructor_args = cluster.get('constructorArgs', [])
+        setup_fn = cluster.get('setup', None)
+        instance_methods = cluster.get('instanceMethods', {})
+
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
         if class_method:
@@ -777,6 +843,7 @@ def main():
             #   constructor: "ClassName"           — class to instantiate (default: entry)
             #   constructorArgs: [...]             — args for the constructor
             #   setup: [{ method, args }, ...]     — setup calls before the target method
+            #   instanceMethods: {"WatchedClass": ["method1", "method2"]}
 
             if class_method:
                 Cls = getattr(mod, constructor_name or entry, None)
@@ -1289,6 +1356,15 @@ def main():
                 lines.append(f"kwargs: {kwargs_mode}")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
+            if class_method:
+                lines.append(f"classMethod: {class_method}")
+                lines.append(f"constructor: {constructor_name or entry}")
+                if constructor_args:
+                    lines.append(f"constructorArgs: {json_serialize(constructor_args)}")
+                if setup_fn:
+                    lines.append(f"setup: {setup_fn}")
+                if instance_methods:
+                    lines.append(f"instanceMethods: {json_serialize(instance_methods)}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
             if class_method:
