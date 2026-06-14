@@ -11,6 +11,7 @@ import { resolve, join, basename } from 'path'
 
 const args      = process.argv.slice(2)
 const sortBy    = args[args.indexOf('--sort') + 1] ?? 'health'
+const jsonOutput = args.includes('--json')
 const regretDir = resolve(process.cwd(), 'regrets')
 const auditLog  = join(regretDir, 'audit.log')
 
@@ -113,54 +114,70 @@ const sorted = [...clusters].sort((a, b) => {
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 
-const COL = { id: 30, updates: 8, drifts: 7, age: 9, bar: 8 }
-
-console.log(`\nCLUSTER HEALTH REPORT`)
-console.log(`${'─'.repeat(72)}`)
-console.log(
-  `${'cluster'.padEnd(COL.id)}` +
-  `${'updates'.padEnd(COL.updates)}` +
-  `${'drifts'.padEnd(COL.drifts)}` +
-  `${'age'.padEnd(COL.age)}` +
-  `health`
-)
-console.log(`${'─'.repeat(72)}`)
-
-for (const c of sorted) {
-  const age = c.ageDays === 0 ? 'today' : `${c.ageDays}d`
-  console.log(
-    `${c.id.padEnd(COL.id)}` +
-    `${String(c.updates).padEnd(COL.updates)}` +
-    `${String(c.drifts).padEnd(COL.drifts)}` +
-    `${age.padEnd(COL.age)}` +
-    `${c.health.bar} ${c.health.label}`
-  )
-}
-
-console.log(`${'─'.repeat(72)}`)
-
-// ─── Recommendations ──────────────────────────────────────────────────────────
-
-const fragile  = sorted.filter(c => c.score < 50)
-const unstable = sorted.filter(c => c.score >= 50 && c.score < 70)
-
-if (fragile.length || unstable.length) {
-  console.log(`\nRecommendations:`)
-  for (const c of fragile) {
-    if (c.updates >= 3) console.log(`  ${c.id.padEnd(COL.id)} → high update rate, consider splitting this cluster`)
-    if (c.drifts  >= 1) console.log(`  ${c.id.padEnd(COL.id)} → drift detected, add normalize rules to manifest`)
+if (jsonOutput) {
+  // JSON output mode
+  const jsonResult = {
+    clusters: sorted.map(c => ({
+      id: c.id,
+      fragility: Math.max(0, 100 - c.score) / 100,
+      lastCapture: c.ageDays === 0 ? 'today' : `${c.ageDays}d ago`,
+      score: c.score,
+      label: c.health.label,
+      updates: c.updates,
+      drifts: c.drifts,
+    }))
   }
-  for (const c of unstable) {
-    console.log(`  ${c.id.padEnd(COL.id)} → monitor closely, ${c.updates} update(s), ${c.drifts} drift(s)`)
-  }
+  console.log(JSON.stringify(jsonResult, null, 0))
 } else {
-  console.log(`\n✅ All clusters are healthy. Safe to refactor.`)
-}
+  const COL = { id: 30, updates: 8, drifts: 7, age: 9, bar: 8 }
 
-const solid = sorted.filter(c => c.score >= 90)
-if (solid.length) {
-  console.log(`\nDo not touch (SOLID contracts):`)
-  solid.forEach(c => console.log(`  ${c.id}`))
-}
+  console.log(`\nCLUSTER HEALTH REPORT`)
+  console.log(`${'─'.repeat(72)}`)
+  console.log(
+    `${'cluster'.padEnd(COL.id)}` +
+    `${'updates'.padEnd(COL.updates)}` +
+    `${'drifts'.padEnd(COL.drifts)}` +
+    `${'age'.padEnd(COL.age)}` +
+    `health`
+  )
+  console.log(`${'─'.repeat(72)}`)
 
-console.log()
+  for (const c of sorted) {
+    const age = c.ageDays === 0 ? 'today' : `${c.ageDays}d`
+    console.log(
+      `${c.id.padEnd(COL.id)}` +
+      `${String(c.updates).padEnd(COL.updates)}` +
+      `${String(c.drifts).padEnd(COL.drifts)}` +
+      `${age.padEnd(COL.age)}` +
+      `${c.health.bar} ${c.health.label}`
+    )
+  }
+
+  console.log(`${'─'.repeat(72)}`)
+
+  // ─── Recommendations ──────────────────────────────────────────────────────────
+
+  const fragile  = sorted.filter(c => c.score < 50)
+  const unstable = sorted.filter(c => c.score >= 50 && c.score < 70)
+
+  if (fragile.length || unstable.length) {
+    console.log(`\nRecommendations:`)
+    for (const c of fragile) {
+      if (c.updates >= 3) console.log(`  ${c.id.padEnd(COL.id)} → high update rate, consider splitting this cluster`)
+      if (c.drifts  >= 1) console.log(`  ${c.id.padEnd(COL.id)} → drift detected, add normalize rules to manifest`)
+    }
+    for (const c of unstable) {
+      console.log(`  ${c.id.padEnd(COL.id)} → monitor closely, ${c.updates} update(s), ${c.drifts} drift(s)`)
+    }
+  } else {
+    console.log(`\n✅ All clusters are healthy. Safe to refactor.`)
+  }
+
+  const solid = sorted.filter(c => c.score >= 90)
+  if (solid.length) {
+    console.log(`\nDo not touch (SOLID contracts):`)
+    solid.forEach(c => console.log(`  ${c.id}`))
+  }
+
+  console.log()
+}
