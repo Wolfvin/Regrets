@@ -338,7 +338,8 @@ Add these to the target project's `package.json`:
 
 - `regret:build` — tsc only (no bundle/minify) — preserves individual JS files for capture
 - `regret:ci` — fast validation for CI pipelines (fail-fast)
-- `regret:guard` — pre-build gate: if regrets fail, block the build
+- `regret:guard` — pre-deployment gate: fail-fast validation with explicit pass/fail verdict — use before merging or deploying (see `references/guard-and-drift.md`)
+- `regret:drift` — non-determinism detection: validates each cluster 5 times and flags inconsistent fingerprints — use after capture to confirm fingerprints are stable (see `references/guard-and-drift.md`)
 - `regret:test` — run the integration test suite (209 tests)
 - `regret:init` — scaffold regrets/ directory with manifest template
 - `regret:rollback` — re-capture a specific cluster (undo bad update)
@@ -970,7 +971,8 @@ regression-testing/
     ├── case-study-coretax.md       ← Case study: Coretax-Auto-Downloader (date-dependent output, discriminated unions, God Object)
     ├── case-study-sdr.md      ← Case study: mhostetter/sdr (DSP/scientific computing, numpy arrays, complex numbers)
     ├── dual-truth-verification.md ← Dual-truth verification pattern
-    └── mapping-transliteration.md ← Mapping/transliteration library guide
+    ├── mapping-transliteration.md ← Mapping/transliteration library guide
+    └── guard-and-drift.md        ← guard and drift commands — when to use, output format, drift remediation
 ```
 
 ---
@@ -991,6 +993,7 @@ regression-testing/
    - Extension → `references/extension.md`
    - Go → `references/go.md`
    - Class-based → `references/class-based.md`
+6. **`references/guard-and-drift.md`** — When and how to use the `guard` and `drift` commands for deployment gating and non-determinism detection.
 
 ### Decision Tree: Which Script to Use?
 
