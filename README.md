@@ -1,0 +1,160 @@
+# Regrets
+
+Output-based regression testing for AI-driven refactoring — capture what code *produces*, refactor freely, validate that outputs still match.
+
+## Quick-Start (5 min)
+
+```bash
+# 1. Install alongside your project
+npm install regret-testing
+
+# 2. Scan your project to discover clusters
+node scripts/regret.js scan --dir src/ --stack js
+
+# 3. Create regrets/manifest.json (one cluster per behavioral contract)
+#    See "Manifest example" below
+
+# 4. Capture fingerprints before refactoring
+node scripts/regret.js capture
+
+# 5. Validate after every change
+node scripts/regret.js validate
+```
+
+All green? Ship it. Any red? Fix your code, not the `.regret` files.
+
+### Manifest example
+
+```json
+{
+  "clusters": [
+    {
+      "id": "hira2kata",
+      "entry": "hira2kata",
+      "watches": ["hira2kata", "_translate", "_convert"],
+      "module": "jaconv.jaconv",
+      "pythonPath": ".",
+      "stack": "python",
+      "description": "Convert Hiragana to Full-width Katakana",
+      "inputs": ["ともえまみ", "あいうえお", ""]
+    }
+  ]
+}
+```
+
+> Real manifest in action: [`proof/jaconv/manifest.json`](proof/jaconv/manifest.json) — 14 clusters covering Japanese character conversion.
+
+## Three Phases
+
+### Phase 1 — AUDIT (capture truth)
+
+Analyze the codebase and identify clusters of functions that produce distinct outputs. Write `regrets/manifest.json` with one entry per behavioral contract. Run `capture` to ghost-record inputs/outputs and compute fingerprints. Validate immediately — all clusters must be green before proceeding.
+
+```bash
+node scripts/regret.js scan --dir src/       # discover clusters
+node scripts/regret.js capture                # ghost-capture fingerprints
+node scripts/regret.js validate               # gate: all must pass
+```
+
+### Phase 2 — REFACTOR (restructure freely)
+
+Now you have a safety net. Split god objects, extract pure functions, rename for intent, isolate side effects. **Never edit files inside `regrets/`** — they are your contract. Never remove watched functions without replacing their contract.
+
+### Phase 3 — VALIDATE (prove nothing broke)
+
+After each refactor batch, run `validate` and compare every fingerprint against the captured baseline. If any cluster is red, trace the diff, fix the code, and re-validate. **Never edit `.regret` files to make a test pass** — that means the refactor changed behavior, which is a bug.
+
+```bash
+node scripts/regret.js validate               # all clusters: PASS / FAIL
+node scripts/regret.js diff --cluster my-cls  # see what changed
+```
+
+## Command Reference
+
+| Command | Description | When to use |
+|---------|-------------|-------------|
+| `capture` | Ghost-capture fingerprints for all clusters | Phase 1 — before refactoring |
+| `validate` | Compare current fingerprints against saved `.regret` files | Phase 3 — after every refactor batch |
+| `scan` | Scan project for cluster candidates (optional `--decompose`) | Phase 1 — discover clusters automatically |
+| `check` | Pre-flight manifest validation — verify exports exist | Before `capture`, catch typos early |
+| `audit` | Pre-refactor readiness audit (optional `--strict`) | Phase 1 — ensure your setup is solid |
+| `health` | Health report of all clusters (optional `--sort fragile`) | Ongoing — check which clusters are fragile |
+| `drift` | Drift detection — 5 validation runs to catch non-determinism | When outputs may vary across runs |
+| `diff` | Show output diff for a failing cluster | Phase 3 — debug a red cluster |
+| `list` | List all clusters with status | Quick overview |
+| `update <id> --reason "..."` | Safe update with audit trail | When a contract legitimately changed |
+| `rollback <id>` | Re-capture + validate a single cluster | When a cluster needs a fresh baseline |
+| `truth` | Save dual truth baselines (KEBENARAN 1 + 2) | Before critical refactors — extra safety |
+| `verify-kebenaran` | Verify KEBENARAN 1 vs KEBENARAN 2 cross-check | Confirm 3-way verification |
+| `chain` | Chain testing for multi-step flows | Validate across sequential function calls |
+| `coverage` | Branch coverage analysis (optional `--suggest-inputs`) | Find under-tested branches |
+| `branch-map` | Generate branch-map.md with input suggestions | Plan additional test inputs |
+| `ci` | CI mode — validate with `--fail-fast` | In CI pipelines |
+| `guard` | Pre-build gate — fail-fast validation | Pre-commit hooks / CI gates |
+| `diagnose <file>` | Diagnose module exports & recommend capture mode | Debug capture issues |
+| `compare --pre <dir> --post <dir>` | Compare pre vs post truth baselines | After refactoring with truth baselines |
+| `analyze [dir]` | Deep structural analysis (god functions, duplicates) | Phase 1 — understand codebase structure |
+| `mutate-audit <path>` | Detect functions that mutate input args | Catch hidden side effects |
+| `structure` | Show structural overview of watched code | Visualize cluster architecture |
+
+All commands: `node scripts/regret.js <cmd> [options]`
+
+Global flag: `--skip-build` — skip the `preBuild` step when project is already compiled.
+
+## Supported Stacks
+
+The runner auto-detects the stack from `regrets/manifest.json` and dispatches to the right handler.
+
+| Stack | Manifest value | Capture | Validate | Notes |
+|-------|---------------|---------|----------|-------|
+| **JavaScript / TypeScript** | `js` or `ts` | `capture.js` | `validate.js` | CJS, ESM, React components. TS projects: add `"preBuild": "npm run build"` to manifest |
+| **Python** | `python` | `capture.py` | `validate.py` | Pure functions, class methods, multi-module. See [`references/python.md`](references/python.md) |
+| **PHP** | `php` | `capture_php.php` | `validate_php.php` | Pure functions, class-based output |
+| **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
+| **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
+| **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
+
+### Stack-specific examples
+
+```bash
+# Python — jaconv (14 clusters, pure string transforms)
+node scripts/regret.js capture    # auto-detects python from manifest
+
+# JS/React — component rendering
+node scripts/regret.js capture    # stack: "react" in manifest
+
+# Go
+node scripts/regret.js capture    # stack: "go" → dispatches to capture_go.sh
+```
+
+> Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions.
+
+## The `.regret` File
+
+Each `.regret` file captures one behavioral contract — human-readable, AI-readable, git-diffable:
+
+```
+cluster: hira2kata
+fingerprint: 3elv23o
+entry: hira2kata
+stack: python
+---
+INPUT  ともえまみ
+OUTPUT トモエマミ
+HASH   3elv23o
+```
+
+The `regrets/` folder is **sacred** — never edit `.regret` files after they are green. They are your source of truth.
+
+## Links
+
+- **[SKILL.md](SKILL.md)** — full skill specification (ghost proxy pattern, fingerprint algorithm, manifest schema, all rules)
+- **[references/phases.md](references/phases.md)** — detailed phase instructions (AUDIT → REFACTOR → VALIDATE)
+- **[references/fingerprint-spec.md](references/fingerprint-spec.md)** — fingerprint algorithm, collision analysis, normalization rules
+- **[references/TROUBLESHOOTING.md](references/TROUBLESHOOTING.md)** — common issues and fixes
+- **[references/WALKTHROUGH.md](references/WALKTHROUGH.md)** — step-by-step walkthrough with a real project
+- **[proof/](proof/)** — real-world case studies with full verification results
+
+## License
+
+MIT
