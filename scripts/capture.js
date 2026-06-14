@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, openSync, closeSync, unlinkSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify, normalize as fpNormalize, stripFields } from './fingerprint.js'
 import { createGhost, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
@@ -233,7 +233,7 @@ for (const cluster of clusters) {
           instanceMethods = {}, kwargs = false, outputTransform = null,
           materializeOutput = false, outputEncoding, resetState, deepCloneInput = true,
           seed, singletonMethod, singletonName, storeDispatch, initialState,
-          adapter } = cluster
+          adapter, sideEffectWatches = [] } = cluster
 
   if (!quiet) {
     console.log(`\n📡 Capturing: ${id}`)
@@ -293,6 +293,7 @@ for (const cluster of clusters) {
   let origRandomUUID = null
   let origGetRandomValues = null
   let cryptoAvailable = false
+  const sideEffectRestores = []  // original methods to restore after capture (declared outside try for finally access)
 
   try {
     // Dynamic import of target module
@@ -305,6 +306,93 @@ for (const cluster of clusters) {
 
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder, instanceMethods)
+
+    // ─── sideEffectWatches: wrap side-effect methods with Proxy recorder ──────
+    // Records calls to methods on objects resolved from rawModule by dot-notation
+    // path (e.g., "db.insert" → rawModule.db.insert). The recording is used to
+    // compute a side-effect fingerprint that is merged into the main fingerprint,
+    // ensuring that behavioral changes (e.g., dropped email sends) are detected
+    // even when the return value is identical.
+    const sideEffectRecorder = []
+
+    for (const sePath of sideEffectWatches) {
+      const parts = sePath.split('.')
+      if (parts.length > 2) {
+        console.warn(`  ⚠️  sideEffectWatch "${sePath}" has >2 levels — only 2-level paths supported in v1, skipping`)
+        continue
+      }
+      const [objName, methodName] = parts
+      const parentObj = rawModule[objName]
+      if (!parentObj || typeof parentObj !== 'object') {
+        console.warn(`  ⚠️  sideEffectWatch "${sePath}": object "${objName}" not found in module — skipping`)
+        continue
+      }
+      if (methodName) {
+        // "db.insert" — wrap method on object
+        const original = parentObj[methodName]
+        if (typeof original !== 'function') {
+          console.warn(`  ⚠️  sideEffectWatch "${sePath}": "${methodName}" is not a function on "${objName}" — skipping`)
+          continue
+        }
+        sideEffectRestores.push({ obj: parentObj, key: methodName, original })
+        parentObj[methodName] = new Proxy(original, {
+          apply(target, thisArg, args) {
+            let result
+            try {
+              result = target.apply(thisArg, args)
+            } catch (err) {
+              sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+              throw err
+            }
+            if (result && typeof result.then === 'function') {
+              return result.then(resolved => {
+                sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(resolved) })
+                return resolved
+              }).catch(err => {
+                sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+                throw err
+              })
+            }
+            sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(result) })
+            return result
+          }
+        })
+      } else {
+        // Single name — wrap a top-level function export
+        const original = rawModule[objName]
+        if (typeof original !== 'function') {
+          console.warn(`  ⚠️  sideEffectWatch "${sePath}": "${objName}" is not a function — skipping`)
+          continue
+        }
+        sideEffectRestores.push({ obj: rawModule, key: objName, original })
+        rawModule[objName] = new Proxy(original, {
+          apply(target, thisArg, args) {
+            let result
+            try {
+              result = target.apply(thisArg, args)
+            } catch (err) {
+              sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+              throw err
+            }
+            if (result && typeof result.then === 'function') {
+              return result.then(resolved => {
+                sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(resolved) })
+                return resolved
+              }).catch(err => {
+                sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+                throw err
+              })
+            }
+            sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(result) })
+            return result
+          }
+        })
+      }
+    }
+
+    if (sideEffectWatches.length > 0 && !quiet) {
+      console.log(`   Side effects: ${sideEffectWatches.join(', ')}`)
+    }
 
     if (Object.keys(instanceMethods).length > 0 && !quiet) {
       console.log(`   Instance methods: ${Object.entries(instanceMethods).map(([k,v]) => `${k}.${v.join('/')}`).join(', ')}`)
@@ -447,7 +535,52 @@ for (const cluster of clusters) {
     // ─── Helper: compute fingerprint with full config ──────────────────────
     const fpConfig = { normalize, ignoreFields, ignorePaths }
 
+    /**
+     * Compute a side-effect signature from the sideEffectRecorder.
+     * Returns a stable-stringifiable object: { sideEffects: [...sortedCalls] }
+     * Each call is { fn, args (normalized), callIndex }.
+     * If sideEffectRecorder is empty, returns null (no side effects to fingerprint).
+     */
+    function computeSideEffectSignature(seRecorder) {
+      if (!seRecorder || seRecorder.length === 0) return null
+      const normalized = seRecorder.map((call, idx) => ({
+        fn: call.fn,
+        args: stripFields(fpNormalize(deepClone(call.args), normalize), ignoreFields, ignorePaths),
+        callIndex: idx,
+      }))
+      // Sort by fn then callIndex for deterministic ordering
+      normalized.sort((a, b) => a.fn.localeCompare(b.fn) || a.callIndex - b.callIndex)
+      return { sideEffects: normalized }
+    }
+
+    /**
+     * Merge side-effect signature into the output for fingerprint computation.
+     * If sideEffectSignature is null, returns output unchanged (backward compatible).
+     * If present, returns { output, sideEffectSignature } — the fingerprint function
+     * will see both the return value and the side-effect behavioral contract.
+     */
+    function mergeSideEffectsIntoOutput(outputVal, seSignature) {
+      if (!seSignature) return outputVal
+      return { output: outputVal, sideEffects: seSignature.sideEffects }
+    }
+
+    /**
+     * Merge side-effect signature into output for fingerprint computation.
+     * When sideEffectWatches is configured and side effects were recorded,
+     * the output is wrapped: { output, sideEffects: [...] } so that the
+     * fingerprint captures both the return value AND the behavioral contract.
+     * If no side effects are recorded, output is returned unchanged (backward compatible).
+     */
+    function maybeMergeSideEffects(outputVal) {
+      const seSig = computeSideEffectSignature(sideEffectRecorder)
+      return seSig ? mergeSideEffectsIntoOutput(outputVal, seSig) : outputVal
+    }
+
     function computeFp(fpInput, output, recorder, fingerprintLevel, fingerprintMode, valuePaths, output_schema) {
+      // Merge side-effect signature into output if sideEffectWatches is configured
+      const seSig = computeSideEffectSignature(sideEffectRecorder)
+      const effectiveOutput = seSig ? mergeSideEffectsIntoOutput(output, seSig) : output
+
       if (fingerprintMode === 'schema') {
         const schema = output_schema || extractSchema(output)
         return fingerprint(fpInput, schema, fpConfig)
@@ -467,7 +600,7 @@ for (const cluster of clusters) {
         return fingerprint(fpInput, callCounts, fpConfig)
       } else {
         return fingerprintLevel === 'entry'
-          ? fingerprint(fpInput, output, fpConfig)
+          ? fingerprint(fpInput, effectiveOutput, fpConfig)
           : fingerprintSequence(recorder, fpConfig)
       }
     }
@@ -524,6 +657,7 @@ for (const cluster of clusters) {
 
       for (const input of testInputs) {
         recorder.length = 0
+        sideEffectRecorder.length = 0
 
         // Reset to initialState if provided
         if (initialState) {
@@ -565,7 +699,7 @@ for (const cluster of clusters) {
           const errorContract = buildErrorContract(caughtError)
           const fp = fingerprint(inputForRecord, errorContract, fpConfig)
           if (!quiet) console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
-          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
           continue
         }
 
@@ -605,11 +739,11 @@ for (const cluster of clusters) {
           fp = fingerprint(fpInput, callCounts, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, output, fpConfig)
+            ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
             : fingerprintSequence(recorder, fpConfig)
         }
 
-        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+        results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
       }
     } else if (classMethod) {
       // ── Class-based entry ────────────────────────────────────────────────
@@ -621,6 +755,7 @@ for (const cluster of clusters) {
 
       for (const input of testInputs) {
         recorder.length = 0
+        sideEffectRecorder.length = 0
         const instance = new Cls(...cArgs)
 
         // Apply ghost proxy to instance methods for watch recording
@@ -671,7 +806,7 @@ for (const cluster of clusters) {
           const errorContract = buildErrorContract(caughtError)
           const fp = fingerprint(inputForRecord, errorContract, fpConfig)
           if (!quiet) console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
-          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
           continue
         }
 
@@ -714,7 +849,7 @@ for (const cluster of clusters) {
           fp = fingerprint(fpInput, callCounts, { normalize, ignoreFields })
         } else {
           fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, output, { normalize, ignoreFields })
+            ? fingerprint(fpInput, maybeMergeSideEffects(output), { normalize, ignoreFields })
             : fingerprintSequence(recorder, { normalize, ignoreFields })
         }
 
@@ -768,6 +903,7 @@ for (const cluster of clusters) {
 
       for (const input of testInputs) {
         recorder.length = 0
+        sideEffectRecorder.length = 0
         const inputForRecord = deepClone(input)
         const actualInput = extractInputValue(input)
         const inputForArgs = deepClone(actualInput)
@@ -788,7 +924,7 @@ for (const cluster of clusters) {
           const errorContract = buildErrorContract(caughtError)
           const fp = fingerprint(inputForRecord, errorContract, fpConfig)
           if (!quiet) console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
-          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
           continue
         }
 
@@ -823,11 +959,11 @@ for (const cluster of clusters) {
           fp = fingerprint(fpInput, callCounts, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, output, fpConfig)
+            ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
             : fingerprintSequence(recorder, fpConfig)
         }
 
-        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+        results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
       }
     } else {
       // ── Function-based entry (original behavior) ───────────────────────
@@ -874,7 +1010,8 @@ for (const cluster of clusters) {
       }
 
       for (const input of testInputs) {
-        recorder.length = 0  // clear between runs
+        recorder.length = 0
+        sideEffectRecorder.length = 0  // clear between runs
 
         // ─── resetState: reset module-level mutable state before each run ─────
         if (resetState) {
@@ -911,7 +1048,7 @@ for (const cluster of clusters) {
           if (!quiet) {
             console.log(`   ⚡ expectThrow: caught ${errorContract.type}: ${errorContract.message}`)
           }
-          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder] })
+          results.push({ input: inputForRecord, output: null, threw: true, error: errorContract, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
           continue
         }
 
@@ -957,11 +1094,11 @@ for (const cluster of clusters) {
           fp = fingerprint(fpInput, callCounts, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, output, fpConfig)
+            ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
             : fingerprintSequence(recorder, fpConfig)
         }
 
-        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+        results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
 
         // Detect input mutation if trackMutation is enabled
         if (cluster.trackMutation && inputAfterCall !== null) {
@@ -1035,6 +1172,12 @@ for (const cluster of clusters) {
     const mutationBefore = golden.mutationBefore
     const mutationAfter = golden.mutationAfter
 
+    // Extract side effect data for .regret file
+    const goldenSideEffects = golden.sideEffects ?? []
+    const sideEffectSignature = goldenSideEffects.length > 0
+      ? computeSideEffectSignature(goldenSideEffects)
+      : null
+
     // Write .regret file
     const regretPath = join(outDir, `${id}.regret`)
     const timestamp  = new Date().toISOString()
@@ -1082,6 +1225,7 @@ for (const cluster of clusters) {
       !deepCloneInput ? `deepCloneInput: false` : null,
       seed != null ? `seed: ${seed}` : null,
       threw ? `expectThrow: true` : null,
+      sideEffectWatches.length ? `sideEffectWatches: [${sideEffectWatches.map(s => `"${s}"`).join(', ')}]` : null,
       `env: ${JSON.stringify(getEnvSnapshot())}`,
       `---`,
       `INPUT  ${JSON.stringify(input ?? null)}`,
@@ -1089,6 +1233,7 @@ for (const cluster of clusters) {
         ? `ERROR_CONTRACT ${JSON.stringify(errorContract)}`
         : `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,
       `HASH   ${fp}`,
+      goldenSideEffects.length > 0 ? `SIDE_EFFECTS ${JSON.stringify(sideEffectSignature)}` : null,
       mutationBefore !== undefined ? `MUTATION_BEFORE ${JSON.stringify(mutationBefore)}` : null,
       mutationAfter !== undefined ? `MUTATION_AFTER ${JSON.stringify(mutationAfter)}` : null,
     ].filter(Boolean).join('\n')
@@ -1129,6 +1274,13 @@ for (const cluster of clusters) {
         if (r.inputMutated) {
           console.log(`   │ ⚠️  Input was mutated by function!`)
         }
+        if (r.sideEffects?.length) {
+          console.log(`   │ Side effect calls (${r.sideEffects.length}):`)
+          for (const se of r.sideEffects) {
+            const argsStr = JSON.stringify(se.args)?.slice(0, 80)
+            console.log(`   │   → ${se.fn}(${argsStr}${argsStr?.length >= 80 ? '…' : ''})`)
+          }
+        }
         console.log(`   └────────────────────────────────────────────`)
       }
     }
@@ -1146,6 +1298,10 @@ for (const cluster of clusters) {
     if (seed != null && cryptoAvailable) {
       if (origRandomUUID != null) globalThis.crypto.randomUUID = origRandomUUID
       if (origGetRandomValues != null) globalThis.crypto.getRandomValues = origGetRandomValues
+    }
+    // Restore original side-effect-watched methods
+    for (const { obj, key, original } of sideEffectRestores) {
+      obj[key] = original
     }
   }
 }

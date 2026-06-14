@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'fs'
 import { resolve, join, basename, relative } from 'path'
 import { pathToFileURL } from 'url'
-import { parseRegret, runCluster, runReactCluster, formatDiffOutput, jsonDiff, generateJUnitXml } from './validate.js'
+import { parseRegret, runCluster, runReactCluster, formatDiffOutput, formatSideEffectDiff, jsonDiff, generateJUnitXml } from './validate.js'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
@@ -99,6 +99,18 @@ export async function validate(options = {}) {
         entry.diff = formatDiffOutput(regret.output, clusterResult.lastOutput, { verbose: false })
       }
 
+      // Include side effect diff if applicable
+      if (!isMatch && clusterResult.goldenSideEffects) {
+        const seDiff = formatSideEffectDiff(
+          clusterResult.goldenSideEffects,
+          clusterResult.lastSideEffectRecording,
+          regret.normalize ?? [],
+          regret.ignoreFields ?? [],
+          regret.ignorePaths ?? []
+        )
+        if (seDiff) entry.sideEffectDiff = seDiff
+      }
+
       results.push(entry)
     } catch (err) {
       results.push({ id, pass: false, error: err.message })
@@ -166,7 +178,8 @@ export async function capture(options = {}) {
             outputTransform = null, materializeOutput = false, seed,
             singletonMethod, singletonName, storeDispatch, initialState,
             multiArgs = false, deepCloneInput = true, resetState = null,
-            trackMutation = false, adapter = null, outputEncoding = null } = cluster
+            trackMutation = false, adapter = null, outputEncoding = null,
+            sideEffectWatches = [] } = cluster
 
     // Skip non-JS stacks
     if (stack && stack !== 'js' && stack !== 'ts' && stack !== 'css') {
