@@ -23,6 +23,7 @@ const scanDir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : '.'
 const stackFilter = args.includes('--stack') ? args[args.indexOf('--stack') + 1] : null
 const formatManifest = args.includes('--format') && args[args.indexOf('--format') + 1] === 'manifest'
 const generateAdapters = args.includes('--generate-adapters')
+const jsonOutput = args.includes('--json')
 const projectRoot = process.cwd()
 
 // ─── File discovery ───────────────────────────────────────────────────────────
@@ -913,7 +914,7 @@ function extractBarrelExports(source) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-console.log('\n📡 Scanning project for cluster suggestions...\n')
+if (!jsonOutput) console.log('\n📡 Scanning project for cluster suggestions...\n')
 
 const allExtensions = Object.values(EXTENSIONS).flat()
 const files = discoverFiles(resolve(projectRoot, scanDir), allExtensions)
@@ -926,7 +927,7 @@ if (!files.length) {
 // ─── Chrome Extension detection ──────────────────────────────────────────────
 
 const chromeExtensions = detectChromeExtension(projectRoot)
-if (chromeExtensions.length > 0) {
+if (chromeExtensions.length > 0 && !jsonOutput) {
   console.log('🔧 Chrome Extension detected!\n')
   for (const ext of chromeExtensions) {
     const dir = ext.subdir ? ` (${ext.subdir}/)` : ''
@@ -944,7 +945,7 @@ if (chromeExtensions.length > 0) {
 // ─── React Monorepo detection ──────────────────────────────────────────────
 
 const reactMonorepo = detectReactMonorepo(projectRoot)
-if (reactMonorepo.length > 0) {
+if (reactMonorepo.length > 0 && !jsonOutput) {
   console.log('⚛️  React Monorepo detected!\n')
   for (const pkg of reactMonorepo) {
     const tags = []
@@ -973,7 +974,7 @@ if (reactMonorepo.length > 0) {
 // ─── TypeScript preBuild detection ───────────────────────────────────────────
 
 const { isTypeScript, preBuild, buildScript } = detectPreBuild(projectRoot)
-if (isTypeScript) {
+if (isTypeScript && !jsonOutput) {
   console.log('🔷 TypeScript project detected — preBuild will be needed in manifest.json')
   if (buildScript) {
     console.log(`   Suggested preBuild: "npm run build" (package.json scripts.build: "${buildScript}")`)
@@ -986,7 +987,7 @@ if (isTypeScript) {
 // ─── Large file / God Object detection ───────────────────────────────────────
 
 const largeFiles = detectLargeFiles(files, projectRoot)
-if (largeFiles.length > 0) {
+if (largeFiles.length > 0 && !jsonOutput) {
   console.log('📏 Large file / God Object detection\n')
   console.log('  ' + 'file'.padEnd(50) + 'lines'.padEnd(8) + 'fns'.padEnd(5) + 'imports'.padEnd(8) + 'vars'.padEnd(6) + 'severity')
   console.log('  ' + '─'.repeat(85))
@@ -1140,6 +1141,18 @@ for (const filePath of files) {
 
 // Sort by complexity (most complex = highest refactor priority)
 suggestions.sort((a, b) => b.complexity - a.complexity)
+
+if (jsonOutput) {
+  // JSON output mode — output discovered functions per file
+  const fileMap = {}
+  for (const s of suggestions) {
+    if (!fileMap[s.file]) fileMap[s.file] = []
+    fileMap[s.file].push(s.function)
+  }
+  const discovered = Object.entries(fileMap).map(([file, functions]) => ({ file, functions }))
+  console.log(JSON.stringify({ discovered }, null, 0))
+  process.exit(0)
+}
 
 if (formatManifest) {
   // Output as manifest.json snippet

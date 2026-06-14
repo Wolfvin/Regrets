@@ -32,18 +32,27 @@ const updateReason  = getArg(args, '--reason')
 const manifestPath  = getArg(args, '--manifest') ?? resolve(process.cwd(), 'regrets/manifest.json')
 const regretDir     = resolve(process.cwd(), 'regrets')
 const auditLog      = join(regretDir, 'audit.log')
+const jsonOutput    = args.includes('--json')
 
 // ─── Validate --update usage ──────────────────────────────────────────────────
 
 if (updateTarget && !updateReason) {
-  console.error(`❌ --update requires --reason`)
-  console.error(`   Example: --update ${updateTarget} --reason "describe why behavior changed"`)
+  if (jsonOutput) {
+    console.log(JSON.stringify({ error: '--update requires --reason' }))
+  } else {
+    console.error(`❌ --update requires --reason`)
+    console.error(`   Example: --update ${updateTarget} --reason "describe why behavior changed"`)
+  }
   process.exit(1)
 }
 
 if (updateReason && updateReason.split(' ').length < 4) {
-  console.error(`❌ --reason is too vague: "${updateReason}"`)
-  console.error(`   Be specific. e.g. "tax rate updated from 11% to 12% per new regulation"`)
+  if (jsonOutput) {
+    console.log(JSON.stringify({ error: `--reason is too vague: "${updateReason}"` }))
+  } else {
+    console.error(`❌ --reason is too vague: "${updateReason}"`)
+    console.error(`   Be specific. e.g. "tax rate updated from 11% to 12% per new regulation"`)
+  }
   process.exit(1)
 }
 
@@ -119,7 +128,14 @@ function clone(v) { return deepClone(v) }
 
 let manifest
 try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) }
-catch { console.error(`❌ Could not read manifest: ${manifestPath}`); process.exit(1) }
+catch {
+  if (jsonOutput) {
+    console.log(JSON.stringify({ error: `Could not read manifest: ${manifestPath}` }))
+  } else {
+    console.error(`❌ Could not read manifest: ${manifestPath}`)
+  }
+  process.exit(1)
+}
 
 // ─── Find .regret files ───────────────────────────────────────────────────────
 
@@ -129,10 +145,21 @@ try {
   regretFiles = readdirSync(regretDir)
     .filter(f => f.endsWith('.regret'))
     .filter(f => !filterId || f === `${filterId}.regret`)
-} catch { console.error(`❌ regrets/ not found. Run capture.js first.`); process.exit(1) }
+} catch {
+  if (jsonOutput) {
+    console.log(JSON.stringify({ error: 'regrets/ not found. Run capture.js first.' }))
+  } else {
+    console.error(`❌ regrets/ not found. Run capture.js first.`)
+  }
+  process.exit(1)
+}
 
 if (!regretFiles.length) {
-  console.error(`❌ No .regret files found${filterId ? ` for "${filterId}"` : ''}.`)
+  if (jsonOutput) {
+    console.log(JSON.stringify({ error: `No .regret files found${filterId ? ` for "${filterId}"` : ''}.` }))
+  } else {
+    console.error(`❌ No .regret files found${filterId ? ` for "${filterId}"` : ''}.`)
+  }
   process.exit(1)
 }
 
@@ -647,7 +674,9 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
 const updateMode = !!updateTarget
 const driftMode  = runs > 1 && !updateMode
 
-if (updateMode)     console.log(`\n🔄 Update mode — cluster: ${updateTarget}\n   Reason: ${updateReason}\n`)
+if (jsonOutput) {
+  // silent in JSON mode
+} else if (updateMode)     console.log(`\n🔄 Update mode — cluster: ${updateTarget}\n   Reason: ${updateReason}\n`)
 else if (driftMode) console.log(`\n🔍 Drift detection — ${runs} runs per cluster...\n`)
 else                console.log(`\n🔍 Validating ${regretFiles.length} cluster(s)...\n`)
 
@@ -665,42 +694,46 @@ for (const file of regretFiles) {
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
     const liveHash = hashes[0]
     const isMatch  = liveHash === regret.goldenHash
-    // Per-input drift detection: each input must produce the same hash across all runs.
-    // Previous logic used `new Set(hashes).size > 1` which was wrong — it compared
-    // fingerprints from DIFFERENT inputs against each other, causing false drift reports.
     const isDrift  = driftMode && Object.values(hashesPerInput).some(inputHashes => new Set(inputHashes).size > 1)
 
     if (updateMode) {
       if (isMatch) {
-        console.log(`  ℹ️  ${id.padEnd(35)} unchanged — no update needed`)
+        if (!jsonOutput) console.log(`  ℹ️  ${id.padEnd(35)} unchanged — no update needed`)
         results.push({ id, pass: true })
       } else {
         const { oldHash, newHash } = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason)
-        console.log(`  ✅ ${id.padEnd(35)} ${oldHash} → ${newHash}  UPDATED`)
+        if (!jsonOutput) console.log(`  ✅ ${id.padEnd(35)} ${oldHash} → ${newHash}  UPDATED`)
         results.push({ id, pass: true, updated: true })
       }
     } else if (driftMode) {
       if (isDrift) {
-        console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+        if (!jsonOutput) console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
         results.push({ id, pass: false, drift: true })
       } else {
-        const icon = isMatch ? '✅' : '❌'
-        console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
+        if (!jsonOutput) {
+          const icon = isMatch ? '✅' : '❌'
+          console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
+        }
         results.push({ id, pass: isMatch })
       }
     } else {
-      const icon = isMatch ? '✅' : '❌'
-      const hstr = isMatch ? regret.goldenHash : `${regret.goldenHash} → ${liveHash}`
-      console.log(`  ${icon} ${id.padEnd(35)} ${hstr.padEnd(22)} ${isMatch ? 'PASS' : 'FAIL'}`)
-      results.push({ id, pass: isMatch, golden: regret.goldenHash, live: liveHash })
+      if (!jsonOutput) {
+        const icon = isMatch ? '✅' : '❌'
+        const hstr = isMatch ? regret.goldenHash : `${regret.goldenHash} → ${liveHash}`
+        console.log(`  ${icon} ${id.padEnd(35)} ${hstr.padEnd(22)} ${isMatch ? 'PASS' : 'FAIL'}`)
+      }
+      results.push({ id, pass: isMatch, expected: regret.goldenHash, actual: liveHash })
     }
 
   } catch (err) {
-    console.log(`  ❌ ${id.padEnd(35)} ERROR: ${err.message}`)
+    if (!jsonOutput) console.log(`  ❌ ${id.padEnd(35)} ERROR: ${err.message}`)
     results.push({ id, pass: false, error: err.message })
   }
 
-  if (!results.at(-1).pass && failFast) { console.log(`\n  --fail-fast: stopping.`); break }
+  if (!results.at(-1).pass && failFast) {
+    if (!jsonOutput) console.log(`\n  --fail-fast: stopping.`)
+    break
+  }
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
@@ -709,25 +742,46 @@ const passed  = results.filter(r => r.pass).length
 const failed  = results.filter(r => !r.pass).length
 const drifted = results.filter(r => r.drift).length
 
-console.log(`\n${'─'.repeat(60)}`)
+if (jsonOutput) {
+  // JSON output mode
+  const jsonResult = {
+    passed,
+    failed,
+    clusters: results
+      .filter(r => !r.skipped)
+      .map(r => ({
+        id: r.id,
+        status: r.pass ? (r.drift ? 'drift' : 'pass') : (r.error ? 'error' : 'fail'),
+        ...(r.expected ? { expected: r.expected } : {}),
+        ...(r.actual ? { actual: r.actual } : {}),
+        ...(r.error ? { error: r.error } : {}),
+        ...(r.drift ? { drift: true } : {}),
+        ...(r.updated ? { updated: true } : {}),
+      }))
+  }
+  console.log(JSON.stringify(jsonResult, null, 0))
+  process.exit(failed > 0 ? 1 : 0)
+} else {
+  console.log(`\n${'─'.repeat(60)}`)
 
-if (updateMode) {
-  console.log(`✅ Update complete. ${results.filter(r => r.updated).length} updated.\n   Audit: regrets/audit.log`)
-  process.exit(0)
-}
-if (driftMode && drifted > 0) {
-  console.log(`❌ Drift in ${drifted} cluster(s). Add normalize rules and re-capture.`)
+  if (updateMode) {
+    console.log(`✅ Update complete. ${results.filter(r => r.updated).length} updated.\n   Audit: regrets/audit.log`)
+    process.exit(0)
+  }
+  if (driftMode && drifted > 0) {
+    console.log(`❌ Drift in ${drifted} cluster(s). Add normalize rules and re-capture.`)
+    process.exit(1)
+  }
+  if (failed === 0) {
+    console.log(`✅ All ${passed} tests passed${driftMode ? ` (${runs} runs — stable)` : ''}. Refactor is safe.\n`)
+    process.exit(0)
+  }
+  console.log(`❌ ${failed}/${results.length} FAILED.\n`)
+  results.filter(r => !r.pass).forEach(r => {
+    console.log(`  • ${r.id}`)
+    if (r.error) console.log(`    ${r.error}`)
+    else console.log(`    Expected: ${r.golden}  Got: ${r.live}`)
+  })
+  console.log(`\nFix the CODE — do not edit .regret files.\nRe-run: node scripts/validate.js`)
   process.exit(1)
 }
-if (failed === 0) {
-  console.log(`✅ All ${passed} tests passed${driftMode ? ` (${runs} runs — stable)` : ''}. Refactor is safe.\n`)
-  process.exit(0)
-}
-console.log(`❌ ${failed}/${results.length} FAILED.\n`)
-results.filter(r => !r.pass).forEach(r => {
-  console.log(`  • ${r.id}`)
-  if (r.error) console.log(`    ${r.error}`)
-  else console.log(`    Expected: ${r.golden}  Got: ${r.live}`)
-})
-console.log(`\nFix the CODE — do not edit .regret files.\nRe-run: node scripts/validate.js`)
-process.exit(1)

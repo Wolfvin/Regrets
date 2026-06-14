@@ -428,6 +428,7 @@ Usage:
 
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
+  --json              Output in machine-readable JSON (validate, health, coverage, scan)
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js

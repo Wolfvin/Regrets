@@ -21,6 +21,7 @@ const args = process.argv.slice(2)
 const clusterFilter = args.includes('--cluster') ? args[args.indexOf('--cluster') + 1] : null
 const verbose = args.includes('--verbose')
 const suggestInputs = args.includes('--suggest-inputs')
+const jsonOutput = args.includes('--json')
 const manifestPath = args.includes('--manifest')
   ? args[args.indexOf('--manifest') + 1]
   : resolve(process.cwd(), 'regrets/manifest.json')
@@ -473,20 +474,26 @@ const clusters = clusterFilter
   : manifest.clusters
 
 if (!clusters.length) {
-  console.error(`❌ No clusters found${clusterFilter ? ` matching "${clusterFilter}"` : ''}`)
+  if (jsonOutput) {
+    console.log(JSON.stringify({ error: `No clusters found${clusterFilter ? ` matching "${clusterFilter}"` : ''}` }))
+  } else {
+    console.error(`❌ No clusters found${clusterFilter ? ` matching "${clusterFilter}"` : ''}`)
+  }
   process.exit(1)
 }
 
-console.log('\nBRANCH COVERAGE REPORT')
-console.log('─'.repeat(80))
-console.log(
-  'cluster'.padEnd(32) +
-  'inputs'.padEnd(8) +
-  'branches'.padEnd(10) +
-  'coverage'.padEnd(10) +
-  'status'
-)
-console.log('─'.repeat(80))
+if (!jsonOutput) {
+  console.log('\nBRANCH COVERAGE REPORT')
+  console.log('─'.repeat(80))
+  console.log(
+    'cluster'.padEnd(32) +
+    'inputs'.padEnd(8) +
+    'branches'.padEnd(10) +
+    'coverage'.padEnd(10) +
+    'status'
+  )
+  console.log('─'.repeat(80))
+}
 
 const results = []
 
@@ -524,21 +531,36 @@ for (const cluster of clusters) {
   const score = coverageScore(inputCount, totalBranches)
   const label = coverageLabel(score)
 
-  console.log(
-    id.padEnd(32) +
-    String(inputCount).padEnd(8) +
-    String(totalBranches).padEnd(10) +
-    `${score}%`.padEnd(10) +
-    `${label.color} ${label.label}`
-  )
+  if (!jsonOutput) {
+    console.log(
+      id.padEnd(32) +
+      String(inputCount).padEnd(8) +
+      String(totalBranches).padEnd(10) +
+      `${score}%`.padEnd(10) +
+      `${label.color} ${label.label}`
+    )
 
-  if (verbose && branchDetails.length > 0) {
-    for (const detail of branchDetails) {
-      console.log(`  ${detail}`)
+    if (verbose && branchDetails.length > 0) {
+      for (const detail of branchDetails) {
+        console.log(`  ${detail}`)
+      }
     }
   }
 
   results.push({ id, inputCount, totalBranches, score, label })
+}
+
+// ─── JSON output ─────────────────────────────────────────────────────────────
+
+if (jsonOutput) {
+  const jsonResult = {
+    clusters: results.map(r => ({
+      id: r.id,
+      coveragePercent: r.score,
+    }))
+  }
+  console.log(JSON.stringify(jsonResult, null, 0))
+  process.exit(results.some(r => r.score < 50) ? 1 : 0)
 }
 
 console.log('─'.repeat(80))
