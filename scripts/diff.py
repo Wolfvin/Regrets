@@ -5,6 +5,7 @@
 #   python scripts/diff.py
 #   python scripts/diff.py --cluster chord-construct
 #   python scripts/diff.py --verbose
+#   python scripts/diff.py --json
 #
 # Shows path-by-path differences between the current live output and
 # the golden output stored in .regret files.
@@ -12,12 +13,18 @@
 import sys
 import os
 import json
+import math
 import importlib
 from pathlib import Path
 
 from fingerprint import deep_clone
 from capture import apply_output_transform, consume_generator
 from validate import parse_regret
+
+
+# ─── Constants ────────────────────────────────────────────────────────────────
+
+FLOAT_TOLERANCE = 1e-9
 
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -28,6 +35,7 @@ def parse_args():
         'cluster': None,
         'manifest': os.path.join(os.getcwd(), 'regrets', 'manifest.json'),
         'verbose': False,
+        'json': False,
     }
 
     i = 0
@@ -38,6 +46,8 @@ def parse_args():
             result['manifest'] = args[i + 1]; i += 2
         elif args[i] == '--verbose':
             result['verbose'] = True; i += 1
+        elif args[i] == '--json':
+            result['json'] = True; i += 1
         else:
             i += 1
 
@@ -46,11 +56,39 @@ def parse_args():
 
 # ─── Deep diff ────────────────────────────────────────────────────────────────
 
+def _is_within_float_tolerance(expected, actual):
+    """Check if two numeric values are within float tolerance threshold.
+
+    Returns True if both values are numbers and the absolute difference
+    is less than FLOAT_TOLERANCE (1e-9). This handles Python floating
+    point non-determinism where operations may produce slightly different
+    results across runs.
+    """
+    if not isinstance(expected, (int, float)) or not isinstance(actual, (int, float)):
+        return False
+    # Don't treat bools as numbers for this check
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return False
+    return abs(expected - actual) < FLOAT_TOLERANCE
+
+
 def deep_diff(expected, actual, path='', verbose=False):
-    """Recursively compare two values and return list of differences."""
+    """Recursively compare two values and return list of differences.
+
+    Float tolerance: when both expected and actual are numeric and their
+    absolute difference is < 1e-9, they are considered equal and no diff
+    is reported. This prevents false positives from Python floating point
+    non-determinism.
+    """
     diffs = []
 
     if type(expected) != type(actual):
+        # Special case: both are numeric (int/float but not bool) —
+        # check float tolerance before reporting type mismatch
+        if (isinstance(expected, (int, float)) and isinstance(actual, (int, float))
+                and not isinstance(expected, bool) and not isinstance(actual, bool)):
+            if _is_within_float_tolerance(expected, actual):
+                return diffs
         diffs.append({
             'path': path or 'root',
             'type': 'type_mismatch',
@@ -84,6 +122,9 @@ def deep_diff(expected, actual, path='', verbose=False):
                 diffs.extend(deep_diff(expected[i], actual[i], sub_path, verbose))
 
     elif expected != actual:
+        # Float tolerance: if both are numbers and within threshold, skip
+        if _is_within_float_tolerance(expected, actual):
+            return diffs
         diffs.append({
             'path': path or 'root',
             'type': 'value_mismatch',
@@ -100,6 +141,30 @@ def _truncate(s, max_len):
     return s
 
 
+# ─── JSON output formatting ──────────────────────────────────────────────────
+
+def _diff_to_json_change(d):
+    """Convert an internal diff dict to the --json changes format.
+
+    Maps internal diff fields to the JSON schema:
+    { path, old, new, type }
+    """
+    change = {
+        'path': d['path'],
+        'type': d['type'],
+    }
+    # Map expected → old, actual → new for JSON output
+    if 'expected' in d and d['expected'] is not None:
+        change['old'] = d['expected']
+    if 'actual' in d and d['actual'] is not None:
+        change['new'] = d['actual']
+    # For type_mismatch, include type info
+    if d['type'] == 'type_mismatch':
+        change['old'] = d.get('expected_type', '')
+        change['new'] = d.get('actual_type', '')
+    return change
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -110,7 +175,10 @@ def main():
         with open(cli['manifest'], 'r', encoding='utf-8') as f:
             manifest = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        print(f"❌ Could not read manifest: {cli['manifest']}")
+        if cli['json']:
+            print(json.dumps([]))
+        else:
+            print(f"❌ Could not read manifest: {cli['manifest']}")
         sys.exit(1)
 
     # Add pythonPath to sys.path: manifest-level first, then cluster-level
@@ -153,14 +221,21 @@ def main():
             if f.endswith('.regret') and (not filter_id or f == f'{filter_id}.regret')
         ]
     except FileNotFoundError:
-        print("❌ regrets/ not found. Run capture.py first.")
+        if cli['json']:
+            print(json.dumps([]))
+        else:
+            print("❌ regrets/ not found. Run capture.py first.")
         sys.exit(1)
 
     if not regret_files:
-        print(f"❌ No .regret files found.")
+        if cli['json']:
+            print(json.dumps([]))
+        else:
+            print("❌ No .regret files found.")
         sys.exit(1)
 
     total_diffs = 0
+    json_results = []
 
     for regret_file in sorted(regret_files):
         cluster_id = os.path.splitext(regret_file)[0]
@@ -189,7 +264,8 @@ def main():
             mod = importlib.import_module(module_path)
             entry_fn = getattr(mod, entry_name, None)
             if entry_fn is None or not callable(entry_fn):
-                print(f"  ⚠️  {cluster_id}: Entry '{entry_name}' not found")
+                if not cli['json']:
+                    print(f"  ⚠️  {cluster_id}: Entry '{entry_name}' not found")
                 continue
 
             # Get the golden input
@@ -214,28 +290,51 @@ def main():
             diffs = deep_diff(golden_output, live_output, verbose=cli['verbose'])
 
             if diffs:
-                print(f"\n❌ {cluster_id}: {len(diffs)} difference(s)")
-                for d in diffs[:10]:  # Show first 10
-                    print(f"  📍 {d['path']}: {d['type']}", end='')
-                    if d.get('expected'):
-                        print(f" (expected: {d['expected']}, got: {d['actual']})", end='')
-                    print()
-                if len(diffs) > 10:
-                    print(f"  ... and {len(diffs) - 10} more")
                 total_diffs += len(diffs)
+                if cli['json']:
+                    json_results.append({
+                        'cluster': cluster_id,
+                        'input': golden_input,
+                        'changes': [_diff_to_json_change(d) for d in diffs],
+                    })
+                else:
+                    print(f"\n❌ {cluster_id}: {len(diffs)} difference(s)")
+                    for d in diffs[:10]:  # Show first 10
+                        print(f"  📍 {d['path']}: {d['type']}", end='')
+                        if d.get('expected'):
+                            print(f" (expected: {d['expected']}, got: {d['actual']})", end='')
+                        print()
+                    if len(diffs) > 10:
+                        print(f"  ... and {len(diffs) - 10} more")
             else:
-                print(f"  ✅ {cluster_id}: No differences")
+                if not cli['json']:
+                    print(f"  ✅ {cluster_id}: No differences")
 
         except Exception as err:
-            print(f"  ❌ {cluster_id}: ERROR: {err}")
             total_diffs += 1
+            if cli['json']:
+                json_results.append({
+                    'cluster': cluster_id,
+                    'input': regret.get('input'),
+                    'changes': [{
+                        'path': 'error',
+                        'old': '',
+                        'new': str(err),
+                        'type': 'error',
+                    }],
+                })
+            else:
+                print(f"  ❌ {cluster_id}: ERROR: {err}")
 
-    print(f"\n{'─' * 50}")
-    if total_diffs == 0:
-        print("✅ No differences found. All outputs match golden .regret files.")
+    if cli['json']:
+        print(json.dumps(json_results, ensure_ascii=False))
     else:
-        print(f"❌ {total_diffs} total difference(s) found.")
-        print("   Fix the CODE — do not edit .regret files.")
+        print(f"\n{'─' * 50}")
+        if total_diffs == 0:
+            print("✅ No differences found. All outputs match golden .regret files.")
+        else:
+            print(f"❌ {total_diffs} total difference(s) found.")
+            print("   Fix the CODE — do not edit .regret files.")
 
 
 if __name__ == '__main__':
