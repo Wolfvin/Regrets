@@ -217,11 +217,13 @@ Non-deterministic values are normalized before hashing:
 | `epochs` | Unix epoch numbers (1B–10T) | `<EPOCH>` |
 | `absPaths` | Absolute file paths | `<ROOT>/...` |
 | `dynamicDates` | Embedded MMYYYY/YYYY in strings | `<MMYYYY>`/`<YYYY>` |
+| `normalizeNow` | Current-time-derived output (function calls `new Date()` internally) | `<NOW_MMYYYY>`/`<NOW_YYYY>` |
 | `floatTolerance` | Floats rounded to 2dp before hashing | `round(n * 100) / 100` |
 | `floatTolerance:N` | Floats rounded to N decimal places | `round(n * 10^N) / 10^N` |
 | `floatPrecision` | Whole-value floats → integers, decimal floats → 2dp, string floats stripped | `1500000.0` → `1500000` |
 
 Use `dynamicDates` for functions that produce date-dependent output (e.g. filename generation).
+Use `normalizeNow` when the function's output IS derived from the current time (e.g., `filenameFallback()` that calls `new Date()` to produce `"FPK-062026"`). Unlike `dynamicDates` which normalizes embedded dates in data, `normalizeNow` signals that the entire output meaning is "the current time expressed as a filename". The distinct placeholders (`<NOW_MMYYYY>` vs `<MMYYYY>`) help audit reviewers distinguish "data contains a date" from "output IS a date".
 Use `floatTolerance` for financial/scientific computing where tiny floating-point differences (e.g., `123456.0` vs `123456.00000001`) should not trigger false negatives. `floatTolerance:0` rounds to integers — ideal for IDR amounts.
 Use `floatPrecision` for OCR/parsing pipelines where the same value may appear as `1500000` or `1500000.0` depending on the parsing path — common in financial OCR where integer amounts are sometimes stored as floats. Both rules can coexist: `floatTolerance` handles representation differences, `floatPrecision` handles type equivalence and string normalization.
 
@@ -448,6 +450,43 @@ The coverage tool counts decision points (`if/else`, ternary, switch/case, early
 - Coverage 50-79% → PARTIAL
 - Coverage ≥ 80% → WELL-COVERED
 
+### Suggest Inputs
+
+The `--suggest-inputs` flag goes beyond "you need more inputs" — it analyzes each branch condition and generates **concrete input suggestions** that would exercise uncovered branches:
+
+```bash
+node scripts/coverage.js --suggest-inputs
+node scripts/coverage.js --suggest-inputs --cluster validate-age
+```
+
+Output:
+
+```
+SUGGESTED INPUTS — Concrete inputs to cover uncovered branches
+══════════════════════════════════════════════════════════════════
+
+📦 validate-age (entry: validateAge)
+   4 branch(es) detected in validateAge:
+
+   Branch 1 (line 12): if (age < 0) return "invalid: negative"
+     → returns: "invalid: negative"
+     🆕 Suggested input: {"age": -1}
+   Branch 2 (line 13): if (age === 0) return "invalid: zero"
+     → returns: "invalid: zero"
+     🆕 Suggested input: {"age": 0}
+   Branch 3 (line 14): if (age < 18) return "minor"
+     → returns: "minor"
+     🆕 Suggested input: {"age": 10}
+   Branch 4 (line 15): if (age >= 65) return "senior"
+     → returns: "senior"
+     🆕 Suggested input: {"age": 70}
+
+   ── Manifest inputs snippet ──
+   "inputs": [{"age": -1}, {"age": 0}, {"age": 10}, {"age": 70}]
+```
+
+This directly addresses the critical gap: **"clusters only fingerprint one execution path; branching functions need inputs covering ALL branches."** Instead of guessing what inputs to add, the tool tells you exactly what values would exercise each branch.
+
 ### Scan Command
 
 For new projects, use `regret scan` to discover candidate functions:
@@ -459,7 +498,7 @@ node scripts/scan.js --stack python               # filter by stack
 node scripts/scan.js --format manifest            # output as manifest.json snippet
 ```
 
-The scan identifies exported functions, estimates cyclomatic complexity, and suggests clusters prioritized by complexity.
+The scan identifies exported functions, estimates cyclomatic complexity, and suggests clusters prioritized by complexity. It also detects **Zustand store actions** — pure logic buried inside `create()` closures — and suggests extracting them to `*-logic.ts` files before fingerprinting (see `references/zustand-store.md`).
 
 Read `references/branch-coverage.md` for the full specification and branch-map pattern.
 
@@ -474,6 +513,42 @@ node scripts/scan.js
 ```
 
 This scans the project, identifies exported functions, estimates cyclomatic complexity, and suggests clusters. Use `--format manifest` to generate a starting manifest.json.
+
+The scanner also detects **non-serializable return types** (numpy arrays, openpyxl Workbooks, cv2 images, etc.) and flags them with a `🔴non-serializable-return` warning. These functions need an `outputTransform` in the manifest before they can be fingerprinted.
+
+---
+
+## Gap 6 — Mutation Audit
+
+Many projects — especially OCR pipelines, data enrichment, and validation layers — have functions that **mutate their input arguments in-place** instead of returning new objects. This causes:
+
+1. Fingerprints to differ because mutation-added keys change the output hash
+2. `trackMutation` detects the change but doesn't identify which keys were added
+3. Agents don't know which keys to add to `ignoreFields`
+
+Use `regret mutate-audit` to detect these functions:
+
+```bash
+python3 scripts/mutate_audit.py src/
+python3 scripts/mutate_audit.py src/pipeline.py --detailed
+python3 scripts/mutate_audit.py src/ --recursive
+```
+
+This uses AST analysis to find functions that:
+- Assign to subscript of a parameter: `param[key] = value`
+- Call mutating methods: `param.append()`, `param.update()`, etc.
+- Delete keys from parameters: `del param[key]`
+
+For each mutation, it suggests concrete `ignoreFields` values:
+
+```
+⚠️  validate_red_flag (line 12)
+   Mutates: transactions
+   Keys:    flag, catatan_manual, _suspect_field
+   💡 Suggested ignoreFields: ["_suspect_field", "catatan_manual", "flag"]
+```
+
+Run this **before** defining clusters to ensure you don't miss mutation-added keys.
 
 ---
 
@@ -565,6 +640,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
 | Next.js | Adapter modules (pure logic extraction) | Value (default) | See `references/nextjs.md` |
 | Tauri apps | esbuild transpile + adapter modules | Value (default) | See `references/tauri-apps.md` |
+| Zustand stores | Pure logic extraction + adapter | Value (default) | See `references/zustand-store.md` — extract pure logic from `create()` closures |
 | Color science | Adapter module + dist/index.js import | Value (default) | See `references/colorimetry.md` — handles circular ESM deps + class-based Color objects |
 | Python pipeline | Pure logic extraction + adapter | Value / Schema / Mixed | See `references/python-pipeline.md` — OCR, NLP, and data processing pipelines |
 | OCR/Parsing pipeline | Pure logic extraction + fixtures | Value (default) | See `references/ocr-parsing-pipeline.md` — handles OCR I/O boundary + float precision |
@@ -685,6 +761,58 @@ Use with `"fingerprintMode": "render"` and `normalize: ["visualOutput"]` in the 
 
 ---
 
+## Branch Map — Auto-Generate Coverage Guidance
+
+The `regret branch-map` command analyzes source code and generates `regrets/branch-map.md`,
+which maps every branch in watched functions and suggests inputs to cover each branch.
+
+```bash
+node scripts/regret.js branch-map             # Generate from compiled JS
+node scripts/regret.js branch-map --ts        # TypeScript mode — resolve .ts source files
+node scripts/regret.js branch-map --cluster my-cluster  # Single cluster
+```
+
+**Why this matters:** The `regret coverage` command reports coverage percentages, but it doesn't tell you *which* branches are uncovered or *what inputs* to add. The branch-map fills this gap by enumerating every branch with a suggested input that would exercise it.
+
+**TypeScript projects:** Always use `--ts` flag. Without it, the tool analyzes minified JS output, which has no readable branches. With `--ts`, it resolves the TypeScript source files from the manifest's JS paths and generates accurate branch analysis.
+
+Read `references/branch-coverage.md` for the Branch Map Pattern and `references/typescript-projects.md` for the full TypeScript workflow.
+
+---
+
+## TypeScript Projects — Special Considerations
+
+TypeScript projects require a compilation step before Regrets can fingerprint. This creates three gaps that agents must address:
+
+1. **`preBuild` is mandatory** — Without it, Regrets fingerprints stale compiled output
+2. **Source vs. compiled paths differ** — The manifest `file` points to `.js`, but analysis must read `.ts`
+3. **Minified output is unanalyzable** — Branch coverage and branch-map must use TypeScript source
+
+```json
+{
+  "preBuild": "npx tsc -p tsconfig.json",
+  "clusters": [
+    {
+      "id": "format-date",
+      "entry": "formatDate",
+      "file": "js/shared/date-utils.js",
+      "stack": "js",
+      ...
+    }
+  ]
+}
+```
+
+Key workflow:
+- Read `.ts` source to understand code → write manifest pointing to `.js` output
+- Use `regret branch-map --ts` for branch analysis from TypeScript source
+- Use `regret coverage` for quick coverage scoring from compiled JS
+- `preBuild` runs before every `capture`, `validate`, `drift`, `chain`, `ci`, `guard`
+
+Read `references/typescript-projects.md` for the complete guide including path mapping patterns and common pitfalls.
+
+---
+
 ## Quick Start — `regret:init`
 
 Scaffold a new regrets/ directory in your project:
@@ -731,7 +859,10 @@ regression-testing/
 │   ├── diff.js                 ← output diff — shows what changed when RED
 │   ├── diff.py                 ← output diff for Python clusters
 │   ├── coverage.js             ← branch coverage analysis (detect under-covered clusters)
+│   ├── branch-map.js           ← auto-generate regrets/branch-map.md with input suggestions
 │   ├── scan.js                 ← project scanner (suggest clusters from source)
+│   ├── scan.py                 ← Python project scanner (suggest clusters + non-serializable detection)
+│   ├── mutate_audit.py         ← Mutation audit (detect functions that mutate input args)
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
 │   └── test.mjs                ← integration test suite (209 tests)
 └── references/
@@ -748,13 +879,16 @@ regression-testing/
     ├── esoteric-language.md     ← Esoteric language interpreter testing pattern
     ├── nextjs.md                ← Next.js integration — adapter modules for noEmit projects
     ├── tauri-apps.md            ← Tauri app integration — esbuild transpile + adapter modules
+    ├── zustand-store.md          ← Zustand store — extract pure logic from create() closures
     ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
     ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
     ├── contest.md              ← Chain testing — multi-step flow validation
     ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
     ├── python-pipeline.md       ← Python pipeline pattern (OCR, NLP, data processing)
+    ├── ocr-pipeline.md          ← OCR pipeline pattern (mutation, LLM non-determinism, spatial data)
     ├── ocr-parsing-pipeline.md ← OCR & parsing pipeline pattern (pure logic extraction + float precision)
     ├── branch-coverage.md     ← branch coverage analysis and branch-map pattern
+    ├── typescript-projects.md  ← TypeScript workflow guide (preBuild, source mapping, --ts flag)
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
     ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
     ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
@@ -777,6 +911,7 @@ regression-testing/
     ├── case-study-petungan.md  ← Case study: petungan (Javanese calendar, circular dep)
     ├── case-study-riimut.md    ← Case study: riimut (rune transliteration, dual-truth)
     ├── case-study-shakespearelang.md ← Case study: shakespearelang (esoteric language)
+    ├── case-study-coretax.md       ← Case study: Coretax-Auto-Downloader (date-dependent output, discriminated unions, God Object)
     ├── dual-truth-verification.md ← Dual-truth verification pattern
     └── mapping-transliteration.md ← Mapping/transliteration library guide
 ```
@@ -832,6 +967,8 @@ What stack is the target project?
     └── Extract pure logic into adapter modules → then use JS scripts (see references/nextjs.md)
 └── Tauri App
     └── esbuild transpile + adapter modules → then use JS scripts (see references/tauri-apps.md)
+└── Zustand Store
+    └── Extract pure logic to *-logic.ts → then use JS scripts (see references/zustand-store.md)
 └── Color Science Library
     └── Adapter module + dist/index.js import → handles circular ESM deps (see references/colorimetry.md)
 ```

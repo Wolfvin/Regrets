@@ -298,6 +298,11 @@ switch (command) {
     break
   }
 
+  case 'structure': {
+    success = run('node', [`${SCRIPTS_DIR}/structure.js`, ...passThroughArgs])
+    break
+  }
+
   case 'coverage': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -313,8 +318,24 @@ switch (command) {
     break
   }
 
+  case 'branch-map': {
+    success = run('node', [`${SCRIPTS_DIR}/branch-map.js`, ...passThroughArgs])
+    break
+  }
+
   case 'audit': {
-    success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
+    const stacksForAudit = detectStacks()
+    if (stacksForAudit.includes('python')) {
+      success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
+    } else {
+      // JS/TS audit — uses the new audit.js
+      success = run('node', [`${SCRIPTS_DIR}/audit.js`, ...passThroughArgs])
+    }
+    break
+  }
+
+  case 'mutate-audit': {
+    success = run('python3', [`${SCRIPTS_DIR}/mutate_audit.py`, ...passThroughArgs])
     break
   }
 
@@ -358,8 +379,11 @@ Usage:
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python)
   node scripts/regret.js truth                         Save dual truth baselines
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
-  node scripts/regret.js coverage [--cluster <id>]     Branch coverage analysis
+  node scripts/regret.js structure [--dir src/]        Structural analysis (God Objects, pure/impure, refactor priority)
+  node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
+  node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
+  node scripts/regret.js mutate-audit <path>            Detect functions that mutate input args
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
 

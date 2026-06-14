@@ -34,6 +34,10 @@ class FunctionInfo(NamedTuple):
     calls: list[str]  # functions called within this function
     branch_count: int  # estimated number of branches
     is_pure: bool  # heuristic: no global/nonlocal/IO
+    line_count: int  # number of lines in function body
+    mutates_args: bool  # whether function mutates its input arguments in-place
+    mutation_details: list[str]  # which args are mutated and how
+    non_serializable_return: bool  # returns numpy, cv2, openpyxl, etc.
 
 
 class ScanResult(NamedTuple):
@@ -78,7 +82,13 @@ class FunctionCollector(ast.NodeVisitor):
         return count
 
     def _check_purity(self, node):
-        """Heuristic purity check: no global, nonlocal, open, print, etc."""
+        """Heuristic purity check: no global, nonlocal, open, print, etc.
+
+        Also flags functions that call `print()` as impure since they
+        produce observable side effects (stdout), which matters for
+        fingerprint stability in OCR/pipeline projects that use print()
+        for timing/logging.
+        """
         impurities = 0
         impure_names = {
             'open', 'print', 'input', 'exec', 'eval',
@@ -114,6 +124,104 @@ class FunctionCollector(ast.NodeVisitor):
                     calls.append(child.func.attr)
         return list(set(calls))
 
+    def _check_non_serializable_return(self, node):
+        """Heuristic: detect if a function likely returns a non-JSON-serializable type.
+
+        Checks for:
+        - Return type annotations referencing numpy, cv2, openpyxl, PIL, torch
+        - Return statements that construct objects from these libraries
+        - Variables assigned from these libraries being returned
+
+        This matters because Regrets can't fingerprint non-serializable outputs
+        without an outputTransform.
+        """
+        non_serializable_indicators = {
+            'np', 'numpy', 'cv2', 'openpyxl', 'Workbook', 'Worksheet',
+            'Image', 'PIL', 'torch', 'Tensor', 'ndarray', 'array',
+        }
+
+        # Check return annotation
+        if node.returns:
+            return_str = ast.dump(node.returns)
+            for indicator in non_serializable_indicators:
+                if indicator in return_str:
+                    return True
+
+        # Check if any return statement returns a call to non-serializable constructor
+        for child in ast.walk(node):
+            if isinstance(child, ast.Return) and child.value:
+                # Direct construction: return np.array(...) / return Workbook(...)
+                if isinstance(child.value, ast.Call):
+                    if isinstance(child.value.func, ast.Name):
+                        if child.value.func.id in non_serializable_indicators:
+                            return True
+                    if isinstance(child.value.func, ast.Attribute):
+                        if child.value.func.attr in ('array', 'ndarray', 'Workbook', 'open', 'imread', 'fromarray'):
+                            return True
+
+        return False
+
+    def _detect_arg_mutations(self, node, arg_names):
+        """Detect in-place mutations of function arguments.
+
+        Catches patterns like:
+          - arg[key] = value       (Subscript assignment)
+          - arg.append(...)        (list mutation)
+          - arg.extend(...)        (list mutation)
+          - arg.update(...)        (dict mutation)
+          - for x in arg: x[key] = value  (iterated element mutation)
+
+        Returns (mutates: bool, details: list[str])
+        """
+        if not arg_names:
+            return False, []
+
+        mutations = []
+        arg_set = set(arg_names)
+
+        # Find loop variables that iterate over arguments
+        loop_vars_over_args = {}
+        for child in ast.walk(node):
+            if isinstance(child, ast.For):
+                if isinstance(child.iter, ast.Name) and child.iter.id in arg_set:
+                    if isinstance(child.target, ast.Name):
+                        loop_vars_over_args[child.target.id] = child.iter.id
+                elif isinstance(child.iter, ast.Call):
+                    if isinstance(child.iter.func, ast.Name) and child.iter.func.id == 'enumerate':
+                        if child.iter.args and isinstance(child.iter.args[0], ast.Name):
+                            if child.iter.args[0].id in arg_set:
+                                if isinstance(child.target, ast.Tuple):
+                                    for elt in child.target.elts:
+                                        if isinstance(elt, ast.Name):
+                                            loop_vars_over_args[elt.id] = child.iter.args[0].id
+
+        effective_arg_set = arg_set | set(loop_vars_over_args.keys())
+
+        for child in ast.walk(node):
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    if isinstance(target, ast.Subscript):
+                        if isinstance(target.value, ast.Name) and target.value.id in effective_arg_set:
+                            var_name = target.value.id
+                            original_arg = loop_vars_over_args.get(var_name, var_name)
+                            mutations.append(f"{original_arg}[...]")
+
+            if isinstance(child, ast.Call):
+                if isinstance(child.func, ast.Attribute):
+                    method_name = child.func.attr
+                    mutating_methods = {
+                        'append', 'extend', 'insert', 'pop', 'remove',
+                        'update', 'setdefault', 'clear', 'sort', 'reverse',
+                    }
+                    if method_name in mutating_methods:
+                        if isinstance(child.func.value, ast.Name):
+                            if child.func.value.id in effective_arg_set:
+                                var_name = child.func.value.id
+                                original_arg = loop_vars_over_args.get(var_name, var_name)
+                                mutations.append(f"{original_arg}.{method_name}()")
+
+        return len(mutations) > 0, mutations
+
     def visit_ClassDef(self, node):
         old_class = self._current_class
         self._current_class = node.name
@@ -139,6 +247,9 @@ class FunctionCollector(ast.NodeVisitor):
         branches = self._count_branches(node)
         is_pure = self._check_purity(node)
         has_return = node.returns is not None
+        non_serializable = self._check_non_serializable_return(node)
+        line_count = (node.end_lineno or node.lineno) - node.lineno + 1 if hasattr(node, 'end_lineno') and node.end_lineno else 0
+        mutates, mutation_dets = self._detect_arg_mutations(node, args)
 
         func_info = FunctionInfo(
             name=node.name,
@@ -151,6 +262,10 @@ class FunctionCollector(ast.NodeVisitor):
             calls=calls,
             branch_count=branches,
             is_pure=is_pure,
+            line_count=line_count,
+            mutates_args=mutates,
+            mutation_details=mutation_dets,
+            non_serializable_return=non_serializable,
         )
 
         if self._current_class:
@@ -228,6 +343,9 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
             'suggestedInputs': input_note,
             'coverageNote': branch_note if branch_note else 'All paths covered with single input',
         }
+        if func.non_serializable_return:
+            suggestion['nonSerializableReturn'] = True
+            suggestion['warning'] = 'Needs outputTransform — returns non-JSON-serializable type'
         suggestions.append(suggestion)
 
     # Also suggest clusters from class methods that look like pure operations
@@ -331,8 +449,14 @@ def render_result(result: ScanResult):
         purity = "✅ pure" if func.is_pure else "⚠️  impure"
         branches = f"{func.branch_count} branch(es)" if func.branch_count else "straight-line"
         args_str = ', '.join(func.args) if func.args else "no args"
+        serializable = "" if not func.non_serializable_return else " 🔴non-serializable"
+        mutation = "" if not func.mutates_args else " 🔴mutates-args"
+        size = f" {func.line_count}L" if func.line_count > 30 else ""
         calls_str = f" → calls: {', '.join(func.calls)}" if func.calls else ""
-        print(f"     {func.name}({args_str})  [{purity}]  [{branches}]{calls_str}")
+        print(f"     {func.name}({args_str})  [{purity}]{serializable}{mutation}  [{branches}]{size}{calls_str}")
+        if func.mutation_details:
+            for det in func.mutation_details[:3]:
+                print(f"       ⚠️  mutates: {det}")
 
     # Show classes
     for class_name, methods in result.classes.items():
@@ -356,6 +480,8 @@ def render_result(result: ScanResult):
                 print(f"     │  coverage: {s['coverageNote']}")
             if s.get('args'):
                 print(f"     │  args: {s['args']}")
+            if s.get('warning'):
+                print(f"     │  ⚠️  {s['warning']}")
             print(f"     └─ input hint: {s['suggestedInputs']}")
 
 

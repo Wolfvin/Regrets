@@ -40,8 +40,9 @@ let allOk = true
 let checked = 0
 
 // K1 is a flat dict of cluster_id → { entry, outputs: [{ input, output }] }
-// K2 has clusters dict of cluster_id → { fingerprint, golden_hash, golden_input, golden_output }
-const k2Clusters = k2.clusters || {}
+// K2 may store fingerprints under "clusters" (old format) or "fingerprints" (current format)
+// The truth.js command saves under "fingerprints", so we check both keys for compatibility.
+const k2Clusters = k2.clusters || k2.fingerprints || {}
 
 for (const [clusterId, data] of Object.entries(k1)) {
   const k2Cluster = k2Clusters[clusterId]
@@ -51,8 +52,18 @@ for (const [clusterId, data] of Object.entries(k1)) {
     continue
   }
 
-  // Compare the first output (which is what the .regret file stores)
-  const outputs = data.outputs || []
+  // K1 may be stored in two formats depending on truth.js version:
+  // - Array format: [{ input, output }, ...] (current truth.js)
+  // - Object format: { entry, outputs: [{ input, output }] } (older format)
+  let outputs
+  if (Array.isArray(data)) {
+    outputs = data
+  } else if (data && data.outputs) {
+    outputs = data.outputs
+  } else {
+    outputs = []
+  }
+
   if (outputs.length === 0) {
     console.log(`⚠️  ${clusterId}: no outputs in KEBENARAN 1`)
     continue
@@ -61,16 +72,27 @@ for (const [clusterId, data] of Object.entries(k1)) {
   const k1Output = outputs[0].output
   const k2GoldenOutput = k2Cluster.golden_output
 
-  const k1Str = JSON.stringify(k1Output, Object.keys(k1Output).sort())
-  const k2Str = JSON.stringify(k2GoldenOutput, Object.keys(k2GoldenOutput).sort())
+  // If K2 has golden_output (proof format), compare directly
+  if (k2GoldenOutput !== undefined) {
+    const k1Str = JSON.stringify(k1Output, Object.keys(k1Output).sort())
+    const k2Str = JSON.stringify(k2GoldenOutput, Object.keys(k2GoldenOutput).sort())
 
-  if (k1Str === k2Str) {
-    console.log(`✅ ${clusterId}: K1 output === K2 golden output`)
+    if (k1Str === k2Str) {
+      console.log(`✅ ${clusterId}: K1 output === K2 golden output`)
+      checked++
+    } else {
+      console.log(`❌ ${clusterId}: MISMATCH`)
+      console.log(`   K1: ${k1Str.slice(0, 200)}`)
+      console.log(`   K2: ${k2Str.slice(0, 200)}`)
+      allOk = false
+    }
+  } else if (k2Cluster.fingerprint || k2Cluster.hash) {
+    // K2 only has fingerprint (truth.js format) — verify that fingerprint exists
+    // The actual fingerprint comparison is done by `regret validate`
+    console.log(`✅ ${clusterId}: K1 output captured, K2 fingerprint = ${k2Cluster.fingerprint || k2Cluster.hash}`)
     checked++
   } else {
-    console.log(`❌ ${clusterId}: MISMATCH`)
-    console.log(`   K1: ${k1Str.slice(0, 200)}`)
-    console.log(`   K2: ${k2Str.slice(0, 200)}`)
+    console.log(`⚠️  ${clusterId}: K2 entry has no golden_output or fingerprint`)
     allOk = false
   }
 }
@@ -85,7 +107,8 @@ for (const clusterId of Object.keys(k2Clusters)) {
 // Verify chain hashes
 const k2Chains = k2.chains || {}
 for (const [chainId, chainData] of Object.entries(k2Chains)) {
-  console.log(`⛓  Chain ${chainId}: hash = ${chainData.chain_hash}`)
+  const hash = chainData.chainHash || chainData.chain_hash || 'unknown'
+  console.log(`⛓  Chain ${chainId}: hash = ${hash}`)
 }
 
 console.log()
