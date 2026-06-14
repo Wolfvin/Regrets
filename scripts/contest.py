@@ -56,13 +56,35 @@ class ContestRunner:
     def load_manifest(self, manifest_path):
         with open(manifest_path, 'r', encoding='utf-8') as f:
             self.manifest = json.load(f)
-        # Add pythonPath to sys.path
-        for cluster in self.manifest.get('clusters', []):
-            python_path = cluster.get('pythonPath', '')
+        # Add manifest-level pythonPath to sys.path first
+        manifest_python_path = self.manifest.get('pythonPath', '')
+        if isinstance(manifest_python_path, str):
+            manifest_python_paths = [manifest_python_path] if manifest_python_path else []
+        elif isinstance(manifest_python_path, list):
+            manifest_python_paths = manifest_python_path
+        else:
+            manifest_python_paths = []
+        for python_path in manifest_python_paths:
             if python_path:
                 abs_path = os.path.join(os.getcwd(), python_path)
                 if abs_path not in sys.path:
                     sys.path.insert(0, abs_path)
+        # Add cluster-level pythonPath to sys.path
+        for cluster in self.manifest.get('clusters', []):
+            python_path = cluster.get('pythonPath', '')
+            if isinstance(python_path, str):
+                python_paths = [python_path] if python_path else []
+            elif isinstance(python_path, list):
+                python_paths = python_path
+            else:
+                python_paths = []
+            if not python_paths:
+                python_paths = manifest_python_paths
+            for pp in python_paths:
+                if pp:
+                    abs_path = os.path.join(os.getcwd(), pp)
+                    if abs_path not in sys.path:
+                        sys.path.insert(0, abs_path)
         return self
 
     def find_cluster(self, cluster_id):

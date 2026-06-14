@@ -1,0 +1,102 @@
+{
+  "projectName": "Responder",
+  "pythonPath": [".", "regrets"],
+  "clusters": [
+    {
+      "id": "ipv6-validation",
+      "entry": "is_ipv6_address",
+      "watches": ["is_ipv6_address"],
+      "file": "lib/ip_utils.py",
+      "module": "lib.ip_utils",
+      "stack": "python",
+      "description": "Validate whether a string is an IPv6 address (refactored from utils.IsIPv6IP)",
+      "inputs": [
+        "::1",
+        "fe80::1",
+        "192.168.1.1",
+        "2001:db8::1",
+        "not-an-ip",
+        "::ffff:192.168.1.1",
+        "10.0.0.1"
+      ]
+    },
+    {
+      "id": "subnet-check",
+      "entry": "is_same_subnet",
+      "watches": ["is_same_subnet"],
+      "file": "lib/ip_utils.py",
+      "module": "lib.ip_utils",
+      "stack": "python",
+      "description": "Check if two IPs are on the same /24 subnet (refactored from utils.IsOnTheSameSubnet)",
+      "inputs": [
+        ["192.168.1.1", "192.168.1.2"],
+        ["192.168.1.1", "10.0.0.1"],
+        ["172.16.0.1", "172.16.0.254"],
+        ["10.0.0.1", "10.0.1.1"]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "nbt-name-decode",
+      "entry": "decode_netbios_name",
+      "watches": ["decode_netbios_name"],
+      "file": "lib/nbt_utils.py",
+      "module": "lib.nbt_utils",
+      "stack": "python",
+      "description": "Decode NBT/NetBIOS name from network data (refactored from utils.Decode_Name)",
+      "inputs": [
+        "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "EJECHEHECEPFCEFCHCHCHCHCHCHCHCH"
+      ],
+      "outputTransform": "repr"
+    },
+    {
+      "id": "nbt-role-lookup",
+      "entry": "lookup_nbt_name_service_role",
+      "watches": ["lookup_nbt_name_service_role"],
+      "file": "lib/nbt_utils.py",
+      "module": "lib.nbt_utils",
+      "stack": "python",
+      "description": "Look up NBT name service role from byte data (refactored from utils.NBT_NS_Role)",
+      "inputs": [
+        "AA\u0000",
+        "BL\u0000",
+        "BM\u0000",
+        "BN\u0000",
+        "BO\u0000",
+        "CA\u0000",
+        "AB\u0000"
+      ],
+      "outputTransform": "str"
+    },
+    {
+      "id": "ipv6-addr-parse",
+      "entry": "parse_ipv6_record_type",
+      "watches": ["parse_ipv6_record_type"],
+      "file": "lib/ip_utils.py",
+      "module": "lib.ip_utils",
+      "stack": "python",
+      "description": "Detect if a DNS/LLMNR query contains an IPv6 AAAA record type (refactored from utils.Parse_IPV6_Addr)",
+      "inputs": [
+        [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 116, 101, 115, 116, 0, 0, 28, 0, 1],
+        [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 116, 101, 115, 116, 0, 0, 1, 0, 1]
+      ],
+      "outputTransform": "repr"
+    },
+    {
+      "id": "link-local-detect",
+      "entry": "is_link_local_ipv6",
+      "watches": ["is_link_local_ipv6"],
+      "file": "lib/ip_utils.py",
+      "module": "lib.ip_utils",
+      "stack": "python",
+      "description": "Check if an IPv6 address is link-local (refactored from utils.IsLinkLocal)",
+      "inputs": [
+        "fe80::1",
+        "2001:db8::1",
+        "::1",
+        "fe80::1234:5678:9abc:def0"
+      ]
+    }
+  ]
+}
