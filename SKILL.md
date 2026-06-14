@@ -200,11 +200,14 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
 | `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `json`, `keys`, `toString`, `toJSON`, `pojo`, `repr`, `len`, `type`, `array_summary` (numpy array shape/stats summary — essential for DSP/scientific computing), `dict`, or `"module.fn"` for custom (Python & JS) |
 | `materializeOutput` | ❌ | `true` → auto-consume generators/iterators into lists before fingerprinting |
+| `maxYields` | ❌ | Integer — max items to take from an infinite generator. Only works with `materializeOutput: true`. Appends a `{"__truncated__": true, "maxYields": N}` sentinel if more items exist. Critical for generators that yield forever (e.g., `rrule` with no `count`/`until`). |
+| `freezeTime` | ❌ | ISO 8601 datetime string (e.g., `"2024-01-15T10:30:00"`) — freezes `datetime.now()`, `datetime.utcnow()`, `date.today()`, and `time.localtime()` during capture/validate. Essential for functions that default to current time. |
 | `trackMutation` | ❌ | `true` → snapshot input state before/after call, detect mutations |
 | `resetState` | ❌ | Function name to call before each capture/validate run to reset module-level mutable state (e.g., counters, accumulators). The function must be exported from the same `file`. |
 | `deepCloneInput` | ❌ | `true` (default) → deep-clone inputs before each call to prevent mutation. Set `false` only when you explicitly want mutated state to carry across calls. |
 | `seed` | ❌ | Integer seed for deterministic `Math.random()` — replaces Math.random with mulberry32 PRNG for the duration of the function call, then restores. Eliminates drift in functions using random numbers. |
 | `autoIncrement` | ❌ | Add to `normalize` array to replace auto-incrementing ID patterns: `"b1"` → `"b<ID>"`, small integers (1-9999) → `"<ID>"`. Use when `resetState` alone isn't sufficient. |
+| `trackState` | ❌ | Array of attribute names to track on the object before/after the call (e.g., `["_len", "_cache_complete"]`). Detects internal state mutations that `trackMutation` can't see. See `references/datetime-stateful-patterns.md`. |
 
 ---
 
@@ -664,6 +667,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | OCR/Parsing pipeline | Pure logic extraction + fixtures | Value (default) | See `references/ocr-parsing-pipeline.md` — handles OCR I/O boundary + float precision |
 | Factory pattern | Compiled barrel file + outputTransform | Value / Schema / Mixed | See `references/factory-pattern.md` — mathjs, inversifyJS, etc. |
 | Algorithm visualization | Adapter modules + `resetState` + `seed` | Value (default) | See `references/algorithm-visualization.md` — handles mutable globals, input mutation, auto-incrementing IDs |
+| Datetime & stateful | `freezeTime` + `maxYields` + `trackState` + adapter | Value (default) | See `references/datetime-stateful-patterns.md` — date/time libs, schedulers, stateful objects |
 
 ---
 
@@ -909,6 +913,7 @@ regression-testing/
     ├── python-pipeline.md       ← Python pipeline pattern (OCR, NLP, data processing)
     ├── ocr-pipeline.md          ← OCR pipeline pattern (mutation, LLM non-determinism, spatial data)
     ├── ocr-parsing-pipeline.md ← OCR & parsing pipeline pattern (pure logic extraction + float precision)
+    ├── datetime-stateful-patterns.md ← Datetime & stateful object patterns (freezeTime, maxYields, trackState)
     ├── branch-coverage.md     ← branch coverage analysis and branch-map pattern
     ├── typescript-projects.md  ← TypeScript workflow guide (preBuild, source mapping, --ts flag)
     ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator

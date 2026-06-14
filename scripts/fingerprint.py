@@ -8,7 +8,8 @@
 import hashlib
 import json
 import re
-import time
+import time as time_module
+from datetime import datetime, date, time, timedelta, timezone
 
 
 def _numpy_to_native(obj):
@@ -80,6 +81,8 @@ def normalize(obj, rules=None):
     - floatTolerance: Round floats to N decimal places (default 2)
     - floatPrecision: Normalize whole-value floats to int, decimal floats to 2dp,
       strip trailing ".0" from string-encoded floats (OCR/parsing pipelines)
+    - datetimeNow: Replace datetime-like dicts (from _serialize_datetime) that
+      contain a date matching today's date with <DATETIME_NOW>.
 
     Handles numpy arrays by converting to list before normalizing.
     """
@@ -95,6 +98,14 @@ def normalize(obj, rules=None):
             obj = obj.item()  # Convert numpy scalar to Python native
     except ImportError:
         pass
+
+    # datetimeNow: replace serialized datetime dicts that represent "now"
+    if 'datetimeNow' in rules and isinstance(obj, dict):
+        if '__datetime__' in obj:
+            dt_iso = obj['__datetime__']
+            today_iso = datetime.now().strftime('%Y-%m-%d')
+            if dt_iso.startswith(today_iso):
+                return {'__datetime__': '<DATETIME_NOW>', 'fold': obj.get('fold', 0)}
 
     if isinstance(obj, str):
         if 'timestamps' in rules and re.match(r'^\d{4}-\d{2}-\d{2}T[\d:.Z+\-]+$', obj):
@@ -228,12 +239,63 @@ def _struct_time_to_list(val):
             val.tm_wday, val.tm_yday, val.tm_isdst]
 
 
+def _serialize_datetime(val):
+    """Serialize datetime/date/time/timedelta to a deterministic JSON-safe dict.
+
+    This is critical for libraries that return datetime objects (e.g. python-dateutil,
+    arrow, pendulum). Without this, deep_clone falls back to repr() which is lossy
+    and inconsistent across Python versions.
+
+    Serialization format:
+    - datetime: {"__datetime__": isoformat, "fold": int, "tzname": str|None}
+    - date: {"__date__": isoformat}
+    - time: {"__time__": isoformat, "fold": int, "tzinfo": str|None}
+    - timedelta: {"__timedelta__": total_seconds}
+    """
+    if isinstance(val, datetime):
+        result = {
+            "__datetime__": val.isoformat(),
+            "fold": val.fold,
+        }
+        if val.tzinfo is not None:
+            tzname = getattr(val.tzinfo, 'tzname', None)
+            if callable(tzname):
+                try:
+                    result["tzname"] = tzname(val)
+                except Exception:
+                    result["tzname"] = repr(val.tzinfo)
+            else:
+                result["tzname"] = repr(val.tzinfo)
+            utcoff = getattr(val.tzinfo, 'utcoffset', None)
+            if callable(utcoff):
+                try:
+                    offset = utcoff(val)
+                    result["utcoffset"] = offset.total_seconds() if offset is not None else None
+                except Exception:
+                    pass
+        return result
+    if isinstance(val, date):
+        return {"__date__": val.isoformat()}
+    if isinstance(val, time):
+        result = {
+            "__time__": val.isoformat(),
+            "fold": val.fold,
+        }
+        if val.tzinfo is not None:
+            result["tzinfo"] = repr(val.tzinfo)
+        return result
+    if isinstance(val, timedelta):
+        return {"__timedelta__": val.total_seconds()}
+    return None
+
+
 def deep_clone(val):
     """Deep clone via JSON round-trip. Handles numpy arrays by converting to native types.
 
     Enhanced to handle non-JSON-serializable types that commonly appear in class-heavy
     libraries (e.g. bytes, tuples with bytes, class instances with get_val_d()):
     - time.struct_time → list [year, mon, mday, hour, min, sec, wday, yday, isdst]
+    - datetime/date/time/timedelta → deterministic dict snapshot
     - bytes → hex string (deterministic, recoverable)
     - tuple → list (JSON-safe, preserves order)
     - class instances with get_val_d() → dict snapshot
@@ -245,8 +307,12 @@ def deep_clone(val):
     instead of an actual clone, which causes mutation corruption in the ghost recorder.
     """
     val = _numpy_to_native(val)
+    # Handle datetime/date/time/timedelta → deterministic JSON-safe dict
+    dt_result = _serialize_datetime(val)
+    if dt_result is not None:
+        return dt_result
     # Handle time.struct_time → deterministic list
-    if isinstance(val, time.struct_time):
+    if isinstance(val, time_module.struct_time):
         return _struct_time_to_list(val)
     # Handle complex numbers → dict with real/imag (JSON-safe, deterministic)
     # This is critical for DSP/SDR libraries where numpy complex128 arrays are common
@@ -317,7 +383,7 @@ def deep_clone(val):
         return repr(val)
 
 
-def materialize_output(val):
+def materialize_output(val, max_yields=None):
     """Materialize generator/iterator output into a list for fingerprinting.
 
     When a function returns a generator, iterator, or other lazy sequence,
@@ -334,6 +400,14 @@ def materialize_output(val):
     - str, bytes, dict, list, tuple, set (already concrete)
     - numpy arrays (handled by _numpy_to_native)
     - Numbers, booleans, None (primitives)
+
+    Args:
+        val: The value to potentially materialize.
+        max_yields: If set, only consume up to this many items from the generator.
+            This is critical for infinite generators (e.g., rrule with no count/until)
+            where list() would hang. When max_yields is set and the generator has
+            more items, a trailing sentinel {"__truncated__": true, "maxYields": N}
+            is appended to signal that output was bounded.
 
     Returns a tuple: (materialized_value, was_materialized_bool)
     """
@@ -355,11 +429,25 @@ def materialize_output(val):
     is_map_filter = isinstance(val, (map, filter))
     is_range = isinstance(val, range)
     is_iterator = hasattr(val, '__next__') and not isinstance(val, (str, bytes, dict))
-    is_iterable_only = hasattr(val, '__iter__') and not hasattr(val, '__len__') and not isinstance(val, (str, bytes, dict))
+    # Custom iterables: has __iter__ but may or may not have __len__
+    # This catches rrule objects, custom iterator classes, etc.
+    has_iter = hasattr(val, '__iter__')
+    is_concrete = isinstance(val, (list, tuple, set, dict, str, bytes))
+    is_custom_iterable = has_iter and not is_concrete
 
-    if is_generator or is_map_filter or is_range or is_iterator or is_iterable_only:
+    if is_generator or is_map_filter or is_range or is_iterator or is_custom_iterable:
         try:
-            return list(val), True
+            if max_yields is not None and isinstance(max_yields, int) and max_yields > 0:
+                # Bounded materialization: take only max_yields items
+                result = []
+                for i, item in enumerate(val):
+                    if i >= max_yields:
+                        result.append({"__truncated__": True, "maxYields": max_yields})
+                        break
+                    result.append(item)
+                return result, True
+            else:
+                return list(val), True
         except Exception:
             # If materialization fails, return as-is
             return val, False
@@ -367,11 +455,14 @@ def materialize_output(val):
     return val, False
 
 
-def snapshot_state(obj):
+def snapshot_state(obj, include_private=False, attr_filter=None):
     """Create a JSON-serializable snapshot of an object's state.
 
     Used by trackMutation to capture input state before and after
     a function call, so mutations can be detected.
+
+    Also used by trackState to capture object attribute state
+    across method calls.
 
     Handles:
     - JSON-serializable types (dict, list, str, numbers)
@@ -379,19 +470,28 @@ def snapshot_state(obj):
     - Objects with __slots__ (captures slot values)
     - Nested objects (recurses)
 
+    Args:
+        obj: The object to snapshot.
+        include_private: If True, include attributes starting with '_'.
+            This is needed for trackState which monitors internal state
+            like _len, _cache, etc.
+        attr_filter: Optional list of attribute names to include.
+            When set, only these attributes are captured (useful for
+            trackState which specifies exactly which attributes to watch).
+
     Returns a JSON-serializable dict/list/value.
     """
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
 
     if isinstance(obj, (list, tuple)):
-        return [snapshot_state(v) for v in obj]
+        return [snapshot_state(v, include_private, attr_filter) for v in obj]
 
     if isinstance(obj, dict):
-        return {k: snapshot_state(v) for k, v in obj.items()}
+        return {k: snapshot_state(v, include_private, attr_filter) for k, v in obj.items()}
 
     if isinstance(obj, set):
-        return sorted([snapshot_state(v) for v in obj], key=lambda x: str(x))
+        return sorted([snapshot_state(v, include_private, attr_filter) for v in obj], key=lambda x: str(x))
 
     if isinstance(obj, bytes):
         return obj.decode('utf-8', errors='replace')
@@ -401,11 +501,17 @@ def snapshot_state(obj):
         cls_name = type(obj).__name__
         attrs = {}
         for k, v in obj.__dict__.items():
-            if not k.startswith('_'):  # skip private attrs by default
-                try:
-                    attrs[k] = snapshot_state(v)
-                except Exception:
-                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+            # Apply attr_filter if specified
+            if attr_filter is not None:
+                if k not in attr_filter:
+                    continue
+            elif not include_private and k.startswith('_'):
+                # skip private attrs by default
+                continue
+            try:
+                attrs[k] = snapshot_state(v, include_private, attr_filter)
+            except Exception:
+                attrs[k] = f'<unrepresentable:{type(v).__name__}>'
         return {'__class__': cls_name, **attrs}
 
     # Object with __slots__
@@ -413,8 +519,10 @@ def snapshot_state(obj):
         cls_name = type(obj).__name__
         attrs = {}
         for slot in obj.__slots__:
+            if attr_filter is not None and slot not in attr_filter:
+                continue
             try:
-                attrs[slot] = snapshot_state(getattr(obj, slot))
+                attrs[slot] = snapshot_state(getattr(obj, slot), include_private, attr_filter)
             except AttributeError:
                 pass
         return {'__class__': cls_name, **attrs}

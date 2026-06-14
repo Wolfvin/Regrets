@@ -94,13 +94,15 @@ def main():
         else:
             output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
 
+    # Deep-clone output to serialize datetime objects and other non-JSON types
+    output_for_fp = deep_clone(output)
+
     # Compute fingerprint
-    output = _numpy_to_native(output)
-    fp = fingerprint(input_data, output, norm_rules, ign_fields)
+    fp = fingerprint(input_data, output_for_fp, norm_rules, ign_fields)
 
     # Return JSON result
     result = {
-        'output': output,
+        'output': output_for_fp,
         'fingerprint': fp,
     }
     print(json.dumps(result, ensure_ascii=False))
