@@ -1,0 +1,63 @@
+name: Auto-merge PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  check_suite:
+    types: [completed]
+
+jobs:
+  automerge:
+    name: Enable auto-merge on PR open
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --auto \
+            --merge
+
+  merge-on-green:
+    name: Merge when all checks pass
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'check_suite' &&
+      github.event.check_suite.conclusion == 'success'
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Merge eligible PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find all open PRs associated with this commit/check_suite
+          COMMIT_SHA="${{ github.event.check_suite.head_sha }}"
+          PRS=$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --state open \
+            --json number,headRefOid,mergeStateStatus \
+            --jq ".[] | select(.headRefOid == \"$COMMIT_SHA\") | .number")
+
+          for PR in $PRS; do
+            STATUS=$(gh pr view "$PR" \
+              --repo "${{ github.repository }}" \
+              --json mergeStateStatus \
+              --jq '.mergeStateStatus')
+            if [ "$STATUS" = "CLEAN" ]; then
+              echo "Merging PR #$PR (status: CLEAN)"
+              gh pr merge "$PR" \
+                --repo "${{ github.repository }}" \
+                --merge \
+                --delete-branch
+            else
+              echo "Skipping PR #$PR (status: $STATUS)"
+            fi
+          done
