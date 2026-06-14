@@ -13,6 +13,7 @@
 //   node scripts/regret.js coverage [--cluster <id>] [--verbose]
 //   node scripts/regret.js setup [--stack js|python|ts]
 //   node scripts/regret.js scan [--dir src/] [--stack js] [--format manifest]
+//   node scripts/regret.js watch [--dir src/] [--stack js|python]
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -403,6 +404,13 @@ switch (command) {
     break
   }
 
+  case 'watch': {
+    success = run('node', [`${SCRIPTS_DIR}/watch.js`, ...passThroughArgs])
+    // watch runs until Ctrl+C — exit code is always 0 (graceful shutdown)
+    success = true
+    break
+  }
+
   case 'help':
   default:
     console.log(`
@@ -436,6 +444,7 @@ Usage:
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
   node scripts/regret.js setup [--stack js|python|ts]  One-command onboarding (scan→check→capture→validate)
+  node scripts/regret.js watch [--dir src/] [--stack]  Watch files & auto-validate on change
 
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
