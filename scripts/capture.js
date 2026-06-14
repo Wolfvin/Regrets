@@ -94,6 +94,19 @@ for (const cluster of clusters) {
     continue
   }
 
+  // ─── Seed random number generator for deterministic output ────────────
+  // When `seed` is set in the manifest, Math.random is replaced with a
+  // seeded PRNG (simple mulberry32) so that functions using Math.random
+  // produce identical output across runs.
+  //
+  // Override crypto API for deterministic capture when seed is set:
+  //   - crypto.randomUUID() → deterministic UUID based on seed + counter
+  //   - crypto.getRandomValues() → fill array with deterministic bytes
+  const origRandom = Math.random
+  let origRandomUUID = null
+  let origGetRandomValues = null
+  let cryptoAvailable = false
+
   try {
     // Dynamic import of target module
     const absPath = resolve(process.cwd(), file)
@@ -126,21 +139,62 @@ for (const cluster of clusters) {
     //   3. instance.classMethod(input) → output (fingerprint this)
     //   4. Watches are applied to instance methods via ghost proxy
 
-    // ─── Seed random number generator for deterministic output ────────────
-    // When `seed` is set in the manifest, Math.random is replaced with a
-    // seeded PRNG (simple mulberry32) so that functions using Math.random
-    // produce identical output across runs.
-    const origRandom = Math.random
     if (seed != null) {
       // mulberry32 — fast 32-bit seeded PRNG
       let s = seed | 0
-      Math.random = () => {
+      const mulberry32 = () => {
         s |= 0; s = s + 0x6D2B79F5 | 0
         let t = Math.imul(s ^ s >>> 15, 1 | s)
         t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
         return ((t ^ t >>> 14) >>> 0) / 4294967296
       }
-      console.log(`   🎲 Seeded RNG with seed=${seed}`)
+      Math.random = mulberry32
+
+      // Override crypto API for deterministic capture when seed is set
+      cryptoAvailable = typeof globalThis.crypto === 'object' && globalThis.crypto !== null
+
+      if (cryptoAvailable) {
+        // Save originals for restore
+        origRandomUUID = globalThis.crypto.randomUUID
+        origGetRandomValues = globalThis.crypto.getRandomValues
+
+        // Deterministic UUID generator: produces valid UUID v4 format
+        // (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx) but derived from the seeded PRNG.
+        // Uses a counter so successive calls return different but reproducible UUIDs.
+        let uuidCounter = 0
+        globalThis.crypto.randomUUID = function seededRandomUUID() {
+          uuidCounter++
+          // Mix seed + counter to create a unique but deterministic state for this UUID
+          const hex = () => {
+            const val = (mulberry32() * 0x10000) | 0
+            return val.toString(16).padStart(4, '0')
+          }
+          // UUID v4 format: 8-4-4-4-12 hex chars
+          // Version nibble (position 13): always '4'
+          // Variant nibble (position 17): '8', '9', 'a', or 'b'
+          const p1 = hex() + hex()          // 8 chars
+          const p2 = hex()                    // 4 chars
+          const p3 = '4' + hex().slice(1)     // 4 chars, version = 4
+          const p4y = ((mulberry32() * 0x4) | 0x8).toString(16) // variant: 8-b
+          const p4 = p4y + hex().slice(1)     // 4 chars
+          const p5 = hex() + hex() + hex()    // 12 chars
+          return `${p1}-${p2}-${p3}-${p4}-${p5}`
+        }
+
+        // Deterministic getRandomValues: fills the provided TypedArray with
+        // bytes derived from the seeded PRNG.
+        globalThis.crypto.getRandomValues = function seededGetRandomValues(arr) {
+          if (!ArrayBuffer.isView(arr)) {
+            throw new TypeError('Parameter must be a TypedArray')
+          }
+          for (let i = 0; i < arr.length; i++) {
+            arr[i] = (mulberry32() * 0x100) | 0
+          }
+          return arr
+        }
+      }
+
+      console.log(`   🎲 Seeded RNG with seed=${seed}${cryptoAvailable ? ' (+ crypto API)' : ''}`)
     }
 
     const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
@@ -375,7 +429,7 @@ for (const cluster of clusters) {
         }
 
         // Apply outputTransform if specified in manifest
-        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
+        let transformedOutput = await applyOutputTransform(consumedOutput, outputTransform)
 
         // trackMutation: snapshot input state before/after call to detect mutations
         let inputAfterCall = null
@@ -616,7 +670,7 @@ for (const cluster of clusters) {
         }
 
         // Apply outputTransform if specified in manifest
-        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
+        let transformedOutput = await applyOutputTransform(consumedOutput, outputTransform)
 
         // Handle async custom outputTransform (module.function pattern)
         if (outputTransform && outputTransform.includes('.')) {
@@ -783,6 +837,11 @@ for (const cluster of clusters) {
   } finally {
     // Restore original Math.random if we seeded it
     if (seed != null) Math.random = origRandom
+    // Restore original crypto API if we overrode it
+    if (seed != null && cryptoAvailable) {
+      if (origRandomUUID != null) globalThis.crypto.randomUUID = origRandomUUID
+      if (origGetRandomValues != null) globalThis.crypto.getRandomValues = origGetRandomValues
+    }
   }
 }
 
