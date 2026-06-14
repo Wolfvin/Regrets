@@ -16,10 +16,120 @@ import hashlib
 import types
 import time
 import random
+import errno
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from unittest.mock import patch
+
+# ─── Lightweight file locking ─────────────────────────────────────────────────
+# Uses fcntl.flock on Unix for locking, with fallback to lockfile pattern
+# (O_EXCL atomic create) for cross-platform.  Timeout 10 s with exponential
+# backoff.  Auto-releases in finally block.
+
+_LOCK_TIMEOUT_S = 10
+_LOCK_BASE_DELAY_S = 0.05
+_LOCK_MAX_DELAY_S = 0.5
+
+try:
+    import fcntl
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False
+
+
+def _lockfile_path(filepath):
+    """Place lockfile next to the target: /path/to/file.ext → /path/to/file.ext.lock"""
+    return filepath + '.lock'
+
+
+def _acquire_lock_fcntl(filepath):
+    """Acquire lock using fcntl.flock (Unix). Returns (lock_path, fd)."""
+    lock_path = _lockfile_path(filepath)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    deadline = time.monotonic() + _LOCK_TIMEOUT_S
+    delay = _LOCK_BASE_DELAY_S
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return (lock_path, fd)
+        except (IOError, OSError):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                os.close(fd)
+                raise TimeoutError(
+                    f"filelock: could not acquire lock on {filepath} within {_LOCK_TIMEOUT_S}s"
+                )
+            time.sleep(min(delay, remaining, _LOCK_MAX_DELAY_S))
+            delay = min(delay * 2, _LOCK_MAX_DELAY_S)
+
+
+def _release_lock_fcntl(lock_info):
+    """Release fcntl lock. lock_info = (lock_path, fd)."""
+    lock_path, fd = lock_info
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(lock_path)
+        except OSError:
+            pass
+
+
+def _acquire_lock_lockfile(filepath):
+    """Acquire lock using O_EXCL lockfile pattern (cross-platform fallback)."""
+    lock_path = _lockfile_path(filepath)
+    deadline = time.monotonic() + _LOCK_TIMEOUT_S
+    delay = _LOCK_BASE_DELAY_S
+    while True:
+        # Remove stale lock if older than timeout
+        try:
+            mtime = os.path.getmtime(lock_path)
+            if time.time() - mtime > _LOCK_TIMEOUT_S:
+                try:
+                    os.unlink(lock_path)
+                except OSError:
+                    pass
+                continue
+        except OSError:
+            pass
+
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            return (lock_path, None)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"filelock: could not acquire lock on {filepath} within {_LOCK_TIMEOUT_S}s"
+            )
+        time.sleep(min(delay, remaining, _LOCK_MAX_DELAY_S))
+        delay = min(delay * 2, _LOCK_MAX_DELAY_S)
+
+
+def _release_lock_lockfile(lock_info):
+    """Release lockfile pattern lock. lock_info = (lock_path, None)."""
+    lock_path, _ = lock_info
+    try:
+        os.unlink(lock_path)
+    except OSError:
+        pass
+
+
+if _HAS_FCNTL:
+    acquire_lock = _acquire_lock_fcntl
+    release_lock = _release_lock_fcntl
+else:
+    acquire_lock = _acquire_lock_lockfile
+    release_lock = _release_lock_lockfile
 
 # Import shared fingerprint module (same directory)
 from fingerprint import (
@@ -668,8 +778,12 @@ def update_regret(regret_path, regret, new_hash, live_output, reason):
     new_content = re.sub(r'^OUTPUT .+$', f'OUTPUT {json.dumps(_numpy_to_native(live_output), ensure_ascii=False)}', new_content, flags=re.MULTILINE)
     new_content = re.sub(r'^HASH .+$', f'HASH   {new_hash}', new_content, flags=re.MULTILINE)
 
-    with open(regret_path, 'w', encoding='utf-8') as f:
-        f.write(new_content)
+    _lk = acquire_lock(regret_path)
+    try:
+        with open(regret_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+    finally:
+        release_lock(_lk)
 
     # Sanitize reason: replace newlines to prevent audit.log corruption
     safe_reason = re.sub(r'[\r\n]+', ' ', reason) if isinstance(reason, str) else reason
@@ -703,8 +817,12 @@ def update_regret(regret_path, regret, new_hash, live_output, reason):
     chain_hash = hashlib.sha256((prev_chain + new_entry_content).encode('utf-8')).hexdigest()[:7]
 
     entry = f"\n{new_entry_content}\n  chain: {chain_hash}"
-    with open(audit_log, 'a', encoding='utf-8') as f:
-        f.write(entry)
+    _lk2 = acquire_lock(audit_log)
+    try:
+        with open(audit_log, 'a', encoding='utf-8') as f:
+            f.write(entry)
+    finally:
+        release_lock(_lk2)
 
     return old_hash, new_hash
 

@@ -13,7 +13,7 @@
 //   node scripts/capture.js --quiet           Only print summary line
 //   node scripts/capture.js --verbose         Print extra detail (call trace, ghost intercepts, normalize)
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, openSync, closeSync, unlinkSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
@@ -22,6 +22,65 @@ import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+// ─── Lightweight file locking (lockfile pattern) ────────────────────────────────
+// Uses O_EXCL atomic create for lock acquisition.  Retries with exponential
+// backoff up to 10 s.  Auto-releases in finally block so orphan locks are rare.
+
+import { constants as _fsConstants, statSync as _statSync } from 'fs'
+import { execSync as _execSync } from 'child_process'
+
+const _O_EXCL = _fsConstants.O_CREAT | _fsConstants.O_EXCL
+const _LOCK_TIMEOUT_MS = 10_000
+const _LOCK_BASE_DELAY_MS = 50
+const _LOCK_MAX_DELAY_MS = 500
+
+function _lockfilePath(filePath) {
+  // Place lockfile next to the target: /path/to/file.ext → /path/to/file.ext.lock
+  return filePath + '.lock'
+}
+
+function _sleepMs(ms) {
+  // Synchronous sleep using child_process — works in Node main thread
+  _execSync(`sleep ${Math.max(0, ms / 1000).toFixed(3)}`, { stdio: 'ignore', timeout: ms + 2000 })
+}
+
+function acquireLock(filePath) {
+  const lockPath = _lockfilePath(filePath)
+  const deadline = Date.now() + _LOCK_TIMEOUT_MS
+  let delay = _LOCK_BASE_DELAY_MS
+
+  while (Date.now() < deadline) {
+    // If stale lock exists (older than timeout), remove it and retry immediately
+    try {
+      const stat = _statSync(lockPath)
+      if (Date.now() - stat.mtimeMs > _LOCK_TIMEOUT_MS) {
+        try { unlinkSync(lockPath) } catch (_) { /* race: another process removed it */ }
+        continue  // retry immediately
+      }
+    } catch (_) { /* lock doesn't exist yet — proceed to create */ }
+
+    try {
+      const fd = openSync(lockPath, _O_EXCL, 0o600)
+      closeSync(fd)
+      return lockPath          // success — return lockPath for releaseLock()
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e  // unexpected error
+    }
+
+    // Exponential backoff
+    const sleepMs = Math.min(delay, deadline - Date.now(), _LOCK_MAX_DELAY_MS)
+    if (sleepMs <= 0) break
+    _sleepMs(sleepMs)
+    delay = Math.min(delay * 2, _LOCK_MAX_DELAY_MS)
+  }
+
+  throw new Error(`filelock: could not acquire lock on ${filePath} within ${_LOCK_TIMEOUT_MS / 1000}s`)
+}
+
+function releaseLock(lockPath) {
+  try { unlinkSync(lockPath) } catch (_) { /* already removed — fine */ }
+}
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 
@@ -875,7 +934,12 @@ for (const cluster of clusters) {
       mutationAfter !== undefined ? `MUTATION_AFTER ${JSON.stringify(mutationAfter)}` : null,
     ].filter(Boolean).join('\n')
 
-    writeFileSync(regretPath, content, 'utf8')
+    const _lock = acquireLock(regretPath)
+    try {
+      writeFileSync(regretPath, content, 'utf8')
+    } finally {
+      releaseLock(_lock)
+    }
 
     if (!quiet) {
       console.log(`   ✅ Fingerprint: ${fp}`)
