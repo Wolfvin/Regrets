@@ -16,9 +16,18 @@
     "test": "node scripts/test.mjs",
     "regret": "node scripts/regret.js"
   },
-  "keywords": ["regression-testing", "snapshot-testing", "refactoring", "fingerprint", "ghost-proxy"],
+  "keywords": [
+    "regression-testing",
+    "snapshot-testing",
+    "refactoring",
+    "fingerprint",
+    "ghost-proxy"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0"
   }
 }
