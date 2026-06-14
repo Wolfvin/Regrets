@@ -1,0 +1,153 @@
+{
+  "projectName": "wafw00f",
+  "pythonPath": ["/home/z/my-project/tmp/wafw00f"],
+  "clusters": [
+    {
+      "id": "build-result-record",
+      "stack": "python",
+      "module": "wafw00f.main",
+      "entry": "buildResultRecord",
+      "description": "Builds a result record dict from URL, WAF name, and trigger URL",
+      "multiArgs": true,
+      "inputs": [
+        ["https://example.com", "Cloudflare (Cloudflare Inc.)", "https://example.com/?xss=<script>"],
+        ["https://example.com", "generic", "https://example.com/?xss=<script>"],
+        ["https://example.com", null, null],
+        ["https://test.org", "ModSecurity (SpiderLabs)", "https://test.org/?sqli=UNION"]
+      ]
+    },
+    {
+      "id": "calc-logging-level",
+      "stack": "python",
+      "module": "wafw00f.main",
+      "entry": "calclogginglevel",
+      "description": "Calculates logging level from verbosity count",
+      "inputs": [0, 1, 2, 3, 5, 10]
+    },
+    {
+      "id": "get-text-results",
+      "stack": "python",
+      "module": "wafw00f.main",
+      "entry": "getTextResults",
+      "description": "Formats detection results into aligned text output",
+      "inputs": [
+        [
+          {"url": "https://example.com", "detected": true, "firewall": "Cloudflare", "manufacturer": "Cloudflare Inc.", "trigger_url": "https://example.com/?xss=test"},
+          {"url": "https://test.org", "detected": false, "firewall": "None", "manufacturer": "None", "trigger_url": null}
+        ]
+      ]
+    },
+    {
+      "id": "detect-cloudflare-server",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_cloudflare_by_server",
+      "description": "Detects Cloudflare WAF via Server header (mock response)",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-cloudflare-cf-ray",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_cloudflare_by_cf_ray",
+      "description": "Detects Cloudflare WAF via CF-RAY header (mock response)",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-cloudflare-negative",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_cloudflare_negative",
+      "description": "Cloudflare should NOT detect with nginx headers",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-modsecurity-header",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_modsecurity_by_header",
+      "description": "Detects ModSecurity via Server header and 403 status",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-modsecurity-content",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_modsecurity_by_content",
+      "description": "Detects ModSecurity via response body content",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-incapsula-cookie",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_incapsula_by_cookie",
+      "description": "Detects Incapsula via Set-Cookie header pattern",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-incapsula-content",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_incapsula_by_content",
+      "description": "Detects Incapsula via page content pattern",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-sucuri-header",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_sucuri_by_header",
+      "description": "Detects Sucuri via X-Sucuri-ID header",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-sucuri-content",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_sucuri_by_content",
+      "description": "Detects Sucuri via page content pattern",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-awswaf-header",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_awswaf_by_header",
+      "description": "Detects AWS WAF via X-AMZ-ID header",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-fastly-header",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_fastly_by_header",
+      "description": "Detects Fastly via X-Fastly-Request-ID header",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-barracuda-header",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_barracuda_by_header",
+      "description": "Detects Barracuda via Set-Cookie header pattern",
+      "inputs": [null]
+    },
+    {
+      "id": "detect-wordfence-content",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "detect_wordfence_by_content",
+      "description": "Detects Wordfence via page content pattern",
+      "inputs": [null]
+    },
+    {
+      "id": "generic-negative",
+      "stack": "python",
+      "module": "regrets_adapter",
+      "entry": "generic_negative",
+      "description": "All detectors should return False for plain nginx response",
+      "inputs": [null]
+    }
+  ]
+}

@@ -56,11 +56,20 @@ class ContestRunner:
     def load_manifest(self, manifest_path):
         with open(manifest_path, 'r', encoding='utf-8') as f:
             self.manifest = json.load(f)
-        # Add pythonPath to sys.path
+        # Add manifest-level pythonPath to sys.path
+        manifest_python_path = self.manifest.get('pythonPath', '')
+        if manifest_python_path:
+            if isinstance(manifest_python_path, str):
+                manifest_python_path = [manifest_python_path]
+            for pp in manifest_python_path:
+                abs_path = os.path.join(os.getcwd(), pp) if not os.path.isabs(pp) else pp
+                if abs_path not in sys.path:
+                    sys.path.insert(0, abs_path)
+        # Add cluster-level pythonPath to sys.path
         for cluster in self.manifest.get('clusters', []):
             python_path = cluster.get('pythonPath', '')
             if python_path:
-                abs_path = os.path.join(os.getcwd(), python_path)
+                abs_path = os.path.join(os.getcwd(), python_path) if not os.path.isabs(python_path) else python_path
                 if abs_path not in sys.path:
                     sys.path.insert(0, abs_path)
         return self

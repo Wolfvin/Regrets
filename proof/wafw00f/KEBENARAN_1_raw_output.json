@@ -1,0 +1,318 @@
+{
+  "build-result-record": {
+    "entry": "buildResultRecord",
+    "module": "wafw00f.main",
+    "outputs": [
+      {
+        "input": [
+          "https://example.com",
+          "Cloudflare (Cloudflare Inc.)",
+          "https://example.com/?xss=<script>"
+        ],
+        "output": {
+          "url": "https://example.com",
+          "detected": true,
+          "trigger_url": "https://example.com/?xss=<script>",
+          "firewall": "Cloudflare",
+          "manufacturer": "Cloudflare Inc."
+        }
+      },
+      {
+        "input": [
+          "https://example.com",
+          "generic",
+          "https://example.com/?xss=<script>"
+        ],
+        "output": {
+          "url": "https://example.com",
+          "detected": true,
+          "trigger_url": "https://example.com/?xss=<script>",
+          "firewall": "Generic",
+          "manufacturer": "Unknown"
+        }
+      },
+      {
+        "input": [
+          "https://example.com",
+          null,
+          null
+        ],
+        "output": {
+          "url": "https://example.com",
+          "trigger_url": null,
+          "detected": false,
+          "firewall": "None",
+          "manufacturer": "None"
+        }
+      },
+      {
+        "input": [
+          "https://test.org",
+          "ModSecurity (SpiderLabs)",
+          "https://test.org/?sqli=UNION"
+        ],
+        "output": {
+          "url": "https://test.org",
+          "detected": true,
+          "trigger_url": "https://test.org/?sqli=UNION",
+          "firewall": "ModSecurity",
+          "manufacturer": "SpiderLabs"
+        }
+      }
+    ]
+  },
+  "calc-logging-level": {
+    "entry": "calclogginglevel",
+    "module": "wafw00f.main",
+    "outputs": [
+      {
+        "input": 0,
+        "output": 40
+      },
+      {
+        "input": 1,
+        "output": 30
+      },
+      {
+        "input": 2,
+        "output": 20
+      },
+      {
+        "input": 3,
+        "output": 10
+      },
+      {
+        "input": 5,
+        "output": 0
+      },
+      {
+        "input": 10,
+        "output": 0
+      }
+    ]
+  },
+  "get-text-results": {
+    "entry": "getTextResults",
+    "module": "wafw00f.main",
+    "outputs": [
+      {
+        "input": [
+          {
+            "url": "https://example.com",
+            "detected": true,
+            "firewall": "Cloudflare",
+            "manufacturer": "Cloudflare Inc.",
+            "trigger_url": "https://example.com/?xss=test"
+          },
+          {
+            "url": "https://test.org",
+            "detected": false,
+            "firewall": "None",
+            "manufacturer": "None",
+            "trigger_url": null
+          }
+        ],
+        "output": [
+          "   https://example.com   Cloudflare (Cloudflare Inc.)   Cloudflare Inc.",
+          "      https://test.org                    None (None)              None"
+        ]
+      }
+    ]
+  },
+  "detect-cloudflare-server": {
+    "entry": "detect_cloudflare_by_server",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Cloudflare",
+          "detected": false,
+          "detection_method": "server-header"
+        }
+      }
+    ]
+  },
+  "detect-cloudflare-cf-ray": {
+    "entry": "detect_cloudflare_by_cf_ray",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Cloudflare",
+          "detected": false,
+          "detection_method": "cf-ray-header"
+        }
+      }
+    ]
+  },
+  "detect-cloudflare-negative": {
+    "entry": "detect_cloudflare_negative",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Cloudflare",
+          "detected": false,
+          "detection_method": "negative-nginx"
+        }
+      }
+    ]
+  },
+  "detect-modsecurity-header": {
+    "entry": "detect_modsecurity_by_header",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "ModSecurity",
+          "detected": true,
+          "detection_method": "server-header"
+        }
+      }
+    ]
+  },
+  "detect-modsecurity-content": {
+    "entry": "detect_modsecurity_by_content",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "ModSecurity",
+          "detected": true,
+          "detection_method": "content-match"
+        }
+      }
+    ]
+  },
+  "detect-incapsula-cookie": {
+    "entry": "detect_incapsula_by_cookie",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Incapsula",
+          "detected": true,
+          "detection_method": "cookie-match"
+        }
+      }
+    ]
+  },
+  "detect-incapsula-content": {
+    "entry": "detect_incapsula_by_content",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Incapsula",
+          "detected": true,
+          "detection_method": "content-match"
+        }
+      }
+    ]
+  },
+  "detect-sucuri-header": {
+    "entry": "detect_sucuri_by_header",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Sucuri",
+          "detected": true,
+          "detection_method": "header-match"
+        }
+      }
+    ]
+  },
+  "detect-sucuri-content": {
+    "entry": "detect_sucuri_by_content",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Sucuri",
+          "detected": true,
+          "detection_method": "content-match"
+        }
+      }
+    ]
+  },
+  "detect-awswaf-header": {
+    "entry": "detect_awswaf_by_header",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "AWS WAF",
+          "detected": true,
+          "detection_method": "header-match"
+        }
+      }
+    ]
+  },
+  "detect-fastly-header": {
+    "entry": "detect_fastly_by_header",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Fastly",
+          "detected": true,
+          "detection_method": "header-match"
+        }
+      }
+    ]
+  },
+  "detect-barracuda-header": {
+    "entry": "detect_barracuda_by_header",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Barracuda",
+          "detected": true,
+          "detection_method": "cookie-match"
+        }
+      }
+    ]
+  },
+  "detect-wordfence-content": {
+    "entry": "detect_wordfence_by_content",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "waf_name": "Wordfence",
+          "detected": false,
+          "detection_method": "content-match"
+        }
+      }
+    ]
+  },
+  "generic-negative": {
+    "entry": "generic_negative",
+    "module": "regrets_adapter",
+    "outputs": [
+      {
+        "input": null,
+        "output": {
+          "cloudflare": false,
+          "sucuri": false,
+          "incapsula": false
+        }
+      }
+    ]
+  }
+}

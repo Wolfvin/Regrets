@@ -1,0 +1,235 @@
+{
+  "fingerprints": {
+    "detect-cloudflare-server": {
+      "fingerprint": "5dq3s2n",
+      "golden_hash": "5dq3s2n",
+      "captured": "2026-06-14T03:09:47.377636+00:00",
+      "entry": "detect_cloudflare_by_server",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Cloudflare",
+        "detected": false,
+        "detection_method": "server-header"
+      }
+    },
+    "detect-fastly-header": {
+      "fingerprint": "46n6ldz",
+      "golden_hash": "46n6ldz",
+      "captured": "2026-06-14T03:09:47.384293+00:00",
+      "entry": "detect_fastly_by_header",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Fastly",
+        "detected": true,
+        "detection_method": "header-match"
+      }
+    },
+    "generic-negative": {
+      "fingerprint": "hao4i97",
+      "golden_hash": "hao4i97",
+      "captured": "2026-06-14T03:09:47.386832+00:00",
+      "entry": "generic_negative",
+      "golden_input": null,
+      "golden_output": {
+        "cloudflare": false,
+        "sucuri": false,
+        "incapsula": false
+      }
+    },
+    "detect-incapsula-cookie": {
+      "fingerprint": "1wvsvif",
+      "golden_hash": "1wvsvif",
+      "captured": "2026-06-14T03:09:47.380794+00:00",
+      "entry": "detect_incapsula_by_cookie",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Incapsula",
+        "detected": true,
+        "detection_method": "cookie-match"
+      }
+    },
+    "build-result-record": {
+      "fingerprint": "2ikhe24",
+      "golden_hash": "2ikhe24",
+      "captured": "2026-06-14T03:09:47.273284+00:00",
+      "entry": "buildResultRecord",
+      "golden_input": [
+        "https://example.com",
+        "Cloudflare (Cloudflare Inc.)",
+        "https://example.com/?xss=<script>"
+      ],
+      "golden_output": {
+        "url": "https://example.com",
+        "detected": true,
+        "trigger_url": "https://example.com/?xss=<script>",
+        "firewall": "Cloudflare",
+        "manufacturer": "Cloudflare Inc."
+      }
+    },
+    "detect-cloudflare-cf-ray": {
+      "fingerprint": "4374btf",
+      "golden_hash": "4374btf",
+      "captured": "2026-06-14T03:09:47.378167+00:00",
+      "entry": "detect_cloudflare_by_cf_ray",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Cloudflare",
+        "detected": false,
+        "detection_method": "cf-ray-header"
+      }
+    },
+    "detect-sucuri-content": {
+      "fingerprint": "p339jdj",
+      "golden_hash": "p339jdj",
+      "captured": "2026-06-14T03:09:47.382796+00:00",
+      "entry": "detect_sucuri_by_content",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Sucuri",
+        "detected": true,
+        "detection_method": "content-match"
+      }
+    },
+    "detect-cloudflare-negative": {
+      "fingerprint": "elmjzp4",
+      "golden_hash": "elmjzp4",
+      "captured": "2026-06-14T03:09:47.378538+00:00",
+      "entry": "detect_cloudflare_negative",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Cloudflare",
+        "detected": false,
+        "detection_method": "negative-nginx"
+      }
+    },
+    "calc-logging-level": {
+      "fingerprint": "54y0fdn",
+      "golden_hash": "54y0fdn",
+      "captured": "2026-06-14T03:09:47.274109+00:00",
+      "entry": "calclogginglevel",
+      "golden_input": 0,
+      "golden_output": 40
+    },
+    "get-text-results": {
+      "fingerprint": "4vuuqrd",
+      "golden_hash": "4vuuqrd",
+      "captured": "2026-06-14T03:09:47.274472+00:00",
+      "entry": "getTextResults",
+      "golden_input": [
+        {
+          "url": "https://example.com",
+          "detected": true,
+          "firewall": "Cloudflare",
+          "manufacturer": "Cloudflare Inc.",
+          "trigger_url": "https://example.com/?xss=test"
+        },
+        {
+          "url": "https://test.org",
+          "detected": false,
+          "firewall": "None",
+          "manufacturer": "None",
+          "trigger_url": null
+        }
+      ],
+      "golden_output": [
+        "   https://example.com   Cloudflare (Cloudflare Inc.)   Cloudflare Inc.",
+        "      https://test.org                    None (None)              None"
+      ]
+    },
+    "detect-barracuda-header": {
+      "fingerprint": "166iywl",
+      "golden_hash": "166iywl",
+      "captured": "2026-06-14T03:09:47.385028+00:00",
+      "entry": "detect_barracuda_by_header",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Barracuda",
+        "detected": true,
+        "detection_method": "cookie-match"
+      }
+    },
+    "detect-sucuri-header": {
+      "fingerprint": "664qzqg",
+      "golden_hash": "664qzqg",
+      "captured": "2026-06-14T03:09:47.382194+00:00",
+      "entry": "detect_sucuri_by_header",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Sucuri",
+        "detected": true,
+        "detection_method": "header-match"
+      }
+    },
+    "detect-awswaf-header": {
+      "fingerprint": "51a2moz",
+      "golden_hash": "51a2moz",
+      "captured": "2026-06-14T03:09:47.383541+00:00",
+      "entry": "detect_awswaf_by_header",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "AWS WAF",
+        "detected": true,
+        "detection_method": "header-match"
+      }
+    },
+    "detect-modsecurity-content": {
+      "fingerprint": "1vzwxaq",
+      "golden_hash": "1vzwxaq",
+      "captured": "2026-06-14T03:09:47.379909+00:00",
+      "entry": "detect_modsecurity_by_content",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "ModSecurity",
+        "detected": true,
+        "detection_method": "content-match"
+      }
+    },
+    "detect-wordfence-content": {
+      "fingerprint": "1ddqvrq",
+      "golden_hash": "1ddqvrq",
+      "captured": "2026-06-14T03:09:47.386031+00:00",
+      "entry": "detect_wordfence_by_content",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Wordfence",
+        "detected": false,
+        "detection_method": "content-match"
+      }
+    },
+    "detect-modsecurity-header": {
+      "fingerprint": "3051af0",
+      "golden_hash": "3051af0",
+      "captured": "2026-06-14T03:09:47.379451+00:00",
+      "entry": "detect_modsecurity_by_header",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "ModSecurity",
+        "detected": true,
+        "detection_method": "server-header"
+      }
+    },
+    "detect-incapsula-content": {
+      "fingerprint": "69aoy6m",
+      "golden_hash": "69aoy6m",
+      "captured": "2026-06-14T03:09:47.381346+00:00",
+      "entry": "detect_incapsula_by_content",
+      "golden_input": null,
+      "golden_output": {
+        "waf_name": "Incapsula",
+        "detected": true,
+        "detection_method": "content-match"
+      }
+    }
+  },
+  "chains": {
+    "cloudflare-full-detection": {
+      "chain_hash": "4rzjz9x"
+    },
+    "multi-waf-negative-scan": {
+      "chain_hash": "442df5y"
+    },
+    "result-formatting-pipeline": {
+      "chain_hash": "5flcefz"
+    }
+  }
+}
