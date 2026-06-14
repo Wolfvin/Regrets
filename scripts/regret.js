@@ -446,7 +446,12 @@ switch (command) {
   }
 
   case 'discover': {
-    success = run('node', [`${SCRIPTS_DIR}/discover.js`, ...passThroughArgs])
+    if (passThroughArgs.includes('--static')) {
+      const staticArgs = passThroughArgs.filter(a => a !== '--static')
+      success = run('node', [`${SCRIPTS_DIR}/discover-static.js`, ...staticArgs])
+    } else {
+      success = run('node', [`${SCRIPTS_DIR}/discover.js`, ...passThroughArgs])
+    }
     break
   }
 
@@ -488,6 +493,8 @@ Usage:
                                  [--skip-build]         Skip preBuild step
   node scripts/regret.js watch [--dir src/] [--stack]  Watch files & auto-validate on change
   node scripts/regret.js branches [--cluster <id>] [--json]  Static branch coverage analysis
+  node scripts/regret.js discover --static --entry <fn> --file <path>  Zero-execution static analysis
+                                   [--out regrets/manifest.json]        Save draft manifest
   node scripts/regret.js risk [--since HEAD~1] [--diff patch.txt] [--json]  Pre-refactor risk signal
   node scripts/regret.js discover --entry <fn> --file <path>              Discover call graph & draft manifest
                                  [--inputs '[null, {}]']                   Custom inputs (JSON array)
