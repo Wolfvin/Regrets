@@ -271,7 +271,8 @@ async function runCluster(clusterDef, regret) {
   const { entry, file, normalize = [], ignoreFields = [], fingerprintLevel = 'entry',
           multiArgs = false, fingerprintMode = 'value', valuePaths = [], stack,
           classMethod, constructor: constructorName, constructorArgs, setup,
-          instanceMethods = {}, outputTransform: manifestOutputTransform = null } = clusterDef
+          instanceMethods = {}, outputTransform: manifestOutputTransform = null,
+          resetState, deepCloneInput = true, seed } = clusterDef
   const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
 
   // Check environment snapshot if present in .regret file
@@ -419,6 +420,25 @@ async function runCluster(clusterDef, regret) {
         fpInput = multiArgs && Array.isArray(inputForFp) ? inputForFp : inputForFp
       } else {
         // ── Function-based entry (original behavior) ──────────────────────
+
+        // ─── Seed random number generator for deterministic output ────────
+        const origRandom = Math.random
+        if (seed != null) {
+          let s = seed | 0
+          Math.random = () => {
+            s |= 0; s = s + 0x6D2B79F5 | 0
+            let t = Math.imul(s ^ s >>> 15, 1 | s)
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
+            return ((t ^ t >>> 14) >>> 0) / 4294967296
+          }
+        }
+
+        // ─── resetState: reset module-level mutable state before each run ───
+        if (resetState) {
+          const resetFn = mod[resetState] ?? mod.default?.[resetState]
+          if (typeof resetFn === 'function') resetFn()
+        }
+
         const ghost    = createGhost(mod, regret.watches ?? clusterDef.watches, recorder, regret.instanceMethods || instanceMethods)
         // Resolve entry function with CJS module.exports = function support
         const entryFn  = ghost[entry]
@@ -426,10 +446,13 @@ async function runCluster(clusterDef, regret) {
           ?? mod.default?.[entry]
           ?? ((entry === 'default' || entry === 'module.exports') && typeof mod.default === 'function' ? mod.default : null)
         if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found in ${file}`)
-        const inputForFp = deepClone(currentInput)
-        const inputForArgs = deepClone(currentInput)
+        const inputForFp = deepCloneInput ? deepClone(currentInput) : currentInput
+        const inputForArgs = deepCloneInput ? deepClone(currentInput) : currentInput
         const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
         const rawOutput = await entryFn(...args_)
+
+        // Restore original Math.random after the call
+        if (seed != null) Math.random = origRandom
 
         // Materialize generator/iterator output if configured
         let consumedOutput

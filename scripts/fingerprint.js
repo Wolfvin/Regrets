@@ -81,6 +81,14 @@ export function normalize(obj, rules = []) {
     if (rules.includes('floatPrecision')) {
       return obj.replace(/^-?(\d+)\.0+$/, '$1')
     }
+    // autoIncrement: normalize sequential/auto-incrementing IDs in strings.
+    // Matches patterns like "b1", "b2", "u5", "n12" — common in algorithm
+    // visualizers that use module-level counters to generate unique node IDs.
+    // Replaces the numeric suffix with <ID> so the fingerprint is stable
+    // regardless of counter state.
+    if (rules.includes('autoIncrement')) {
+      return obj.replace(/([a-zA-Z_]+)\d+/g, '$1<ID>')
+    }
   }
   if (typeof obj === 'number') {
     if (rules.includes('epochs') && obj > 1_000_000_000 && obj < 9_999_999_999_999) {
@@ -104,6 +112,12 @@ export function normalize(obj, rules = []) {
     if (rules.includes('floatPrecision') && !Number.isInteger(obj) && Number.isFinite(obj)) {
       // Round to 2 decimal places to normalize precision differences
       return Math.round(obj * 100) / 100
+    }
+    // autoIncrement for numbers: normalize small positive integers that look like
+    // auto-incremented IDs (1-9999). These are commonly produced by counter-based
+    // ID generators. Replaced with a sentinel value so fingerprint is stable.
+    if (rules.includes('autoIncrement') && Number.isInteger(obj) && obj >= 1 && obj <= 9999) {
+      return '<ID>'
     }
   }
   if (Array.isArray(obj)) return obj.map(v => normalize(v, rules))
