@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # audit.py — Comprehensive pre-refactor readiness audit
-# Combines health, coverage, drift, and chain status into a single report.
+# Combines health, coverage, drift, mutation risk, and chain status
+# into a single report.
 #
 # Usage:
 #   python scripts/audit.py
@@ -124,6 +125,64 @@ def check_coverage():
     return True, "Coverage check skipped (non-Python clusters)"
 
 
+def check_mutation_risk():
+    """Check for clusters with single input — mutation risk unverifiable.
+
+    Clusters with only 1 input cannot verify mutation behavior because
+    there is no second input to compare against. If a function mutates
+    its input, the single test won't catch it. This is a manifest-level
+    heuristic check (no static analysis required).
+
+    Additionally checks for duplicate inputs in the inputs array —
+    if inputs[0] and inputs[1] are identical, they're not providing
+    independent verification.
+    """
+    manifest_path = os.path.join(os.getcwd(), 'regrets', 'manifest.json')
+    if not os.path.exists(manifest_path):
+        return True, "No manifest — mutation risk check skipped"
+
+    try:
+        with open(manifest_path, 'r') as f:
+            manifest = json.load(f)
+    except json.JSONDecodeError:
+        return True, "Invalid manifest — mutation risk check skipped"
+
+    clusters = manifest.get('clusters', [])
+    if not clusters:
+        return True, "No clusters — mutation risk check skipped"
+
+    single_input = []
+    duplicate_inputs = []
+
+    for c in clusters:
+        inputs = c.get('inputs', [])
+        input_count = len(inputs)
+
+        if input_count <= 1:
+            single_input.append(c['id'])
+        elif input_count >= 2:
+            # Check for duplicate inputs
+            try:
+                serialized = [json.dumps(inp, sort_keys=True, ensure_ascii=False) for inp in inputs]
+                if len(serialized) != len(set(serialized)):
+                    duplicate_inputs.append(c['id'])
+            except (TypeError, ValueError):
+                pass  # Can't serialize — skip duplicate check
+
+    parts = []
+    if single_input:
+        parts.append(f"{len(single_input)} cluster(s) have single input — mutation risk unverifiable")
+    if duplicate_inputs:
+        parts.append(f"{len(duplicate_inputs)} cluster(s) have duplicate inputs — not independently verified")
+
+    if parts:
+        msg = '; '.join(parts)
+        # This is a warning, not a hard fail — single input is valid but risky
+        return True, msg, True  # has_warning
+
+    return True, "All clusters have ≥2 unique inputs — mutation risk verifiable"
+
+
 def check_truth():
     """Check if dual truth baselines (KEBENARAN 1 and KEBENARAN 2) have been captured."""
     proof_dir = os.path.join(os.getcwd(), 'proof')
@@ -180,6 +239,7 @@ def main():
         ("Drift Detection", check_drift),
         ("Cluster Health", check_health),
         ("Branch Coverage", check_coverage),
+        ("Mutation Risk", check_mutation_risk),
         ("Dual Truth", check_truth),
     ]
 

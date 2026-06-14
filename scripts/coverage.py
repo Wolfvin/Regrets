@@ -7,6 +7,9 @@
 #   python scripts/coverage.py
 #   python scripts/coverage.py --cluster my-cluster
 #   python scripts/coverage.py --detailed
+#   python scripts/coverage.py --verbose              (show detail per branch)
+#   python scripts/coverage.py --suggest-inputs       (suggest inputs for uncovered branches)
+#   python scripts/coverage.py --suggest-inputs --cluster my-cluster
 #
 # This addresses the gap where Regrets captures ONE execution path per input
 # but doesn't warn the agent that other branches exist untested.
@@ -33,6 +36,7 @@ class BranchCounter(ast.NodeVisitor):
             'line': node.lineno,
             'has_else': len(node.orelse) > 0,
             'has_elif': len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If),
+            'condition': self._extract_condition(node.test),
         })
         self.generic_visit(node)
 
@@ -41,6 +45,7 @@ class BranchCounter(ast.NodeVisitor):
             'type': 'match',
             'line': node.lineno,
             'cases': len(node.cases),
+            'condition': None,
         })
         self.generic_visit(node)
 
@@ -49,6 +54,7 @@ class BranchCounter(ast.NodeVisitor):
             'type': 'for',
             'line': node.lineno,
             'has_else': len(node.orelse) > 0,
+            'condition': self._extract_condition(node.iter),
         })
         self.generic_visit(node)
 
@@ -57,6 +63,7 @@ class BranchCounter(ast.NodeVisitor):
             'type': 'while',
             'line': node.lineno,
             'has_else': len(node.orelse) > 0,
+            'condition': self._extract_condition(node.test),
         })
         self.generic_visit(node)
 
@@ -65,6 +72,7 @@ class BranchCounter(ast.NodeVisitor):
             'type': 'try',
             'line': node.lineno,
             'handlers': len(node.handlers),
+            'condition': None,
         })
         self.generic_visit(node)
 
@@ -74,8 +82,59 @@ class BranchCounter(ast.NodeVisitor):
             'type': 'boolop',
             'line': node.lineno,
             'operands': len(node.values),
+            'condition': self._extract_boolop(node),
         })
         self.generic_visit(node)
+
+    def visit_ExceptHandler(self, node):
+        # Track except clauses as branches
+        self.branches.append({
+            'type': 'except',
+            'line': node.lineno,
+            'name': node.name,
+            'condition': f"except {node.name}" if node.name else "except",
+        })
+        self.generic_visit(node)
+
+    @staticmethod
+    def _extract_condition(node):
+        """Extract a readable condition string from an AST node."""
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Constant):
+            return repr(node.value)
+        if isinstance(node, ast.Compare):
+            left = BranchCounter._extract_condition(node.left)
+            parts = [left]
+            for op, comp in zip(node.ops, node.comparators):
+                op_str = {ast.Eq: '==', ast.NotEq: '!=', ast.Lt: '<', ast.LtE: '<=',
+                          ast.Gt: '>', ast.GtE: '>=', ast.Is: 'is', ast.IsNot: 'is not',
+                          ast.In: 'in', ast.NotIn: 'not in'}.get(type(op), '?')
+                parts.append(op_str)
+                parts.append(BranchCounter._extract_condition(comp))
+            return ' '.join(parts)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return f"not {BranchCounter._extract_condition(node.operand)}"
+        if isinstance(node, ast.BoolOp):
+            return BranchCounter._extract_boolop(node)
+        if isinstance(node, ast.Attribute):
+            return f"{BranchCounter._extract_condition(node.value)}.{node.attr}"
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                return f"{node.func.id}(...)"
+            if isinstance(node.func, ast.Attribute):
+                return f"{BranchCounter._extract_condition(node.func.value)}.{node.func.attr}(...)"
+        return None
+
+    @staticmethod
+    def _extract_boolop(node):
+        """Extract a readable boolean operation string."""
+        if not isinstance(node, ast.BoolOp):
+            return BranchCounter._extract_condition(node)
+        op = 'and' if isinstance(node.op, ast.And) else 'or'
+        parts = [BranchCounter._extract_condition(v) for v in node.values]
+        parts = [p for p in parts if p is not None]
+        return f" {op} ".join(parts) if parts else None
 
 
 def count_branches_in_function(source: str, function_name: str) -> list[dict]:
@@ -125,6 +184,8 @@ def estimate_paths(branches: list[dict]) -> int:
             decision_points += b['handlers']  # each handler is a path
         elif b['type'] == 'boolop':
             decision_points += b['operands'] - 1  # and/or short circuits
+        elif b['type'] == 'except':
+            decision_points += 1  # each except clause is a path
 
     # Minimum: 2 inputs per decision point (true + false)
     # Plus 1 for the base path
@@ -136,7 +197,6 @@ def find_source_file(module_path: str, python_path: str = '') -> str | None:
     """Find the source file for a module path."""
     # Convert module path to file path
     parts = module_path.split('.')
-    candidates = []
 
     if python_path:
         base = python_path
@@ -161,12 +221,146 @@ def find_source_file(module_path: str, python_path: str = '') -> str | None:
     return None
 
 
+# ─── Suggest inputs for uncovered branches ──────────────────────────────────
+
+def suggest_input_for_branch(branch: dict, existing_inputs: list) -> dict | None:
+    """Generate a heuristic input suggestion for an uncovered branch.
+
+    This is a minimal implementation: it analyzes the branch condition
+    and produces a generic input that might cover it. Not perfect AI
+    generation — just heuristics based on the condition pattern.
+    """
+    cond = branch.get('condition')
+    btype = branch.get('type', '')
+
+    # No condition to analyze (else, try, match, etc.)
+    if not cond:
+        if btype == 'if' and branch.get('has_else'):
+            return {'_note': 'Fallback input — ensure no prior if-condition is true', 'value': ''}
+        if btype == 'except':
+            exc_name = branch.get('name', 'Exception')
+            return {'_note': f'Input that triggers {exc_name}', 'value': None}
+        return {'_note': 'Generic input for this branch', 'value': ''}
+
+    # Pattern: not x / not x.prop
+    if cond.startswith('not '):
+        var = cond[4:].strip().split('.')[0]
+        return {var: False}
+
+    # Pattern: x == "literal" / x != "literal"
+    eq_match = __import__('re').match(r'(\w+)\s*==\s*["\'](.+)["\']', cond)
+    if eq_match:
+        return {eq_match.group(1): eq_match.group(2)}
+
+    neq_match = __import__('re').match(r'(\w+)\s*!=\s*["\'](.+)["\']', cond)
+    if neq_match:
+        return {neq_match.group(1): f'NOT_{neq_match.group(2)}'}
+
+    # Pattern: x > N / x >= N / x < N / x <= N
+    cmp_match = __import__('re').match(r'(\w+)\s*(>|>=|<|<=)\s*(\d+)', cond)
+    if cmp_match:
+        var, op, num_str = cmp_match.group(1), cmp_match.group(2), cmp_match.group(3)
+        num = int(num_str)
+        if op == '>': return {var: num + 1}
+        if op == '>=': return {var: num}
+        if op == '<': return {var: num - 1}
+        if op == '<=': return {var: num}
+
+    # Pattern: x (simple boolean truth)
+    simple_match = __import__('re').match(r'^(\w+)$', cond)
+    if simple_match:
+        return {simple_match.group(1): True}
+
+    # Pattern: x.prop
+    prop_match = __import__('re').match(r'(\w+)\.(\w+)', cond)
+    if prop_match:
+        return {prop_match.group(2): True}
+
+    # Fallback: can't parse condition, provide generic suggestion
+    return {'_note': f'Could not auto-suggest input for: "{cond}". Analyze manually.', '_condition': cond}
+
+
+def check_if_covered(branch: dict, existing_inputs: list) -> bool:
+    """Check if any existing input likely covers this branch.
+
+    Simple heuristic: checks if an existing input satisfies the branch condition.
+    """
+    cond = branch.get('condition')
+    if not cond or not existing_inputs:
+        return False
+
+    import re
+
+    for inp in existing_inputs:
+        if inp is None:
+            continue
+
+        # For primitive inputs (strings, numbers)
+        if isinstance(inp, str):
+            eq_match = re.match(r'(\w+)\s*===?\s*["\'](.+)["\']', cond)
+            if eq_match and eq_match.group(2) == inp:
+                return True
+
+        if isinstance(inp, (int, float)):
+            cmp_match = re.match(r'(\w+)\s*(>|>=|<|<=)\s*(\d+)', cond)
+            if cmp_match:
+                num = int(cmp_match.group(3))
+                op = cmp_match.group(2)
+                if op == '>' and inp > num: return True
+                if op == '>=' and inp >= num: return True
+                if op == '<' and inp < num: return True
+                if op == '<=' and inp <= num: return True
+
+        # For object/dict inputs
+        if isinstance(inp, dict):
+            # !x.prop → input has prop: false
+            neg_prop_match = re.match(r'not\s+(\w+)\.(\w+)', cond)
+            if neg_prop_match and inp.get(neg_prop_match.group(2)) is False:
+                return True
+
+            # x.prop → input has prop: true
+            prop_match = re.match(r'(\w+)\.(\w+)', cond)
+            if prop_match and 'not' not in cond and inp.get(prop_match.group(2)) is True:
+                return True
+
+            # x == "literal"
+            eq_match = re.match(r'(\w+)\s*==\s*["\'](.+)["\']', cond)
+            if eq_match and inp.get(eq_match.group(1)) == eq_match.group(2):
+                return True
+
+            # x > N etc.
+            cmp_match = re.match(r'(\w+)\s*(>|>=|<|<=)\s*(\d+)', cond)
+            if cmp_match:
+                val = inp.get(cmp_match.group(1))
+                num = int(cmp_match.group(3))
+                op = cmp_match.group(2)
+                if isinstance(val, (int, float)):
+                    if op == '>' and val > num: return True
+                    if op == '>=' and val >= num: return True
+                    if op == '<' and val < num: return True
+                    if op == '<=' and val <= num: return True
+
+            # !param (simple negation)
+            simple_neg = re.match(r'^not\s+(\w+)$', cond)
+            if simple_neg and inp.get(simple_neg.group(1)) is False:
+                return True
+
+            # param (simple truth)
+            simple_match = re.match(r'^(\w+)$', cond)
+            if simple_match and inp.get(simple_match.group(1)) is True:
+                return True
+
+    return False
+
+
 # ─── Main ───────────────────────────────────────────────────────────────────
 
 def main():
     args = sys.argv[1:]
     cluster_filter = None
     detailed = '--detailed' in args
+    verbose = '--verbose' in args
+    suggest_inputs = '--suggest-inputs' in args
 
     i = 0
     while i < len(args):
@@ -194,8 +388,6 @@ def main():
                 cluster_id = os.path.splitext(f)[0]
                 with open(os.path.join(regret_dir, f), 'r', encoding='utf-8') as fh:
                     content = fh.read()
-                    # Parse input count from .regret file
-                    # Count inputs by looking at the manifest inputs array
                     regret_data[cluster_id] = content
     except FileNotFoundError:
         pass
@@ -265,7 +457,8 @@ def main():
 
         branches = count_branches_in_function(source, entry)
         min_paths = estimate_paths(branches)
-        input_count = len(cluster.get('inputs', [])) or 1
+        inputs = cluster.get('inputs', [])
+        input_count = len(inputs) or 1
 
         # Coverage estimate
         if min_paths <= 1:
@@ -292,7 +485,34 @@ def main():
             f"{coverage}"
         )
 
-        if detailed and branches:
+        # --verbose: show detail per branch
+        if verbose and branches:
+            print(f"     Branch details for {entry}:")
+            for b in branches:
+                cond_str = f" ({b['condition']})" if b.get('condition') else ''
+                if b['type'] == 'if':
+                    else_str = " + else" if b['has_else'] else ""
+                    elif_str = " + elif" if b['has_elif'] else ""
+                    print(f"       Line {b['line']}: if{else_str}{elif_str}{cond_str}")
+                elif b['type'] == 'match':
+                    print(f"       Line {b['line']}: match with {b['cases']} cases{cond_str}")
+                elif b['type'] == 'try':
+                    print(f"       Line {b['line']}: try with {b['handlers']} handler(s){cond_str}")
+                elif b['type'] == 'except':
+                    name = b.get('name', '')
+                    print(f"       Line {b['line']}: except {name}{cond_str}")
+                elif b['type'] == 'boolop':
+                    print(f"       Line {b['line']}: short-circuit with {b['operands']} operands{cond_str}")
+                elif b['type'] == 'for':
+                    else_str = " + else" if b.get('has_else') else ""
+                    print(f"       Line {b['line']}: for-loop{else_str}{cond_str}")
+                elif b['type'] == 'while':
+                    else_str = " + else" if b.get('has_else') else ""
+                    print(f"       Line {b['line']}: while-loop{else_str}{cond_str}")
+            print()
+
+        # Also show detailed info with the --detailed flag (backward compat)
+        if detailed and branches and not verbose:
             print(f"     Branch details for {entry}:")
             for b in branches:
                 if b['type'] == 'if':
@@ -322,6 +542,7 @@ def main():
                 'inputs': input_count,
                 'coverage_pct': coverage_pct,
                 'watch_branches': watch_branches,
+                'branches': branches,
             })
 
     # Summary
@@ -341,6 +562,125 @@ def main():
     else:
         print(f"\n✅ All {total_clusters} cluster(s) appear to have full branch coverage.")
         print("   Note: this is an estimate based on static analysis.\n")
+
+    # ─── --suggest-inputs mode ──────────────────────────────────────────────
+    # Analyze each uncovered branch and suggest concrete inputs that might
+    # exercise it. This is heuristic-based — not perfect AI generation.
+
+    if suggest_inputs:
+        print('\n' + '═' * 72)
+        print('SUGGESTED INPUTS — Heuristic inputs for uncovered branches')
+        print('═' * 72)
+
+        for cluster in clusters:
+            cid = cluster['id']
+            entry = cluster['entry']
+            stack = cluster.get('stack', 'js')
+
+            if stack != 'python':
+                continue
+
+            module_path = cluster.get('module', cluster.get('file', ''))
+            python_path = cluster.get('pythonPath', '')
+            src_file = find_source_file(module_path, python_path)
+
+            if not src_file or not os.path.isfile(src_file):
+                file_path = cluster.get('file', '')
+                if os.path.isabs(file_path):
+                    src_file = file_path
+                else:
+                    src_file = os.path.join(os.getcwd(), file_path)
+
+            if not src_file or not os.path.isfile(src_file):
+                print(f"\n📦 {cid}: source file not found — skipping suggestion")
+                continue
+
+            try:
+                with open(src_file, 'r', encoding='utf-8') as f:
+                    source = f.read()
+            except Exception:
+                print(f"\n📦 {cid}: could not read source — skipping suggestion")
+                continue
+
+            branches = count_branches_in_function(source, entry)
+            inputs = cluster.get('inputs', [])
+
+            if not branches:
+                print(f"\n📦 {cid} (entry: {entry})")
+                print(f"   No branches detected in entry function — single input sufficient")
+                continue
+
+            print(f"\n📦 {cid} (entry: {entry})")
+            print(f"   {len(branches)} branch(es) detected in {entry}:\n")
+
+            suggested = []
+            for i, b in enumerate(branches):
+                covered = check_if_covered(b, inputs)
+                suggestion = suggest_input_for_branch(b, inputs)
+
+                cond_str = f" ({b.get('condition')})" if b.get('condition') else ''
+                btype = b['type']
+                line = b['line']
+
+                if btype == 'if':
+                    else_str = " + else" if b.get('has_else') else ""
+                    print(f"   Branch {i + 1} (line {line}): if{else_str}{cond_str}")
+                elif btype == 'match':
+                    print(f"   Branch {i + 1} (line {line}): match with {b['cases']} cases")
+                elif btype == 'try':
+                    print(f"   Branch {i + 1} (line {line}): try with {b['handlers']} handler(s)")
+                elif btype == 'except':
+                    print(f"   Branch {i + 1} (line {line}): except {b.get('name', '')}")
+                elif btype == 'boolop':
+                    print(f"   Branch {i + 1} (line {line}): short-circuit {cond_str}")
+                elif btype == 'for':
+                    print(f"   Branch {i + 1} (line {line}): for-loop{cond_str}")
+                elif btype == 'while':
+                    print(f"   Branch {i + 1} (line {line}): while-loop{cond_str}")
+                else:
+                    print(f"   Branch {i + 1} (line {line}): {btype}{cond_str}")
+
+                if covered:
+                    print(f"     ✅ Already covered by existing input")
+                else:
+                    if suggestion:
+                        suggestion_str = json.dumps(suggestion, ensure_ascii=False)
+                        print(f"     🆕 Suggested input: {suggestion_str}")
+                        suggested.append(suggestion)
+                    else:
+                        print(f"     🆕 No suggestion available — analyze manually")
+
+            # Also check watches if --verbose
+            if verbose:
+                watches = cluster.get('watches', [])
+                for watch_fn in watches:
+                    if watch_fn == entry:
+                        continue
+                    wb = count_branches_in_function(source, watch_fn)
+                    if wb:
+                        print(f"\n   {watch_fn} ({len(wb)} branches):")
+                        for i, b in enumerate(wb):
+                            covered = check_if_covered(b, inputs)
+                            cond_str = f" ({b.get('condition')})" if b.get('condition') else ''
+                            print(f"     Branch {i + 1}: {b['type']} line {b['line']}{cond_str}")
+                            if not covered:
+                                s = suggest_input_for_branch(b, inputs)
+                                if s:
+                                    print(f"       🆕 Suggested: {json.dumps(s, ensure_ascii=False)}")
+                                else:
+                                    print(f"       🆕 No suggestion available")
+                            else:
+                                print(f"       ✅ Covered")
+
+            # Output manifest-ready input array
+            if suggested:
+                print(f"\n   ── Manifest inputs snippet ──")
+                all_inputs = [*inputs, *suggested]
+                inputs_json = json.dumps(all_inputs, ensure_ascii=False, indent=2)
+                for line in inputs_json.split('\n'):
+                    print(f"   {line}")
+
+        print()
 
 
 if __name__ == '__main__':
