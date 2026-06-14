@@ -6,6 +6,7 @@
 # Usage:
 #   python scripts/audit.py
 #   python scripts/audit.py --strict   (exit 1 if any issues found)
+#   python scripts/audit.py --json     (output as JSON)
 #
 # This addresses the gap where agents had to manually run health + coverage + drift
 # before deciding it was safe to refactor. Audit combines all checks and gives
@@ -186,7 +187,7 @@ def check_mutation_risk():
 def check_truth():
     """Check if dual truth baselines (KEBENARAN 1 and KEBENARAN 2) have been captured."""
     proof_dir = os.path.join(os.getcwd(), 'proof')
-    
+
     # Find project-specific subdirectory
     manifest_path = os.path.join(os.getcwd(), 'regrets', 'manifest.json')
     project_name = os.getcwd().split('/')[-1]  # default to cwd name
@@ -197,27 +198,27 @@ def check_truth():
             project_name = manifest.get('projectName', project_name)
         except (json.JSONDecodeError, IOError):
             pass
-    
+
     project_proof_dir = os.path.join(proof_dir, project_name)
     k1_path = os.path.join(project_proof_dir, 'KEBENARAN_1_raw_output.json')
     k2_path = os.path.join(project_proof_dir, 'KEBENARAN_2_fingerprints.json')
-    
+
     if not os.path.exists(k1_path) or not os.path.exists(k2_path):
         return False, "KEBENARAN baselines not captured — run 'regret truth' first"
-    
+
     try:
         with open(k1_path, 'r') as f:
             k1 = json.load(f)
         with open(k2_path, 'r') as f:
             k2 = json.load(f)
-        
+
         k1_count = len(k1)
         k2_count = len(k2.get('fingerprints', {}))
         k2_chains = len(k2.get('chains', {}))
-        
+
         if k1_count != k2_count:
             return False, f"K1 has {k1_count} clusters, K2 has {k2_count} fingerprints — MISMATCH"
-        
+
         chain_info = f", {k2_chains} chains" if k2_chains > 0 else ""
         return True, f"Both truths captured: {k1_count} clusters{chain_info}"
     except (json.JSONDecodeError, IOError) as e:
@@ -225,12 +226,8 @@ def check_truth():
 
 
 def main():
+    use_json = '--json' in sys.argv
     strict = '--strict' in sys.argv
-
-    print("╔══════════════════════════════════════════════════════════════════╗")
-    print("║              REGRET PRE-REFACTOR AUDIT REPORT                   ║")
-    print("╚══════════════════════════════════════════════════════════════════╝")
-    print()
 
     checks = [
         ("Manifest", check_manifest),
@@ -245,9 +242,11 @@ def main():
 
     all_pass = True
     warnings = []
+    json_checks = []
 
     for name, check_fn in checks:
-        print(f"  Checking {name}...", end=" ", flush=True)
+        if not use_json:
+            print(f"  Checking {name}...", end=" ", flush=True)
         try:
             result = check_fn()
             if len(result) == 3:
@@ -256,32 +255,61 @@ def main():
                 ok, msg = result
                 has_warning = False
 
-            if ok:
-                icon = "✅" if not has_warning else "🟡"
-                print(f"{icon} {msg}")
-                if has_warning:
-                    warnings.append(f"{name}: {msg}")
+            # Determine status string for JSON output
+            if ok and not has_warning:
+                status = 'pass'
+            elif ok and has_warning:
+                status = 'warn'
             else:
-                print(f"❌ {msg}")
-                all_pass = False
+                status = 'fail'
+
+            if use_json:
+                json_checks.append({
+                    'name': name,
+                    'status': status,
+                    'message': msg,
+                })
+            else:
+                if ok:
+                    icon = "✅" if not has_warning else "🟡"
+                    print(f"{icon} {msg}")
+                    if has_warning:
+                        warnings.append(f"{name}: {msg}")
+                else:
+                    print(f"❌ {msg}")
+                    all_pass = False
         except Exception as e:
-            print(f"⚠️  Error: {e}")
-            warnings.append(f"{name}: check failed — {e}")
+            if use_json:
+                json_checks.append({
+                    'name': name,
+                    'status': 'error',
+                    'message': str(e),
+                })
+            else:
+                print(f"⚠️  Error: {e}")
+                warnings.append(f"{name}: check failed — {e}")
 
-    print()
-    print("─" * 68)
-
-    if all_pass and not warnings:
-        print("✅ AUDIT PASSED — All checks GREEN. Safe to refactor.")
-    elif all_pass and warnings:
-        print("🟡 AUDIT PASSED with warnings:")
-        for w in warnings:
-            print(f"   • {w}")
-        print("   Refactoring is possible but consider addressing warnings first.")
+    if use_json:
+        output = {
+            'passed': all_pass,
+            'checks': json_checks,
+        }
+        print(json.dumps(output, ensure_ascii=False))
     else:
-        print("❌ AUDIT FAILED — Fix the issues above before refactoring.")
+        print()
+        print("─" * 68)
 
-    print()
+        if all_pass and not warnings:
+            print("✅ AUDIT PASSED — All checks GREEN. Safe to refactor.")
+        elif all_pass and warnings:
+            print("🟡 AUDIT PASSED with warnings:")
+            for w in warnings:
+                print(f"   • {w}")
+            print("   Refactoring is possible but consider addressing warnings first.")
+        else:
+            print("❌ AUDIT FAILED — Fix the issues above before refactoring.")
+
+        print()
 
     if strict and not all_pass:
         sys.exit(1)
