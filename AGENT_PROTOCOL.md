@@ -39,6 +39,80 @@ Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
 Stack: `js` | `ts` | `css` | `python` | `rust` | `react` | `go` | `php` | `extension`.
 CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed. Rust supports capture + validate via `cargo test`.
 
+### freezeTime — deterministic Date/Time
+
+Freeze `Date.now()` and `new Date()` to a fixed timestamp during capture and validate.
+Critical for functions that default to `Date.now()` or `new Date()`, which would produce
+non-deterministic fingerprints otherwise.
+
+```json
+{"id":"schedule-event","entry":"createEvent","watches":[],"file":"src/events.js","stack":"js",
+ "inputs":[{"name":"meeting"}],"freezeTime":"2024-01-15T10:00:00Z"}
+```
+
+Supported formats: ISO 8601 datetime (`"2024-01-15T10:00:00Z"`), date only (`"2024-01-15"`),
+Unix timestamp (`"1705312800"`). The `Date` global is monkey-patched before each input run
+and always restored via `try/finally` — no leaks between clusters or runs.
+Available in both JS (`capture.js` / `validate.js`) and Python (`capture.py` / `validate.py`).
+
+### inputTransform — transform inputs before calling entry
+
+Convert JSON-safe manifest inputs to the actual types a function expects.
+Since `manifest.json` can only store JSON-serializable values, `inputTransform`
+converts them back before calling the entry function.
+
+```json
+{"id":"decode-packet","entry":"decode","watches":[],"file":"src/codec.js","stack":"js",
+ "inputs":["0a1b2c","ff00ee"],"inputTransform":"hex_to_bytes"}
+```
+
+Supported transforms:
+- `"str"` — convert each input to `String(value)`
+- `"hex_to_bytes"` — convert hex string to `Buffer` (e.g., `"0a1b"` → `Buffer.from([10, 27])`)
+- `"list_to_bytes"` — convert array of ints to `Buffer` (e.g., `[10, 27]` → `Buffer.from([10, 27])`)
+- `"module.fn"` — import module and apply function to each input
+
+For `multiArgs` clusters, the transform is applied to each argument individually.
+
+### isolateGlobals — fresh module state per input
+
+When `true`, the module is re-imported with cache-busting (dynamic `import()` with
+timestamp query parameter) before each input run. This prevents shared mutable module-level
+state from leaking between input runs.
+
+```json
+{"id":"accumulate","entry":"addToCounter","watches":["counter"],
+ "file":"src/counter.js","stack":"js","inputs":[1,2,3],"isolateGlobals":true}
+```
+
+Without `isolateGlobals`, a module like `let total = 0; export function add(n) { return total += n }`
+would accumulate state across inputs (1→1, 2→3, 3→6). With `isolateGlobals`,
+each input gets a fresh module instance (1→1, 2→2, 3→3).
+
+### outputTransform — post-processing output for fingerprinting
+
+Transform the raw output before fingerprinting. Both JS and Python support these built-in types:
+
+| Transform | JS | Python | Description |
+|-----------|:--:|:------:|-------------|
+| `"str"` | ✅ | ✅ | `String(output)` / `str(output)` |
+| `"json"` | ✅ | ✅ | JSON round-trip (strips non-serializable) |
+| `"repr"` | ✅ | ✅ | `JSON.stringify(output)` / `repr(output)` |
+| `"len"` | ✅ | ✅ | `.length` / `len(output)` |
+| `"type"` | ✅ | ✅ | `typeof` / `type().__name__` |
+| `"isoformat"` | ✅ | ✅ | `.toISOString()` / `.isoformat()` |
+| `"array_summary"` | ✅ | ✅ | `{ length, first, last }` |
+| `"dict"` | ✅ | ✅ | Convert Map/class to plain object |
+| `"dataclass_dict"` | ✅ | ✅ | Recursive class-to-dict conversion |
+| `"pojo"` | ✅ | — | Recursively strip class identity (JS) |
+| `"snapshot"` | — | ✅ | Deep recursive state serialization (Python) |
+| `"state"` / `"state_private"` | — | ✅ | Object state with cycle detection (Python) |
+| `"hex"` | — | ✅ | `bytes.hex()` (Python) |
+| `"keys"` | ✅ | — | `Object.keys()` (JS) |
+| `"toString"` | ✅ | — | `.toString()` (JS) |
+| `"toJSON"` | ✅ | — | `.toJSON()` (JS) |
+| `"module.fn"` | ✅ | ✅ | Custom transform via dynamic import |
+
 ### driftRuns — per-cluster drift run count
 
 Override the default 5 drift runs per cluster. Useful for probabilistic functions

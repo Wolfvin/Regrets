@@ -233,7 +233,8 @@ for (const cluster of clusters) {
           instanceMethods = {}, kwargs = false, outputTransform = null,
           materializeOutput = false, outputEncoding, resetState, deepCloneInput = true,
           seed, singletonMethod, singletonName, storeDispatch, initialState,
-          adapter, sideEffectWatches = [], detectMode = false } = cluster
+          adapter, sideEffectWatches = [], detectMode = false,
+          freezeTime = null, inputTransform = null, isolateGlobals = false } = cluster
 
   if (!quiet) {
     console.log(`\n📡 Capturing: ${id}`)
@@ -248,6 +249,9 @@ for (const cluster of clusters) {
       console.log(`   Entry:   ${entry}`)
     }
     console.log(`   Watches: ${watches.join(', ')}`)
+    if (freezeTime) console.log(`   ⏰ Time frozen: ${freezeTime}`)
+    if (inputTransform) console.log(`   Input transform: ${inputTransform}`)
+    if (isolateGlobals) console.log(`   Isolate globals: true`)
   }
 
   // ─── Verbose: print extra cluster config ──────────────────────────────────
@@ -260,6 +264,9 @@ for (const cluster of clusters) {
     if (ignorePaths.length) console.log(`   │ ignorePaths:      [${ignorePaths.join(', ')}]`)
     if (outputTransform) console.log(`   │ outputTransform:  ${outputTransform}`)
     if (seed != null) console.log(`   │ seed:             ${seed}`)
+    if (freezeTime) console.log(`   │ freezeTime:       ${freezeTime}`)
+    if (inputTransform) console.log(`   │ inputTransform:   ${inputTransform}`)
+    if (isolateGlobals) console.log(`   │ isolateGlobals:   true`)
     if (resetState) console.log(`   │ resetState:       ${resetState}`)
     console.log(`   └────────────────────────────────────────────`)
   }
@@ -281,6 +288,79 @@ for (const cluster of clusters) {
     continue
   }
 
+  // ─── freezeTime: freeze Date during cluster run ─────────────────────
+  // When `freezeTime` is set in the manifest (e.g., "2024-01-15T10:00:00Z"),
+  // Date.now() and new Date() return the frozen time instead of real time.
+  // This is critical for functions that use Date.now() or new Date() as defaults,
+  // preventing non-deterministic fingerprints.
+  // The original Date is always restored via try/finally after the cluster.
+  const OriginalDate = globalThis.Date
+  let dateFrozen = false
+  if (freezeTime) {
+    const frozenMs = new OriginalDate(freezeTime).getTime()
+    const frozenTime = new OriginalDate(frozenMs)
+    globalThis.Date = class extends OriginalDate {
+      constructor(...args) {
+        if (args.length > 0) return new OriginalDate(...args)
+        return new OriginalDate(frozenMs)
+      }
+      static now() { return frozenMs }
+      static parse(...a) { return OriginalDate.parse(...a) }
+      static UTC(...a) { return OriginalDate.UTC(...a) }
+    }
+    dateFrozen = true
+  }
+
+  // ─── inputTransform: transform inputs before calling entry ──────────────
+  // Supported transforms:
+  //   "str"              — convert each input to String
+  //   "hex_to_bytes"     — convert hex string to Buffer
+  //   "list_to_bytes"    — convert array of ints to Buffer
+  //   "module.fn"        — import module and apply fn to each input
+  function applyInputTransform(inputVal, transform) {
+    if (!transform) return inputVal
+    if (transform === 'str') {
+      if (Array.isArray(inputVal)) return inputVal.map(v => String(v))
+      return String(inputVal)
+    }
+    if (transform === 'hex_to_bytes') {
+      if (typeof inputVal === 'string') return Buffer.from(inputVal, 'hex')
+      if (Array.isArray(inputVal)) return inputVal.map(v => typeof v === 'string' ? Buffer.from(v, 'hex') : v)
+      return inputVal
+    }
+    if (transform === 'list_to_bytes') {
+      if (Array.isArray(inputVal) && inputVal.every(v => typeof v === 'number')) return Buffer.from(inputVal)
+      if (Array.isArray(inputVal)) return inputVal.map(v => Array.isArray(v) && v.every(x => typeof x === 'number') ? Buffer.from(v) : v)
+      return inputVal
+    }
+    // Custom "module.fn" — will be resolved lazily on first use
+    if (transform.includes('.')) {
+      return { __inputTransformModule: transform, __value: inputVal }
+    }
+    return inputVal
+  }
+
+  // Lazy resolver for custom inputTransform modules
+  let _customInputTransformFn = null
+  let _customInputTransformLoaded = false
+  async function resolveCustomInputTransform(transform) {
+    if (_customInputTransformLoaded) return _customInputTransformFn
+    _customInputTransformLoaded = true
+    const lastDot = transform.lastIndexOf('.')
+    const modPath = transform.slice(0, lastDot)
+    const fnName = transform.slice(lastDot + 1)
+    try {
+      const mod = await import(resolve(process.cwd(), modPath))
+      _customInputTransformFn = mod[fnName] ?? mod.default?.[fnName]
+      if (typeof _customInputTransformFn !== 'function') {
+        throw new Error(`inputTransform '${transform}': '${fnName}' is not a function`)
+      }
+    } catch (e) {
+      throw new Error(`Cannot resolve inputTransform '${transform}': ${e.message}`)
+    }
+    return _customInputTransformFn
+  }
+
   // ─── Seed random number generator for deterministic output ────────────
   // When `seed` is set in the manifest, Math.random is replaced with a
   // seeded PRNG (simple mulberry32) so that functions using Math.random
@@ -297,8 +377,15 @@ for (const cluster of clusters) {
 
   try {
     // Dynamic import of target module
+    // When isolateGlobals is true, we use cache-busting (timestamp query param)
+    // to get a fresh module instance per import, preventing shared mutable state
+    // from leaking between input runs.
     const absPath = resolve(process.cwd(), file)
-    const moduleUrl = pathToFileURL(absPath).href
+    let moduleUrl = pathToFileURL(absPath).href
+    if (isolateGlobals) {
+      // Add cache-busting query param to force a fresh module parse
+      moduleUrl += `?_t=${Date.now()}`
+    }
     let rawModule = await import(moduleUrl)
 
     // Handle CJS modules — merge default exports for consistent access
@@ -1072,6 +1159,57 @@ for (const cluster of clusters) {
         recorder.length = 0
         sideEffectRecorder.length = 0  // clear between runs
 
+        // ─── isolateGlobals: re-import module with cache-busting for fresh state ──
+        // When isolateGlobals is true, re-import the module before each input run
+        // to get a fresh instance without any accumulated mutable global state.
+        if (isolateGlobals) {
+          const reimportUrl = pathToFileURL(absPath).href + `?_t=${Date.now()}`
+          const freshModule = await import(reimportUrl)
+          const freshMerged = mergeCjsModule(freshModule)
+          // Re-create ghost proxy with fresh module
+          const freshGhost = createGhost(freshMerged, watches, recorder, instanceMethods)
+          // Re-resolve entry function from fresh module
+          if (!adapter) {
+            const freshEntryFn = freshGhost[entry]
+              ?? freshMerged[entry]
+              ?? freshMerged.default?.[entry]
+              ?? ((entry === 'default' || entry === 'module.exports') && typeof freshMerged.default === 'function' ? freshMerged.default : null)
+            if (typeof freshEntryFn === 'function') {
+              entryFn = freshEntryFn
+            }
+          }
+          // Re-assign sideEffectWatches proxies on fresh module
+          for (const sePath of sideEffectWatches) {
+            const parts = sePath.split('.')
+            if (parts.length === 2) {
+              const [objName, methodName] = parts
+              const parentObj = freshMerged[objName]
+              if (parentObj && typeof parentObj === 'object' && typeof parentObj[methodName] === 'function') {
+                parentObj[methodName] = new Proxy(parentObj[methodName], {
+                  apply(target, thisArg, args) {
+                    let result
+                    try { result = target.apply(thisArg, args) } catch (err) {
+                      sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+                      throw err
+                    }
+                    if (result && typeof result.then === 'function') {
+                      return result.then(resolved => {
+                        sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(resolved) })
+                        return resolved
+                      }).catch(err => {
+                        sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+                        throw err
+                      })
+                    }
+                    sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(result) })
+                    return result
+                  }
+                })
+              }
+            }
+          }
+        }
+
         // ─── resetState: reset module-level mutable state before each run ─────
         if (resetState) {
           const resetFn = rawModule[resetState] ?? rawModule.default?.[resetState]
@@ -1088,7 +1226,21 @@ for (const cluster of clusters) {
         const inputForArgs = deepCloneInput ? deepClone(actualInput) : actualInput
         const expectThrow = isExpectThrow(input)
 
-        const args_ = cluster.multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        // ─── inputTransform: apply transform before calling entry ────────────
+        let transformedInputForArgs = inputForArgs
+        if (inputTransform) {
+          // Check for lazy custom module transform
+          const lazyResult = applyInputTransform(inputForArgs, inputTransform)
+          if (lazyResult && typeof lazyResult === 'object' && lazyResult.__inputTransformModule) {
+            // Custom "module.fn" transform — resolve and apply
+            const fn = await resolveCustomInputTransform(lazyResult.__inputTransformModule)
+            transformedInputForArgs = fn(lazyResult.__value)
+          } else {
+            transformedInputForArgs = lazyResult
+          }
+        }
+
+        const args_ = cluster.multiArgs && Array.isArray(transformedInputForArgs) ? [...transformedInputForArgs] : [transformedInputForArgs]
 
         // ─── expectThrow: catch error and build error contract ──────────────
         if (expectThrow) {
@@ -1283,6 +1435,9 @@ for (const cluster of clusters) {
       resetState ? `resetState: ${resetState}` : null,
       !deepCloneInput ? `deepCloneInput: false` : null,
       seed != null ? `seed: ${seed}` : null,
+      freezeTime ? `freezeTime: ${freezeTime}` : null,
+      inputTransform ? `inputTransform: ${inputTransform}` : null,
+      isolateGlobals ? `isolateGlobals: true` : null,
       threw ? `expectThrow: true` : null,
       sideEffectWatches.length ? `sideEffectWatches: [${sideEffectWatches.map(s => `"${s}"`).join(', ')}]` : null,
       `env: ${JSON.stringify(getEnvSnapshot())}`,
@@ -1351,6 +1506,10 @@ for (const cluster of clusters) {
     if (verbose) console.error(`   Stack: ${err.stack}`)
     failed++
   } finally {
+    // Restore original Date if we froze it
+    if (dateFrozen) {
+      globalThis.Date = OriginalDate
+    }
     // Restore original Math.random if we seeded it
     if (seed != null) Math.random = origRandom
     // Restore original crypto API if we overrode it
