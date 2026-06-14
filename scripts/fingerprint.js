@@ -116,7 +116,11 @@ export function normalize(obj, rules = []) {
     // autoIncrement for numbers: normalize small positive integers that look like
     // auto-incremented IDs (1-9999). These are commonly produced by counter-based
     // ID generators. Replaced with a sentinel value so fingerprint is stable.
-    if (rules.includes('autoIncrement') && Number.isInteger(obj) && obj >= 1 && obj <= 9999) {
+    //
+    // WARNING: This normalizes ALL small integers (1-9999). If your output contains
+    // meaningful small integers (coordinates, distances, counts), use `autoIncrement:fields`
+    // instead which only normalizes values in specific field names (id, nodeId, etc.).
+    if (rules.includes('autoIncrement') && !rules.some(r => r.startsWith('autoIncrement:fields')) && Number.isInteger(obj) && obj >= 1 && obj <= 9999) {
       return '<ID>'
     }
   }
@@ -126,6 +130,21 @@ export function normalize(obj, rules = []) {
     return Array.from(obj).map(v => normalize(v, rules))
   }
   if (obj && typeof obj === 'object') {
+    // autoIncrement:fields — only normalize auto-increment values in specific field names
+    // e.g., "autoIncrement:fields:id,nodeId,uid" → only normalize values in "id", "nodeId", "uid" fields
+    const fieldRule = rules.find(r => r.startsWith('autoIncrement:fields:'))
+    const idFields = fieldRule ? fieldRule.split(':')[2]?.split(',') : null
+
+    if (idFields) {
+      return Object.fromEntries(Object.entries(obj).map(([k, v]) => {
+        if (idFields.includes(k)) {
+          // Normalize string IDs like "b1" → "b<ID>" and small integers → "<ID>"
+          if (typeof v === 'string') return [k, v.replace(/([a-zA-Z_]+)\d+/g, '$1<ID>')]
+          if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 9999) return [k, '<ID>']
+        }
+        return [k, normalize(v, rules)]
+      }))
+    }
     return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, normalize(v, rules)]))
   }
   return obj
