@@ -1,0 +1,88 @@
+{
+  "project": "theHarvester",
+  "clusters": [
+    {
+      "id": "sanitize-xml",
+      "entry": "sanitize_for_xml",
+      "watches": [],
+      "module": "theHarvester.__main__",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "XML sanitization for safe document inclusion",
+      "inputs": [
+        "test<>&\"'value",
+        "normal text",
+        "<script>alert('xss')</script>",
+        "&amp; already escaped",
+        "mixed <b>bold</b> & 'quotes'"
+      ]
+    },
+    {
+      "id": "sanitize-filename",
+      "entry": "sanitize_filename",
+      "watches": [],
+      "module": "theHarvester.__main__",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Filename sanitization to prevent path traversal",
+      "inputs": [
+        "../../../etc/passwd",
+        "normal_file.txt",
+        "file with spaces and dots...txt",
+        ".hidden_file",
+        "file/with/slashes"
+      ]
+    },
+    {
+      "id": "serialize-ip-range",
+      "entry": "serialize_ip_range",
+      "watches": [],
+      "module": "theHarvester.discovery.dnssearch",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "IP address range serialization for DNS operations",
+      "multiArgs": true,
+      "inputs": [
+        ["192.168.1.100", "24"],
+        ["10.0.0.1", "16"],
+        ["172.16.5.100:8080", "24"],
+        ["invalid", "24"],
+        ["1.2.3.4", "32"]
+      ]
+    },
+    {
+      "id": "list-ips-in-range",
+      "entry": "list_ips_in_network_range",
+      "watches": [],
+      "module": "theHarvester.discovery.dnssearch",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "List all IPs within a CIDR network range",
+      "inputs": [
+        "192.168.1.0/30",
+        "10.0.0.0/28",
+        "invalid_range"
+      ]
+    },
+    {
+      "id": "sorted-unique",
+      "entry": "sorted_unique",
+      "watches": [],
+      "module": "theHarvester.lib.output",
+      "pythonPath": ".",
+      "stack": "python",
+      "fingerprintLevel": "entry",
+      "description": "Deduplicate and sort items by string representation",
+      "inputs": [
+        ["c", "a", "b", "a", "c"],
+        ["host3.example.com", "host1.example.com", "host2.example.com", "host1.example.com"],
+        [],
+        [3, 1, 2, 1, 3]
+      ]
+    }
+  ]
+}
