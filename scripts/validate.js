@@ -6,6 +6,7 @@
 //   node scripts/validate.js --cluster transform-user-data
 //   node scripts/validate.js --update transform-user-data --reason "tax rate changed to 12%"
 //   node scripts/validate.js --fail-fast
+//   node scripts/validate.js --no-diff
 
 import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } from 'fs'
 import { createHash } from 'crypto'
@@ -33,6 +34,7 @@ const manifestPath  = getArg(args, '--manifest') ?? resolve(process.cwd(), 'regr
 const regretDir     = resolve(process.cwd(), 'regrets')
 const auditLog      = join(regretDir, 'audit.log')
 const jsonOutput    = args.includes('--json')
+const noDiff        = args.includes('--no-diff')
 
 // ─── Validate --update usage ──────────────────────────────────────────────────
 
@@ -123,6 +125,124 @@ function parseRegret(content) {
 // Ghost proxy imported from ghost.js
 
 function clone(v) { return deepClone(v) }
+
+// ─── JSON Diff — recursive comparison of golden vs live output ───────────────
+
+function jsonDiff(golden, live, prefix = '') {
+  const diffs = []
+
+  // Both null/undefined
+  if (golden == null && live == null) return diffs
+
+  // Type mismatch
+  if (typeof golden !== typeof live) {
+    diffs.push({ path: prefix || '(root)', golden: truncate(String(golden)), live: truncate(String(live)) })
+    return diffs
+  }
+
+  // Primitive comparison
+  if (golden === live) return diffs
+
+  // String comparison
+  if (typeof golden === 'string') {
+    if (golden !== live) {
+      diffs.push({ path: prefix || '(root)', golden: truncate(golden), live: truncate(live) })
+    }
+    return diffs
+  }
+
+  // Number comparison (handle NaN)
+  if (typeof golden === 'number') {
+    if (Number.isNaN(golden) !== Number.isNaN(live) || golden !== live) {
+      diffs.push({ path: prefix || '(root)', golden: String(golden), live: String(live) })
+    }
+    return diffs
+  }
+
+  // Boolean
+  if (typeof golden === 'boolean') {
+    if (golden !== live) {
+      diffs.push({ path: prefix || '(root)', golden: String(golden), live: String(live) })
+    }
+    return diffs
+  }
+
+  // Array comparison
+  if (Array.isArray(golden) || Array.isArray(live)) {
+    if (!Array.isArray(golden) || !Array.isArray(live)) {
+      diffs.push({ path: prefix || '(root)', golden: truncate(JSON.stringify(golden)), live: truncate(JSON.stringify(live)) })
+      return diffs
+    }
+    const maxLen = Math.max(golden.length, live.length)
+    for (let i = 0; i < maxLen; i++) {
+      const subPrefix = prefix ? `${prefix}[${i}]` : `[${i}]`
+      if (i >= golden.length) {
+        diffs.push({ path: subPrefix, golden: '(missing)', live: truncate(JSON.stringify(live[i])) })
+      } else if (i >= live.length) {
+        diffs.push({ path: subPrefix, golden: truncate(JSON.stringify(golden[i])), live: '(missing)' })
+      } else {
+        diffs.push(...jsonDiff(golden[i], live[i], subPrefix))
+      }
+    }
+    return diffs
+  }
+
+  // Object comparison
+  if (typeof golden === 'object' && typeof live === 'object') {
+    const allKeys = new Set([...Object.keys(golden), ...Object.keys(live)])
+    for (const key of allKeys) {
+      const subPrefix = prefix ? `${prefix}.${key}` : key
+      if (!(key in golden)) {
+        diffs.push({ path: subPrefix, golden: '(missing)', live: truncate(JSON.stringify(live[key])) })
+      } else if (!(key in live)) {
+        diffs.push({ path: subPrefix, golden: truncate(JSON.stringify(golden[key])), live: '(missing)' })
+      } else {
+        diffs.push(...jsonDiff(golden[key], live[key], subPrefix))
+      }
+    }
+    return diffs
+  }
+
+  return diffs
+}
+
+function truncate(str) {
+  if (typeof str !== 'string') str = String(str)
+  if (str.length > 200) return str.slice(0, 200) + '...'
+  return str
+}
+
+function formatDiffOutput(goldenOutput, liveOutput) {
+  // Try JSON diff first
+  let goldenObj, liveObj
+  try {
+    goldenObj = typeof goldenOutput === 'string' ? JSON.parse(goldenOutput) : goldenOutput
+  } catch { goldenObj = null }
+  try {
+    liveObj = typeof liveOutput === 'string' ? JSON.parse(liveOutput) : liveOutput
+  } catch { liveObj = null }
+
+  // Both parseable as JSON → structured diff
+  if (goldenObj !== null && liveObj !== null) {
+    const diffs = jsonDiff(goldenObj, liveObj)
+    if (diffs.length === 0) return null  // no diff found (shouldn't happen if hashes differ)
+
+    const lines = []
+    lines.push(`     Expected: ${truncate(JSON.stringify(goldenObj))}`)
+    lines.push(`     Actual:   ${truncate(JSON.stringify(liveObj))}`)
+    lines.push('     Diff:')
+    for (const d of diffs) {
+      lines.push(`       ${d.path}: ${d.golden} → ${d.live}`)
+    }
+    return lines.join('\n')
+  }
+
+  // Fallback: string diff for non-JSON output
+  const gStr = truncate(JSON.stringify(goldenOutput))
+  const lStr = truncate(JSON.stringify(liveOutput))
+  if (gStr === lStr) return null
+  return `     Expected: ${gStr}\n     Actual:   ${lStr}`
+}
 
 // ─── Load manifest ────────────────────────────────────────────────────────────
 
@@ -736,22 +856,36 @@ for (const file of regretFiles) {
       }
     } else if (driftMode) {
       if (isDrift) {
-        if (!jsonOutput) console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
-        results.push({ id, pass: false, drift: true })
+        if (!jsonOutput) {
+          console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
+          if (!noDiff && regret.output != null && lastOutput != null) {
+            const diff = formatDiffOutput(regret.output, lastOutput)
+            if (diff) console.log(diff)
+          }
+        }
+        results.push({ id, pass: false, drift: true, goldenOutput: regret.output, liveOutput: lastOutput })
       } else {
         if (!jsonOutput) {
           const icon = isMatch ? '✅' : '❌'
           console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
+          if (!isMatch && !noDiff && regret.output != null && lastOutput != null) {
+            const diff = formatDiffOutput(regret.output, lastOutput)
+            if (diff) console.log(diff)
+          }
         }
-        results.push({ id, pass: isMatch })
+        results.push({ id, pass: isMatch, goldenOutput: regret.output, liveOutput: lastOutput })
       }
     } else {
       if (!jsonOutput) {
         const icon = isMatch ? '✅' : '❌'
         const hstr = isMatch ? regret.goldenHash : `${regret.goldenHash} → ${liveHash}`
         console.log(`  ${icon} ${id.padEnd(35)} ${hstr.padEnd(22)} ${isMatch ? 'PASS' : 'FAIL'}`)
+        if (!isMatch && !noDiff && regret.output != null && lastOutput != null) {
+          const diff = formatDiffOutput(regret.output, lastOutput)
+          if (diff) console.log(diff)
+        }
       }
-      results.push({ id, pass: isMatch, expected: regret.goldenHash, actual: liveHash })
+      results.push({ id, pass: isMatch, expected: regret.goldenHash, actual: liveHash, goldenOutput: regret.output, liveOutput: lastOutput })
     }
 
   } catch (err) {
@@ -786,6 +920,7 @@ if (jsonOutput) {
         ...(r.error ? { error: r.error } : {}),
         ...(r.drift ? { drift: true } : {}),
         ...(r.updated ? { updated: true } : {}),
+        ...(!noDiff && !r.pass && r.goldenOutput != null && r.liveOutput != null ? (() => { try { return { diff: jsonDiff(typeof r.goldenOutput === 'string' ? JSON.parse(r.goldenOutput) : r.goldenOutput, typeof r.liveOutput === 'string' ? JSON.parse(r.liveOutput) : r.liveOutput) } } catch { return {} } })() : {}),
       }))
   }
   console.log(JSON.stringify(jsonResult, null, 0))
@@ -809,7 +944,12 @@ if (jsonOutput) {
   results.filter(r => !r.pass).forEach(r => {
     console.log(`  • ${r.id}`)
     if (r.error) console.log(`    ${r.error}`)
-    else console.log(`    Expected: ${r.golden}  Got: ${r.live}`)
+    else console.log(`    Expected: ${r.expected || r.golden}  Got: ${r.actual || r.live}`)
+    // Show diff in summary if available
+    if (!noDiff && r.goldenOutput != null && r.liveOutput != null) {
+      const diff = formatDiffOutput(r.goldenOutput, r.liveOutput)
+      if (diff) console.log(diff)
+    }
   })
   console.log(`\nFix the CODE — do not edit .regret files.\nRe-run: node scripts/validate.js`)
   process.exit(1)
