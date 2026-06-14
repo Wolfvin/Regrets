@@ -14,9 +14,11 @@ import importlib
 import re
 import hashlib
 import types
+import time
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from unittest.mock import patch
 
 # Import shared fingerprint module (same directory)
 from fingerprint import (
@@ -56,6 +58,65 @@ def parse_args():
             i += 1
 
     return result
+
+# ─── Time Freezing (shared with capture.py) ────────────────────────────────────
+
+def _make_frozen_time(freeze_str):
+    """Parse a freezeTime string and return a frozen time.localtime replacement."""
+    if freeze_str.isdigit():
+        ts = int(freeze_str)
+        frozen_st = time.gmtime(ts)
+    elif 'T' in freeze_str:
+        dt = datetime.fromisoformat(freeze_str)
+        frozen_st = dt.timetuple()
+    else:
+        dt = datetime.fromisoformat(freeze_str + 'T12:00:00')
+        frozen_st = dt.timetuple()
+
+    def frozen_localtime(seconds=None):
+        if seconds is not None:
+            return time.gmtime(seconds)
+        return frozen_st
+
+    return frozen_localtime
+
+
+class FreezeTime:
+    """Context manager that freezes time.localtime() and datetime.now()."""
+
+    def __init__(self, freeze_str):
+        self.freeze_str = freeze_str
+        self.patches = []
+
+    def __enter__(self):
+        frozen_localtime = _make_frozen_time(self.freeze_str)
+        if self.freeze_str.isdigit():
+            dt = datetime.fromtimestamp(int(self.freeze_str))
+        elif 'T' in self.freeze_str:
+            dt = datetime.fromisoformat(self.freeze_str)
+        else:
+            dt = datetime.fromisoformat(self.freeze_str + 'T12:00:00')
+        frozen_timestamp = dt.timestamp()
+
+        p1 = patch.object(time, 'localtime', frozen_localtime)
+        p1.start()
+        self.patches.append(p1)
+
+        p2 = patch.object(time, 'time', return_value=frozen_timestamp)
+        p2.start()
+        self.patches.append(p2)
+
+        p3 = patch.object(datetime, 'now', return_value=dt)
+        p3.start()
+        self.patches.append(p3)
+
+        return self
+
+    def __exit__(self, *args):
+        for p in reversed(self.patches):
+            p.stop()
+        self.patches = []
+
 
 # ─── Helpers (shared with capture.py) ─────────────────────────────────────────
 
@@ -155,6 +216,22 @@ def parse_regret(content):
             meta['trackMutation'] = val.lower() == 'true'
         elif key == 'mutationFingerprint':
             meta['mutationFingerprint'] = val.strip()
+        elif key == 'classMethod':
+            meta['classMethod'] = val
+        elif key == 'constructor':
+            meta['constructor'] = val
+        elif key == 'constructorArgs':
+            try:
+                meta['constructorArgs'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['constructorArgs'] = []
+        elif key == 'setup':
+            try:
+                meta['setup'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['setup'] = []
+        elif key == 'freezeTime':
+            meta['freezeTime'] = val
         else:
             meta[key] = val
 
@@ -382,6 +459,13 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
+            # classMethod support (mirrors capture.py)
+            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
+            constructor_name = regret.get('constructor') or cluster_def.get('constructor', entry_name)
+            constructor_args = regret.get('constructorArgs', cluster_def.get('constructorArgs', []))
+            setup_steps = regret.get('setup', cluster_def.get('setup', []))
+            # freezeTime support
+            freeze_time = regret.get('freezeTime') or cluster_def.get('freezeTime', None)
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -404,99 +488,128 @@ def main():
                 if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
                     inputs_to_validate.append(inp)
 
-            for _ in range(cli['runs']):
-                recorder = []
-                ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
+            # Determine fingerprint mode: .regret file takes precedence over manifest
+            effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
+            effective_value_paths = regret.get('valuePaths') or value_paths or []
 
-                entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
-                    raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+            # Set up FreezeTime context if needed
+            time_ctx = FreezeTime(freeze_time) if freeze_time else None
 
-                # Determine fingerprint mode: .regret file takes precedence over manifest
-                effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
-                effective_value_paths = regret.get('valuePaths') or value_paths or []
+            def _run_validation():
+                """Run validation, optionally inside FreezeTime context."""
+                _hashes = []
+                _hashes_per_input = {}
+                _last_output = None
 
-                for current_input in inputs_to_validate:
-                    # Deep-clone input before calling to prevent mutation from corrupting fingerprint
-                    input_for_fp = deep_clone(current_input)
-                    input_for_args = deep_clone(current_input)
+                for _ in range(cli['runs']):
+                    recorder = []
+                    ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
 
-                    # Snapshot input state BEFORE call (for mutation tracking)
-                    input_snapshot_before = None
-                    if track_mutation:
-                        input_snapshot_before = snapshot_state(input_for_args)
+                    for current_input in inputs_to_validate:
+                        # Deep-clone input before calling to prevent mutation from corrupting fingerprint
+                        input_for_fp = deep_clone(current_input)
+                        input_for_args = deep_clone(current_input)
 
-                    if multi_args and isinstance(input_for_args, list):
-                        raw_output = entry_fn(*input_for_args)
-                        fp_input = input_for_fp
-                    elif kwargs_mode and isinstance(input_for_args, dict):
-                        # kwargs mode: input dict is unpacked as keyword arguments
-                        raw_output = entry_fn(**input_for_args)
-                        fp_input = input_for_fp
-                    elif kwargs_mode and not isinstance(input_for_args, dict):
-                        raise TypeError(
-                            f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
-                            f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
-                        )
-                    else:
-                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
-                        fp_input = input_for_fp
+                        # Snapshot input state BEFORE call (for mutation tracking)
+                        input_snapshot_before = None
+                        if track_mutation:
+                            input_snapshot_before = snapshot_state(input_for_args)
 
-                    # Materialize generator/iterator output if configured
-                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                        # classMethod mode: construct instance, call setup, then call method
+                        if class_method:
+                            Cls = getattr(mod, constructor_name, None)
+                            if Cls is None:
+                                raise TypeError(f"Constructor \"{constructor_name}\" not found in {module_path}")
+                            instance = Cls(*deep_clone(constructor_args))
+                            for step in setup_steps:
+                                method_fn = getattr(instance, step['method'], None)
+                                if method_fn:
+                                    step_args = deep_clone(step.get('args', []))
+                                    method_fn(*step_args)
+                            target_fn = getattr(instance, class_method)
+                        else:
+                            target_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                            if target_fn is None or not callable(target_fn):
+                                raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
 
-                    # Consume generators/iterators into lists for fingerprinting (always-on fallback)
-                    if not materialize_output_flag:
-                        output = consume_generator(output)
+                        if multi_args and isinstance(input_for_args, list):
+                            raw_output = target_fn(*input_for_args)
+                            fp_input = input_for_fp
+                        elif kwargs_mode and isinstance(input_for_args, dict):
+                            raw_output = target_fn(**input_for_args)
+                            fp_input = input_for_fp
+                        elif kwargs_mode and not isinstance(input_for_args, dict):
+                            raise TypeError(
+                                f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                                f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                            )
+                        else:
+                            raw_output = target_fn(input_for_args) if input_for_args is not None else target_fn()
+                            fp_input = input_for_fp
 
-                    # Apply output transform if specified
-                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                        # Materialize generator/iterator output if configured
+                        output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
 
-                    # Snapshot input state AFTER call (for mutation tracking)
-                    mutation_match = True
-                    if track_mutation:
-                        input_snapshot_after = snapshot_state(input_for_args)
-                        # Check mutation fingerprint matches the golden
-                        golden_mutation_fp = regret.get('mutationFingerprint')
-                        live_mutation_fp = fingerprint(
-                            input_snapshot_before, input_snapshot_after,
-                            norm_rules, ign_fields
-                        )
-                        if golden_mutation_fp and live_mutation_fp != golden_mutation_fp:
-                            mutation_match = False
+                        # Consume generators/iterators into lists for fingerprinting (always-on fallback)
+                        if not materialize_output_flag:
+                            output = consume_generator(output)
 
-                    last_output = output_for_fp
+                        # Apply output transform if specified
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
-                    if effective_fp_mode == 'schema':
-                        schema = extract_schema(output_for_fp)
-                        fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
-                    elif effective_fp_mode == 'mixed':
-                        schema = extract_schema(output_for_fp)
-                        selected_values = {}
-                        for path in effective_value_paths:
-                            key = path.replace('$.', '')
-                            parts = key.split('.')
-                            val = output_for_fp
-                            for p in parts:
-                                val = val.get(p) if isinstance(val, dict) else None
-                                if val is None:
-                                    break
-                            if val is not None:
-                                selected_values[path] = val
-                        combined = {'schema': schema, 'values': selected_values}
-                        fp = fingerprint(fp_input, combined, norm_rules, ign_fields)
-                    elif fp_level == 'entry':
-                        fp = fingerprint(fp_input, output_for_fp, norm_rules, ign_fields)
-                    else:
-                        fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
+                        # Snapshot input state AFTER call (for mutation tracking)
+                        mutation_match = True
+                        if track_mutation:
+                            input_snapshot_after = snapshot_state(input_for_args)
+                            golden_mutation_fp = regret.get('mutationFingerprint')
+                            live_mutation_fp = fingerprint(
+                                input_snapshot_before, input_snapshot_after,
+                                norm_rules, ign_fields
+                            )
+                            if golden_mutation_fp and live_mutation_fp != golden_mutation_fp:
+                                mutation_match = False
 
-                    hashes.append(fp)
+                        _last_output = output_for_fp
 
-                    # Track per-input hashes for drift detection
-                    input_key = json.dumps(current_input, sort_keys=True)
-                    if input_key not in hashes_per_input:
-                        hashes_per_input[input_key] = []
-                    hashes_per_input[input_key].append(fp)
+                        if effective_fp_mode == 'schema':
+                            schema = extract_schema(output_for_fp)
+                            fp = fingerprint(fp_input, schema, norm_rules, ign_fields)
+                        elif effective_fp_mode == 'mixed':
+                            schema = extract_schema(output_for_fp)
+                            selected_values = {}
+                            for path in effective_value_paths:
+                                key = path.replace('$.', '')
+                                parts = key.split('.')
+                                val = output_for_fp
+                                for p in parts:
+                                    val = val.get(p) if isinstance(val, dict) else None
+                                    if val is None:
+                                        break
+                                if val is not None:
+                                    selected_values[path] = val
+                            combined = {'schema': schema, 'values': selected_values}
+                            fp = fingerprint(fp_input, combined, norm_rules, ign_fields)
+                        elif fp_level == 'entry':
+                            fp = fingerprint(fp_input, output_for_fp, norm_rules, ign_fields)
+                        else:
+                            fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
+
+                        _hashes.append(fp)
+
+                        # Track per-input hashes for drift detection
+                        input_key = json.dumps(current_input, sort_keys=True)
+                        if input_key not in _hashes_per_input:
+                            _hashes_per_input[input_key] = []
+                        _hashes_per_input[input_key].append(fp)
+
+                return _hashes, _hashes_per_input, _last_output
+
+            # Execute validation, optionally inside FreezeTime context
+            if time_ctx:
+                with time_ctx:
+                    hashes, hashes_per_input, last_output = _run_validation()
+            else:
+                hashes, hashes_per_input, last_output = _run_validation()
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')

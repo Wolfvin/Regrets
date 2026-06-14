@@ -8,6 +8,8 @@
 import hashlib
 import json
 import re
+import time
+import datetime as _dt
 
 
 def _numpy_to_native(obj):
@@ -167,21 +169,40 @@ def to_base36(n):
     return result
 
 
+def _struct_time_to_list(val):
+    """Convert time.struct_time to a deterministic JSON-serializable list.
+
+    struct_time is a named tuple with 9 fields: tm_year, tm_mon, tm_mday,
+    tm_hour, tm_min, tm_sec, tm_wday, tm_yday, tm_isdst.
+
+    We convert it to [year, mon, mday, hour, min, sec, wday, yday, isdst]
+    which is deterministic and JSON-serializable.
+    """
+    return [val.tm_year, val.tm_mon, val.tm_mday,
+            val.tm_hour, val.tm_min, val.tm_sec,
+            val.tm_wday, val.tm_yday, val.tm_isdst]
+
+
 def deep_clone(val):
     """Deep clone via JSON round-trip. Handles numpy arrays by converting to native types.
 
     Enhanced to handle non-JSON-serializable types that commonly appear in class-heavy
     libraries (e.g. bytes, tuples with bytes, class instances with get_val_d()):
+    - time.struct_time → list [year, mon, mday, hour, min, sec, wday, yday, isdst]
     - bytes → hex string (deterministic, recoverable)
     - tuple → list (JSON-safe, preserves order)
     - class instances with get_val_d() → dict snapshot
     - class instances with to_dict() → dict snapshot
+    - class instances with _asdict() → dict snapshot (namedtuples)
     - other non-serializable → repr() string (lossy but deterministic)
 
     This prevents the silent fallthrough where deep_clone returns the SAME object reference
     instead of an actual clone, which causes mutation corruption in the ghost recorder.
     """
     val = _numpy_to_native(val)
+    # Handle time.struct_time → deterministic list
+    if isinstance(val, time.struct_time):
+        return _struct_time_to_list(val)
     # Handle bytes → hex string (deterministic, recoverable)
     if isinstance(val, bytes):
         return val.hex()
@@ -198,6 +219,12 @@ def deep_clone(val):
     if hasattr(val, 'get_val_d') and callable(val.get_val_d):
         try:
             return deep_clone(val.get_val_d())
+        except Exception:
+            pass
+    # Handle namedtuples and other classes with _asdict()
+    if hasattr(val, '_asdict') and callable(val._asdict):
+        try:
+            return deep_clone(val._asdict())
         except Exception:
             pass
     # Handle class instances with to_dict() (e.g. many Python data classes)
