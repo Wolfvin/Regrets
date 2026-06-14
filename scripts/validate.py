@@ -22,7 +22,8 @@ from pathlib import Path
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot
+    _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot,
+    object_state_serialize, snapshot_module_globals, restore_module_globals
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -111,6 +112,11 @@ def apply_output_transform(output, transform):
             if isinstance(obj, bytes):
                 return obj.hex()
             return obj
+        elif transform == 'state':
+            include_private = getattr(apply_output_transform, '_include_private', False)
+            return object_state_serialize(obj, include_private=include_private)
+        elif transform == 'state_private':
+            return object_state_serialize(obj, include_private=True)
         else:
             raise ValueError(f"Unknown outputTransform: '{transform}'")
 
@@ -417,6 +423,7 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
+            isolate_globals = cluster_def.get('isolateGlobals', None)
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -446,6 +453,11 @@ def main():
                     inputs_to_validate.append(inp)
 
             for _ in range(cli['runs']):
+                # Global state isolation — snapshot before each run, restore after
+                saved_globals = None
+                if isolate_globals:
+                    saved_globals = snapshot_module_globals(isolate_globals)
+
                 recorder = []
                 watches_list = regret.get('watches', cluster_def.get('watches', []))
 
@@ -681,6 +693,10 @@ def main():
         except Exception as err:
             print(f"  ❌ {cluster_id:<35} ERROR: {err}")
             results.append({'id': cluster_id, 'pass': False, 'error': str(err)})
+        finally:
+            # Restore global state even if validation failed
+            if saved_globals:
+                restore_module_globals(saved_globals)
 
         if results and not results[-1]['pass'] and cli['fail_fast']:
             print("\n  --fail-fast: stopping.")
