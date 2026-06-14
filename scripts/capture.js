@@ -56,14 +56,18 @@ let failed = 0
 
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
+          ignorePaths = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, kwargs = false, outputTransform = null,
-          materializeOutput = false, outputEncoding } = cluster
+          materializeOutput = false, outputEncoding,
+          storeDispatch, initialState } = cluster
 
   console.log(`\n📡 Capturing: ${id}`)
   console.log(`   File:    ${file}`)
-  if (classMethod) {
+  if (storeDispatch) {
+    console.log(`   Store:   ${storeDispatch.store} → dispatch("${storeDispatch.action}")`)
+  } else if (classMethod) {
     console.log(`   Class:   ${constructorName ?? entry} → ${classMethod}()`)
   } else {
     console.log(`   Entry:   ${entry}`)
@@ -120,7 +124,182 @@ for (const cluster of clusters) {
     const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
     const results = []
 
-    if (classMethod) {
+    // ─── Helper: compute fingerprint with full config ──────────────────────
+    const fpConfig = { normalize, ignoreFields, ignorePaths }
+
+    function computeFp(fpInput, output, recorder, fingerprintLevel, fingerprintMode, valuePaths, output_schema) {
+      if (fingerprintMode === 'schema') {
+        const schema = output_schema || extractSchema(output)
+        return fingerprint(fpInput, schema, fpConfig)
+      } else if (fingerprintMode === 'mixed') {
+        const schema = extractSchema(output)
+        const selectedValues = {}
+        for (const path of valuePaths) {
+          const key = path.replace(/^\$\./, '')
+          const parts = key.split('.')
+          let val = output
+          for (const p of parts) { val = val?.[p] }
+          if (val !== undefined) selectedValues[path] = val
+        }
+        return fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+      } else {
+        return fingerprintLevel === 'entry'
+          ? fingerprint(fpInput, output, fpConfig)
+          : fingerprintSequence(recorder, fpConfig)
+      }
+    }
+
+    // ─── Helper: apply outputTransform ─────────────────────────────────────
+    async function applyOutputTransform(consumedOutput, outputTransform) {
+      if (!outputTransform) return consumedOutput
+      if (outputTransform === 'str') {
+        if (Array.isArray(consumedOutput)) {
+          return consumedOutput.map(item => String(item))
+        }
+        return String(consumedOutput)
+      } else if (outputTransform === 'json') {
+        if (Array.isArray(consumedOutput)) {
+          return consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
+        }
+        return JSON.parse(JSON.stringify(consumedOutput))
+      } else if (outputTransform === 'keys') {
+        if (consumedOutput && typeof consumedOutput === 'object') {
+          return Object.keys(consumedOutput)
+        }
+      } else if (outputTransform.includes('.')) {
+        const lastDot = outputTransform.lastIndexOf('.')
+        const modPath = outputTransform.slice(0, lastDot)
+        const fnName = outputTransform.slice(lastDot + 1)
+        try {
+          const customMod = await import(resolve(process.cwd(), modPath))
+          return customMod[fnName](consumedOutput)
+        } catch (e) {
+          throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
+        }
+      }
+      return consumedOutput
+    }
+
+    // ─── Helper: consume iterators/generators ──────────────────────────────
+    function consumeIterator(rawOutput) {
+      let consumedOutput = rawOutput
+      if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
+          typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
+          !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
+        consumedOutput = [...rawOutput]
+      }
+      return consumedOutput
+    }
+
+    if (storeDispatch) {
+      // ── storeDispatch mode ────────────────────────────────────────────────
+      // For state management stores (Redux, Vuex, DispatchingStore, Zustand):
+      // Import the store, optionally reset to initialState, dispatch the action,
+      // and fingerprint the resulting state.
+      //
+      // Manifest fields:
+      //   storeDispatch: { store: "storeName", action: "actionName" }
+      //   initialState: { ... }  — optional state to reset before each dispatch
+      //
+      // The flow is:
+      //   1. Import the module and find the store export
+      //   2. For each input: reset to initialState (if provided), dispatch(action, input)
+      //   3. Fingerprint the store's new state as the output
+      //   4. Watches track any functions called during dispatch (if applicable)
+      const storeExport = rawModule[storeDispatch.store] ?? rawModule.default?.[storeDispatch.store]
+      if (!storeExport) {
+        throw new Error(`Store "${storeDispatch.store}" not found in ${file}`)
+      }
+
+      // Detect store type and extract dispatch/value methods
+      let dispatchFn, getStateFn, storeType
+      if (typeof storeExport.dispatch === 'function' && typeof storeExport.value !== 'undefined') {
+        // DispatchingStore pattern (Hoppscotch): store.dispatch(action, payload), store.value
+        dispatchFn = storeExport.dispatch.bind(storeExport)
+        getStateFn = () => storeExport.value
+        storeType = 'dispatching'
+      } else if (typeof storeExport.dispatch === 'function' && typeof storeExport.getState === 'function') {
+        // Redux-like pattern: store.dispatch({type, payload}), store.getState()
+        dispatchFn = storeExport.dispatch.bind(storeExport)
+        getStateFn = storeExport.getState
+        storeType = 'redux'
+      } else if (typeof storeExport.setState === 'function') {
+        // Zustand pattern: store.setState(partial), store.getState()
+        dispatchFn = storeExport.setState.bind(storeExport)
+        getStateFn = () => storeExport.getState()
+        storeType = 'zustand'
+      } else {
+        throw new Error(`Store "${storeDispatch.store}" does not match any known store pattern (DispatchingStore, Redux, Zustand). Ensure the store has dispatch/getState or setState/getState methods.`)
+      }
+
+      console.log(`   Store type: ${storeType}`)
+
+      for (const input of testInputs) {
+        recorder.length = 0
+
+        // Reset to initialState if provided
+        if (initialState) {
+          if (storeType === 'dispatching') {
+            // DispatchingStore: replace the current subject value
+            if (typeof storeExport.subject?.next === 'function') {
+              storeExport.subject.next(deepClone(initialState))
+            } else {
+              console.warn(`   ⚠️  Cannot reset DispatchingStore — no accessible subject. State may be dirty.`)
+            }
+          } else if (storeType === 'redux') {
+            // Redux: no standard reset, warn
+            console.warn(`   ⚠️  initialState reset not supported for Redux stores. State may be dirty.`)
+          } else if (storeType === 'zustand') {
+            storeExport.setState(deepClone(initialState), true /* replace */)
+          }
+        }
+
+        const inputForRecord = deepClone(input)
+        const inputForArgs = deepClone(input)
+
+        // Dispatch the action
+        if (storeType === 'redux') {
+          // Redux: dispatch expects { type, payload }
+          dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
+        } else if (storeType === 'dispatching') {
+          // DispatchingStore: dispatch(actionName, payload)
+          dispatchFn(storeDispatch.action, inputForArgs)
+        } else if (storeType === 'zustand') {
+          // Zustand: setState with partial
+          dispatchFn(inputForArgs)
+        }
+
+        const rawOutput = getStateFn()
+        let consumedOutput = consumeIterator(rawOutput)
+        let transformedOutput = await applyOutputTransform(consumedOutput, outputTransform)
+        const output = deepClone(transformedOutput)
+
+        const fpInput = inputForRecord
+
+        let fp
+        if (fingerprintMode === 'schema') {
+          const schema = extractSchema(output)
+          fp = fingerprint(fpInput, schema, fpConfig)
+        } else if (fingerprintMode === 'mixed') {
+          const schema = extractSchema(output)
+          const selectedValues = {}
+          for (const path of valuePaths) {
+            const key = path.replace(/^\$\./, '')
+            const parts = key.split('.')
+            let val = output
+            for (const p of parts) { val = val?.[p] }
+            if (val !== undefined) selectedValues[path] = val
+          }
+          fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+        } else {
+          fp = fingerprintLevel === 'entry'
+            ? fingerprint(fpInput, output, fpConfig)
+            : fingerprintSequence(recorder, fpConfig)
+        }
+
+        results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
+      }
+    } else if (classMethod) {
       // ── Class-based entry ────────────────────────────────────────────────
       const Cls = rawModule[constructorName ?? entry] ?? rawModule.default?.[constructorName ?? entry]
       if (typeof Cls !== 'function') {
@@ -213,7 +392,7 @@ for (const cluster of clusters) {
         let fp
         if (fingerprintMode === 'schema') {
           const schema = extractSchema(output)
-          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+          fp = fingerprint(fpInput, schema, fpConfig)
         } else if (fingerprintMode === 'mixed') {
           const schema = extractSchema(output)
           const selectedValues = {}
@@ -224,11 +403,11 @@ for (const cluster of clusters) {
             for (const p of parts) { val = val?.[p] }
             if (val !== undefined) selectedValues[path] = val
           }
-          fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
+          fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, output, { normalize, ignoreFields })
-            : fingerprintSequence(recorder, { normalize, ignoreFields })
+            ? fingerprint(fpInput, output, fpConfig)
+            : fingerprintSequence(recorder, fpConfig)
         }
 
         results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
@@ -329,7 +508,7 @@ for (const cluster of clusters) {
         let fp
         if (fingerprintMode === 'schema') {
           const schema = extractSchema(output)
-          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+          fp = fingerprint(fpInput, schema, fpConfig)
         } else if (fingerprintMode === 'mixed') {
           const schema = extractSchema(output)
           const selectedValues = {}
@@ -340,11 +519,11 @@ for (const cluster of clusters) {
             for (const p of parts) { val = val?.[p] }
             if (val !== undefined) selectedValues[path] = val
           }
-          fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
+          fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, output, { normalize, ignoreFields })
-            : fingerprintSequence(recorder, { normalize, ignoreFields })
+            ? fingerprint(fpInput, output, fpConfig)
+            : fingerprintSequence(recorder, fpConfig)
         }
 
         results.push({ input: inputForRecord, output, fp, calls: [...recorder] })
@@ -402,14 +581,17 @@ for (const cluster of clusters) {
       `fingerprint: ${fp}`,
       `captured: ${timestamp}`,
       `watches: [${watches.join(', ')}]`,
-      classMethod ? `constructor: ${constructorName ?? entry}` : `entry: ${entry}`,
-      classMethod ? `classMethod: ${classMethod}` : null,
+      storeDispatch ? `store: ${storeDispatch.store}` : (classMethod ? `constructor: ${constructorName ?? entry}` : `entry: ${entry}`),
+      storeDispatch ? `dispatch: ${storeDispatch.action}` : null,
+      classMethod && !storeDispatch ? `classMethod: ${classMethod}` : null,
       `stack: ${stack ?? 'js'}`,
       `fingerprintLevel: ${fingerprintLevel}`,
       fingerprintMode !== 'value' ? `fingerprintMode: ${fingerprintMode}` : null,
       valuePaths.length ? `valuePaths: [${valuePaths.join(', ')}]` : null,
       normalize.length ? `normalize: [${normalize.join(', ')}]` : null,
       ignoreFields.length ? `ignoreFields: [${ignoreFields.join(', ')}]` : null,
+      ignorePaths.length ? `ignorePaths: [${ignorePaths.join(', ')}]` : null,
+      initialState ? `initialState: ${JSON.stringify(initialState)}` : null,
       outputTransform ? `outputTransform: ${outputTransform}` : null,
       constructorArgs?.length ? `constructorArgs: ${JSON.stringify(constructorArgs)}` : null,
       setup?.length ? `setup: ${JSON.stringify(setup)}` : null,

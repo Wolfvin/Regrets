@@ -111,6 +111,13 @@ const IMPURITY_PATTERNS_TS = [
   /\buseLayoutEffect\b/,        // React hooks (side effects)
   /\buseRef\b/,                 // React ref (mutable)
   /\buseState\b/,               // React state (not pure)
+  /\bBehaviorSubject\b/,        // RxJS stateful subject
+  /\bnew Subject\b/,            // RxJS subject creation
+  /\bObservable\b/,             // RxJS observable
+  /\.subscribe\b/,              // RxJS subscription (side effect)
+  /\.next\(/,                   // RxJS/iterator emission (side effect)
+  /\bgetService\b/,             // DI container resolution (impure)
+  /\bdefineDispatchers\b/,      // Store dispatch pattern (contains pure dispatchers)
 ]
 
 const IMPURITY_PATTERNS_PY = [
@@ -203,6 +210,17 @@ function extractFunctions(source, ext) {
   // Export type/interface (for reference only)
   const typeExports = source.matchAll(/export\s+(?:type|interface)\s+(\w+)/g)
   for (const m of typeExports) fns.push(`[type] ${m[1]}`)
+
+  // DispatchingStore pattern: dispatcher functions inside defineDispatchers()
+  // e.g., defineDispatchers({ setSetting: (state, payload) => ({...}) })
+  const dispatcherMatches = source.matchAll(/(\w+)\s*:\s*\(\s*\w+\s*,\s*\w+\s*\)\s*=>\s*\{/g)
+  for (const m of dispatcherMatches) {
+    // Only include if inside a defineDispatchers or similar context
+    const contextBefore = source.slice(Math.max(0, m.index - 500), m.index)
+    if (/defineDispatchers|Dispatchers\s*=\s*\{/.test(contextBefore)) {
+      fns.push(`[dispatcher] ${m[1]}`)
+    }
+  }
 
   return [...new Set(fns)]
 }
@@ -333,16 +351,26 @@ function analyzeFile(filePath, projectRoot) {
 
   // Filter out type-only exports for function count
   const realFunctions = functions.filter(f => !f.startsWith('[type] '))
+  const dispatcherFunctions = functions.filter(f => f.startsWith('[dispatcher] '))
 
   // Analyze purity of each function
   const functionAnalysis = []
   for (const fn of realFunctions) {
-    const purity = analyzeFunctionPurity(source, fn, ext)
-    functionAnalysis.push({
-      name: fn,
-      pure: purity.pure,
-      reason: purity.reason,
-    })
+    if (fn.startsWith('[dispatcher] ')) {
+      // Dispatchers are pure by definition: (state, payload) => Partial<state>
+      functionAnalysis.push({
+        name: fn,
+        pure: true,
+        reason: 'store dispatcher (pure by contract)',
+      })
+    } else {
+      const purity = analyzeFunctionPurity(source, fn, ext)
+      functionAnalysis.push({
+        name: fn,
+        pure: purity.pure,
+        reason: purity.reason,
+      })
+    }
   }
 
   const pureFunctions = functionAnalysis.filter(f => f.pure).map(f => f.name)
@@ -361,6 +389,7 @@ function analyzeFile(filePath, projectRoot) {
     importList: imports,
     exports: realFunctions.length,
     exportList: realFunctions,
+    dispatcherCount: dispatcherFunctions.length,
     typeExports: functions.filter(f => f.startsWith('[type] ')).length,
     pureFunctions,
     pureFunctionCount: pureFunctions.length,
