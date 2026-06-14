@@ -394,9 +394,19 @@ def main():
                     called_fns.add(call['fn'])
             uncalled_watches = [w for w in watches if w not in called_fns]
             if uncalled_watches:
-                print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(uncalled_watches)}")
-                print(f"      The fingerprint may be based on incomplete data.")
-                print(f"      Consider splitting into separate clusters or adjusting the entry function.")
+                # When entry == watches (common for pure functions), the ghost proxy
+                # wraps the watched function but entry_fn may bypass it. This is
+                # expected — the fingerprint is still correct because it captures
+                # the input/output pair. Only warn if the watch is NOT the entry.
+                non_entry_uncalled = [w for w in uncalled_watches if w != entry]
+                if non_entry_uncalled:
+                    print(f"   ⚠️  Watched function(s) never called during capture: {', '.join(non_entry_uncalled)}")
+                    print(f"      The fingerprint may be based on incomplete data.")
+                    print(f"      Consider splitting into separate clusters or adjusting the entry function.")
+                elif uncalled_watches and entry in uncalled_watches and len(uncalled_watches) == 1:
+                    # Entry function was called directly, not through ghost proxy.
+                    # This is normal for pure functions where entry == watches.
+                    pass  # No warning needed — fingerprint is correct
 
             # Warn about private entry functions with fingerprintLevel=full
             # Ghost proxy skips attributes starting with _, so it can't wrap them

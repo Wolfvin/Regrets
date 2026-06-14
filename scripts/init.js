@@ -13,6 +13,9 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
+const stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
+  ?? args[args.indexOf('--stack') + 1]
+  ?? 'js'
 
 // ─── Target paths ─────────────────────────────────────────────────────────────
 
@@ -20,25 +23,63 @@ const regretsDir  = resolve(process.cwd(), 'regrets')
 const manifestPath = join(regretsDir, 'manifest.json')
 const gitkeepPath  = join(regretsDir, '.gitkeep')
 
-// ─── Manifest template ────────────────────────────────────────────────────────
+// ─── Manifest templates by stack ──────────────────────────────────────────────
 
-const manifestTemplate = {
-  clusters: [
-    {
-      id: 'example-cluster',
-      entry: 'myFunction',
-      watches: ['myFunction', 'myHelper'],
-      file: 'src/my-module.js',
-      stack: 'js',
-      fingerprintLevel: 'entry',
-      description: 'Example cluster — replace with your actual cluster definitions',
-      inputs: [
-        { sample: 'input-1' },
-        null
-      ]
-    }
-  ]
+const templates = {
+  js: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'myFunction',
+        watches: ['myFunction', 'myHelper'],
+        file: 'src/my-module.js',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        description: 'Example cluster — replace with your actual cluster definitions',
+        inputs: [
+          { sample: 'input-1' },
+          null
+        ]
+      }
+    ]
+  },
+  python: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'my_function',
+        watches: ['my_function'],
+        module: 'my_package.my_module',
+        stack: 'python',
+        pythonPath: '.',
+        description: 'Example Python cluster — replace with your actual cluster definitions',
+        inputs: [
+          'sample_input_1',
+          null
+        ]
+      }
+    ]
+  },
+  ts: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'myFunction',
+        watches: ['myFunction', 'myHelper'],
+        file: 'src/my-module.ts',
+        stack: 'ts',
+        fingerprintLevel: 'entry',
+        description: 'Example TypeScript cluster — replace with your actual cluster definitions',
+        inputs: [
+          { sample: 'input-1' },
+          null
+        ]
+      }
+    ]
+  }
 }
+
+const manifestTemplate = templates[stack] || templates.js
 
 // ─── Pre-flight check ─────────────────────────────────────────────────────────
 
@@ -85,14 +126,17 @@ try {
 // ─── Success ──────────────────────────────────────────────────────────────────
 
 console.log()
-console.log(`✅ regrets/ directory scaffolded successfully!`)
+console.log(`✅ regrets/ directory scaffolded successfully! (stack: ${stack})`)
 console.log()
 console.log(`Next steps:`)
 console.log(`  1. Edit regrets/manifest.json — replace the example cluster with your actual cluster definitions`)
-console.log(`  2. Set cluster fields: id, entry, watches, file, stack, inputs`)
-console.log(`  3. Run: npm run regret:build     (compile TypeScript if needed)`)
-console.log(`  4. Run: npm run regret:capture   (capture behavioral fingerprints)`)
-console.log(`  5. Run: npm run regret:drift      (5 runs — ensure all STABLE)`)
-console.log(`  6. Run: npm run regret:health     (check cluster health scores)`)
+if (stack === 'python') {
+  console.log(`  2. Set cluster fields: id, entry, watches, module, stack, pythonPath, inputs`)
+} else {
+  console.log(`  2. Set cluster fields: id, entry, watches, file, stack, inputs`)
+}
+console.log(`  3. Run: npm run regret:capture   (capture behavioral fingerprints)`)
+console.log(`  4. Run: npm run regret:drift      (5 runs — ensure all STABLE)`)
+console.log(`  5. Run: npm run regret:health     (check cluster health scores)`)
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)
