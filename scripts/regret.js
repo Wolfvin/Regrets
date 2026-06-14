@@ -440,6 +440,9 @@ Usage:
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
   --json              Output in machine-readable JSON (validate, health, coverage, scan)
+  --quiet             Only print summary line (capture, validate)
+  --verbose           Print extra detail — inputs, outputs, call traces (capture, validate)
+                      --quiet and --verbose are mutually exclusive (quiet wins)
 
 Capture flags:
   --only-new          Only capture clusters that don't yet have a .regret file
