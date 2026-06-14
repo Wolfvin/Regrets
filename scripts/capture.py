@@ -81,12 +81,17 @@ def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
     Supported transforms:
-    - "str":     Convert each element to its string representation
-    - "repr":    Convert each element to its repr representation
-    - "dict":    Convert each element using dict(obj) or obj.__dict__
-    - "json":    Attempt obj.to_json() or json.dumps(obj)
-    - "len":     Return len(obj) — useful for large collections
-    - "type":    Return type names of elements
+    - "str":      Convert each element to its string representation
+    - "repr":     Convert each element to its repr representation
+    - "dict":     Convert each element using dict(obj) or obj.__dict__
+    - "snapshot": Deep recursive class-to-dict conversion using snapshot_state().
+                  Walks through nested class instances and converts them all to
+                  JSON-serializable dicts with __class__ tags. This is essential for
+                  libraries like musicpy where chord/scale/note objects contain other
+                  class instances inside lists.
+    - "json":     Attempt obj.to_json() or json.dumps(obj)
+    - "len":      Return len(obj) — useful for large collections
+    - "type":     Return type names of elements
     - "module.fn": Import and call module.fn(output) for custom transforms
 
     When output is a tuple, it is first converted to a list.
@@ -121,6 +126,16 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'snapshot':
+            # Deep recursive class-to-dict conversion using snapshot_state().
+            # This is the key transform for class-heavy libraries like musicpy
+            # where output objects contain nested class instances (e.g., chord
+            # objects contain lists of note objects, which themselves have
+            # __dict__ attributes). Unlike "dict" which only does a shallow
+            # __dict__ conversion (leaving nested class instances as unhashable
+            # objects), "snapshot" recursively walks through all nested objects
+            # and converts them to JSON-serializable dicts with __class__ tags.
+            return snapshot_state(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -316,7 +331,7 @@ def main():
             #   setup: [{ method, args }, ...]     — setup calls before the target method
 
             if class_method:
-                Cls = getattr(mod, constructor_name, None)
+                Cls = getattr(mod, constructor_name, None) or getattr(mod, entry, None)
                 if Cls is None or not isinstance(Cls, type):
                     raise TypeError(
                         f"Constructor \"{constructor_name}\" not found or not a class in {module_path}"
@@ -599,6 +614,7 @@ def main():
                 lines.append(f"entry: {entry}")
             lines.append("stack: python")
             lines.append(f"fingerprintLevel: {fingerprint_level}")
+
             if fingerprint_mode != 'value':
                 lines.append(f"fingerprintMode: {fingerprint_mode}")
             if value_paths:
@@ -615,6 +631,8 @@ def main():
                 lines.append(f"module: {module_path}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
+            if class_method:
+                lines.append(f"classMethod: {class_method}")
             if materialize_output_flag:
                 lines.append("materializeOutput: true")
             if track_mutation:

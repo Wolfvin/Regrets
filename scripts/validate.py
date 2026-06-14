@@ -103,6 +103,8 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'snapshot':
+            return snapshot_state(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -417,6 +419,10 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
+            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
+            constructor_name = regret.get('constructor') or cluster_def.get('constructor', entry_name)
+            constructor_args = regret.get('constructorArgs') or cluster_def.get('constructorArgs', [])
+            setup_steps = regret.get('setup') or cluster_def.get('setup', [])
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -455,7 +461,7 @@ def main():
 
                 if class_method:
                     # ── classMethod mode: fresh instance per input ──────────
-                    Cls = getattr(mod, constructor_name, None)
+                    Cls = getattr(mod, constructor_name, None) or getattr(mod, entry_name, None)
                     if Cls is None or not isinstance(Cls, type):
                         raise TypeError(f"Constructor \"{constructor_name}\" not found or not a class in {module_path}")
 

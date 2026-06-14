@@ -217,6 +217,29 @@ def deep_clone(val):
             return deep_clone(val.to_dict())
         except Exception:
             pass
+    # Handle arbitrary class instances via __dict__ attribute snapshot
+    # This captures the data fields of objects that don't implement to_dict()
+    # or get_val_d(). The type name is included so that two different classes
+    # with the same attribute values produce different fingerprints.
+    # Example: musicpy.note(name='C', num=4) → {"__type__": "note", "base_name": "C", ...}
+    if hasattr(val, '__dict__') and not isinstance(val, type):
+        try:
+            snapshot = {'__type__': type(val).__name__}
+            for k, v in vars(val).items():
+                snapshot[k] = deep_clone(v)
+            return snapshot
+        except Exception:
+            pass
+    # Handle class instances with __slots__ (no __dict__) — use dir()-based scan
+    if hasattr(val, '__slots__') and not hasattr(val, '__dict__'):
+        try:
+            snapshot = {'__type__': type(val).__name__}
+            for slot in val.__slots__:
+                if hasattr(val, slot):
+                    snapshot[slot] = deep_clone(getattr(val, slot))
+            return snapshot
+        except Exception:
+            pass
     # Primitives: return as-is
     if isinstance(val, (int, float, str, bool)) or val is None:
         return val
