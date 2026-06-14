@@ -132,6 +132,36 @@ def _numpy_array_summary(arr):
     return summary
 
 
+def apply_input_transform(input_val, transform):
+    """Apply an inputTransform to convert JSON-safe input to the actual function input type.
+
+    See capture.py for full documentation.
+    """
+    if transform is None:
+        return input_val
+
+    if transform == 'hex_to_bytes':
+        if isinstance(input_val, str):
+            return bytes.fromhex(input_val)
+        if isinstance(input_val, list):
+            return [bytes.fromhex(v) if isinstance(v, str) else v for v in input_val]
+        return input_val
+
+    elif transform == 'list_to_bytes':
+        if isinstance(input_val, list):
+            if all(isinstance(v, int) for v in input_val):
+                return bytes(input_val)
+            return [bytes(v) if isinstance(v, list) and all(isinstance(x, int) for x in v) else v for v in input_val]
+        return input_val
+
+    elif transform == 'list_of_hex_to_bytes':
+        if isinstance(input_val, list):
+            return [bytes.fromhex(v) if isinstance(v, str) else v for v in input_val]
+        return input_val
+
+    return input_val
+
+
 def apply_output_transform(output, transform):
     """Apply an outputTransform to convert complex objects to fingerprintable form.
 
@@ -242,6 +272,8 @@ def parse_regret(content):
                 meta['setup'] = json.loads(val)
             except (json.JSONDecodeError, ValueError):
                 meta['setup'] = val
+        elif key == 'inputTransform':
+            meta['inputTransform'] = val
         else:
             meta[key] = val
 
@@ -493,6 +525,7 @@ def main():
             constructor_args = regret.get('constructorArgs', cluster_def.get('constructorArgs', []))
             setup_steps = regret.get('setup', cluster_def.get('setup', []))
             isolate_globals = cluster_def.get('isolateGlobals', None)
+            input_transform = regret.get('inputTransform', cluster_def.get('inputTransform', None))
 
             # Check environment snapshot if present in .regret file
             regret_env = regret.get('env')
@@ -637,6 +670,10 @@ def main():
                         # Deep-clone input before calling to prevent mutation from corrupting fingerprint
                         input_for_fp = deep_clone(current_input)
                         input_for_args = deep_clone(current_input)
+
+                        # Apply input transform if specified (e.g., hex_to_bytes for bytes-argument functions)
+                        if input_transform:
+                            input_for_args = apply_input_transform(input_for_args, input_transform)
 
                         # Snapshot input state BEFORE call (for mutation tracking)
                         input_snapshot_before = None
