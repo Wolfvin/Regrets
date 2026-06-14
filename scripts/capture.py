@@ -166,6 +166,12 @@ def apply_output_transform(output, transform):
             return str(obj)
         elif transform == 'repr':
             return repr(obj)
+        elif transform == 'isoformat':
+            # Convert datetime/date/time objects to ISO 8601 strings.
+            # Recommended for libraries returning datetime objects.
+            if hasattr(obj, 'isoformat') and callable(obj.isoformat):
+                return obj.isoformat()
+            return str(obj)
         elif transform == 'dict':
             if hasattr(obj, 'to_dict') and callable(obj.to_dict):
                 return obj.to_dict()
@@ -309,7 +315,7 @@ def main():
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
         track_mutation = cluster.get('trackMutation', False)
-        max_yields = cluster.get('maxYields', None)
+        max_yields = cluster.get('maxYields', cluster.get('materializeLimit', None))
         freeze_time_str = cluster.get('freezeTime', None)
         track_state_attrs = cluster.get('trackState', None)  # list of attr names to track on the entry object
 

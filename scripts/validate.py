@@ -141,6 +141,10 @@ def apply_output_transform(output, transform):
             return str(obj)
         elif transform == 'repr':
             return repr(obj)
+        elif transform == 'isoformat':
+            if hasattr(obj, 'isoformat') and callable(obj.isoformat):
+                return obj.isoformat()
+            return str(obj)
         elif transform == 'dict':
             if hasattr(obj, 'to_dict') and callable(obj.to_dict):
                 return obj.to_dict()
@@ -438,7 +442,7 @@ def main():
             output_transform = regret.get('outputTransform') or cluster_def.get('outputTransform', None)
             materialize_output_flag = regret.get('materializeOutput', cluster_def.get('materializeOutput', False))
             track_mutation = regret.get('trackMutation', cluster_def.get('trackMutation', False))
-            max_yields = regret.get('maxYields', cluster_def.get('maxYields', None))
+            max_yields = regret.get('maxYields', cluster_def.get('maxYields', cluster_def.get('materializeLimit', None)))
             freeze_time_str = regret.get('freezeTime', cluster_def.get('freezeTime', None))
             track_state_attrs = regret.get('trackState', cluster_def.get('trackState', None))
             golden_state_fp = regret.get('stateFingerprint', None)

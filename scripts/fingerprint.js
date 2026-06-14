@@ -112,6 +112,15 @@ export function normalize(obj, rules = []) {
     return Array.from(obj).map(v => normalize(v, rules))
   }
   if (obj && typeof obj === 'object') {
+    // datetimeNow: replace serialized datetime dicts (from Python _serialize_datetime)
+    // that represent "now". This handles Python functions that default to datetime.now()
+    // (e.g. dateutil.parser.parse, dateutil.rrule.rrule).
+    if (rules.includes('datetimeNow') && obj.__datetime__) {
+      const todayISO = new Date().toISOString().slice(0, 10)
+      if (typeof obj.__datetime__ === 'string' && obj.__datetime__.startsWith(todayISO)) {
+        return { __datetime__: '<DATETIME_NOW>', fold: obj.fold || 0 }
+      }
+    }
     return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, normalize(v, rules)]))
   }
   return obj
