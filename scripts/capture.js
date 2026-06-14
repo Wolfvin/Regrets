@@ -7,8 +7,11 @@
 //   node scripts/capture.js
 //   node scripts/capture.js --cluster transform-user-data
 //   node scripts/capture.js --manifest ./regrets/manifest.json
+//   node scripts/capture.js --only-new
+//   node scripts/capture.js --stale [hours]          (default: 24)
+//   node scripts/capture.js --only-new --stale 48
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
@@ -25,6 +28,17 @@ const clusterFilter = args.includes('--cluster') ? args[args.indexOf('--cluster'
 const manifestPath  = args.includes('--manifest') ? args[args.indexOf('--manifest') + 1] : undefined
   ?? resolve(process.cwd(), 'regrets/manifest.json')
 
+// Incremental capture flags
+const onlyNew    = args.includes('--only-new')
+let   staleHours = null
+if (args.includes('--stale')) {
+  const staleIdx = args.indexOf('--stale')
+  const nextArg  = args[staleIdx + 1]
+  staleHours = (nextArg && !nextArg.startsWith('-') && !isNaN(Number(nextArg)))
+    ? Number(nextArg)
+    : 24  // default: 24 hours
+}
+
 // ─── Load manifest ────────────────────────────────────────────────────────────
 
 let manifest
@@ -36,13 +50,93 @@ try {
   process.exit(1)
 }
 
-const clusters = clusterFilter
+let clusters = clusterFilter
   ? manifest.clusters.filter(c => c.id === clusterFilter)
   : manifest.clusters
 
+// ─── Incremental filtering (--only-new / --stale) ──────────────────────────────
+// When --cluster is set, it overrides --only-new and --stale entirely.
+// When neither --only-new nor --stale is set, behavior is unchanged (capture all).
+
+if (!clusterFilter && (onlyNew || staleHours !== null)) {
+  const outDirForFilter = resolve(process.cwd(), 'regrets')
+  const filteredClusters = []
+  let skippedExisting = 0  // skipped by --only-new (have .regret, no --stale to override)
+  let skippedFresh    = 0  // skipped by --stale (have .regret, fresh enough)
+  let staleCount      = 0  // re-captured because stale
+  let newCount        = 0  // captured because no .regret exists
+
+  for (const cluster of clusters) {
+    const regretPath = join(outDirForFilter, `${cluster.id}.regret`)
+    const hasRegret  = existsSync(regretPath)
+
+    if (!hasRegret) {
+      // No .regret file → always capture (it's new)
+      newCount++
+      filteredClusters.push(cluster)
+      continue
+    }
+
+    // Has a .regret file — decide whether to skip or re-capture
+    if (staleHours !== null) {
+      // --stale is set: check timestamp
+      try {
+        const content      = readFileSync(regretPath, 'utf8')
+        const capturedMatch = content.match(/^captured:\s*(.+)$/m)
+        if (capturedMatch) {
+          const capturedDate = new Date(capturedMatch[1])
+          const now          = new Date()
+          const ageHours     = (now - capturedDate) / (1000 * 60 * 60)
+          if (ageHours <= staleHours) {
+            // Fresh enough → skip
+            skippedFresh++
+            continue
+          }
+          // Too old → re-capture
+          staleCount++
+        }
+      } catch {
+        // Can't read/parse the file — treat as stale so it gets re-captured
+        staleCount++
+      }
+      filteredClusters.push(cluster)
+    } else if (onlyNew) {
+      // --only-new without --stale: skip all clusters with existing .regret
+      skippedExisting++
+    } else {
+      filteredClusters.push(cluster)
+    }
+  }
+
+  // Print summary messages matching the spec
+  if (onlyNew && !staleHours) {
+    if (skippedExisting > 0) {
+      console.log(`Skipping ${skippedExisting} existing clusters. Capturing ${newCount} new clusters.`)
+    } else {
+      console.log(`No existing clusters to skip. Capturing all ${filteredClusters.length} clusters.`)
+    }
+  }
+  if (staleHours !== null) {
+    if (staleCount > 0) {
+      console.log(`Re-capturing ${staleCount} stale clusters (>${staleHours}h). Skipping ${skippedFresh} fresh clusters.`)
+    } else {
+      console.log(`No stale clusters found (all captured within ${staleHours}h). Skipping ${skippedFresh} fresh clusters.`)
+    }
+    if (newCount > 0 && onlyNew) {
+      console.log(`Capturing ${newCount} new clusters (no .regret file).`)
+    }
+  }
+
+  clusters = filteredClusters
+}
+
 if (!clusters.length) {
-  console.error(`❌ No clusters found${clusterFilter ? ` matching "${clusterFilter}"` : ''}`)
-  process.exit(1)
+  if (clusterFilter) {
+    console.error(`❌ No clusters found matching "${clusterFilter}"`)
+    process.exit(1)
+  }
+  console.log(`✅ Nothing to capture — all clusters are up-to-date.`)
+  process.exit(0)
 }
 
 // Ghost Proxy and deepClone imported from ghost.js

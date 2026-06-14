@@ -404,6 +404,8 @@ regret.js — Unified Regret Runner
 Usage:
   node scripts/regret.js init [--stack js|python|php|go]  Initialize regrets/ directory
   node scripts/regret.js capture [--cluster <id>]     Capture fingerprints
+                                 [--only-new]          Only capture clusters without .regret files
+                                 [--stale [hours]]     Re-capture clusters older than N hours (default: 24)
   node scripts/regret.js validate [--cluster <id>]    Validate against golden
   node scripts/regret.js health [--sort fragile]      Health report
   node scripts/regret.js update <id> --reason "..."   Safe update with audit trail
@@ -430,6 +432,12 @@ Usage:
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
   --json              Output in machine-readable JSON (validate, health, coverage, scan)
+
+Capture flags:
+  --only-new          Only capture clusters that don't yet have a .regret file
+  --stale [hours]     Re-capture clusters whose .regret is older than N hours (default: 24)
+  --cluster <id>      Capture a specific cluster (overrides --only-new / --stale)
+  These flags can be combined: --only-new --stale 48
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js
