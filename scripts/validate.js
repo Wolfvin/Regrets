@@ -147,6 +147,11 @@ function parseRegret(content) {
 function clone(v) { return deepClone(v) }
 
 // ─── JSON Diff — recursive comparison of golden vs live output ───────────────
+// Returns diff entries with type classification:
+//   'changed'      (~) value differs, same type
+//   'added'        (+) key/index exists only in live
+//   'removed'      (-) key/index exists only in golden
+//   'type_changed' (>) same key, different types
 
 function jsonDiff(golden, live, prefix = '') {
   const diffs = []
@@ -154,9 +159,19 @@ function jsonDiff(golden, live, prefix = '') {
   // Both null/undefined
   if (golden == null && live == null) return diffs
 
-  // Type mismatch
+  // One is null/undefined, the other is not → added or removed
+  if (golden == null && live != null) {
+    diffs.push({ path: prefix || '(root)', type: 'added', live })
+    return diffs
+  }
+  if (golden != null && live == null) {
+    diffs.push({ path: prefix || '(root)', type: 'removed', golden })
+    return diffs
+  }
+
+  // Type mismatch → type_changed
   if (typeof golden !== typeof live) {
-    diffs.push({ path: prefix || '(root)', golden: truncate(String(golden)), live: truncate(String(live)) })
+    diffs.push({ path: prefix || '(root)', type: 'type_changed', golden, live })
     return diffs
   }
 
@@ -166,7 +181,7 @@ function jsonDiff(golden, live, prefix = '') {
   // String comparison
   if (typeof golden === 'string') {
     if (golden !== live) {
-      diffs.push({ path: prefix || '(root)', golden: truncate(golden), live: truncate(live) })
+      diffs.push({ path: prefix || '(root)', type: 'changed', golden, live })
     }
     return diffs
   }
@@ -174,7 +189,7 @@ function jsonDiff(golden, live, prefix = '') {
   // Number comparison (handle NaN)
   if (typeof golden === 'number') {
     if (Number.isNaN(golden) !== Number.isNaN(live) || golden !== live) {
-      diffs.push({ path: prefix || '(root)', golden: String(golden), live: String(live) })
+      diffs.push({ path: prefix || '(root)', type: 'changed', golden, live })
     }
     return diffs
   }
@@ -182,7 +197,7 @@ function jsonDiff(golden, live, prefix = '') {
   // Boolean
   if (typeof golden === 'boolean') {
     if (golden !== live) {
-      diffs.push({ path: prefix || '(root)', golden: String(golden), live: String(live) })
+      diffs.push({ path: prefix || '(root)', type: 'changed', golden, live })
     }
     return diffs
   }
@@ -190,16 +205,16 @@ function jsonDiff(golden, live, prefix = '') {
   // Array comparison
   if (Array.isArray(golden) || Array.isArray(live)) {
     if (!Array.isArray(golden) || !Array.isArray(live)) {
-      diffs.push({ path: prefix || '(root)', golden: truncate(JSON.stringify(golden)), live: truncate(JSON.stringify(live)) })
+      diffs.push({ path: prefix || '(root)', type: 'type_changed', golden, live })
       return diffs
     }
     const maxLen = Math.max(golden.length, live.length)
     for (let i = 0; i < maxLen; i++) {
       const subPrefix = prefix ? `${prefix}[${i}]` : `[${i}]`
       if (i >= golden.length) {
-        diffs.push({ path: subPrefix, golden: '(missing)', live: truncate(JSON.stringify(live[i])) })
+        diffs.push({ path: subPrefix, type: 'added', live: live[i] })
       } else if (i >= live.length) {
-        diffs.push({ path: subPrefix, golden: truncate(JSON.stringify(golden[i])), live: '(missing)' })
+        diffs.push({ path: subPrefix, type: 'removed', golden: golden[i] })
       } else {
         diffs.push(...jsonDiff(golden[i], live[i], subPrefix))
       }
@@ -213,9 +228,9 @@ function jsonDiff(golden, live, prefix = '') {
     for (const key of allKeys) {
       const subPrefix = prefix ? `${prefix}.${key}` : key
       if (!(key in golden)) {
-        diffs.push({ path: subPrefix, golden: '(missing)', live: truncate(JSON.stringify(live[key])) })
+        diffs.push({ path: subPrefix, type: 'added', live: live[key] })
       } else if (!(key in live)) {
-        diffs.push({ path: subPrefix, golden: truncate(JSON.stringify(golden[key])), live: '(missing)' })
+        diffs.push({ path: subPrefix, type: 'removed', golden: golden[key] })
       } else {
         diffs.push(...jsonDiff(golden[key], live[key], subPrefix))
       }
@@ -226,13 +241,23 @@ function jsonDiff(golden, live, prefix = '') {
   return diffs
 }
 
-function truncate(str) {
-  if (typeof str !== 'string') str = String(str)
-  if (str.length > 200) return str.slice(0, 200) + '...'
+const DIFF_SYMBOLS = {
+  changed:      '~',
+  added:        '+',
+  removed:      '-',
+  type_changed: '>',
+}
+
+function truncateDiffValue(val, maxLen) {
+  if (val === undefined || val === null) return String(val)
+  const str = typeof val === 'string' ? val : JSON.stringify(val)
+  if (str.length > maxLen) return str.slice(0, maxLen) + '\u2026'
   return str
 }
 
-function formatDiffOutput(goldenOutput, liveOutput) {
+function formatDiffOutput(goldenOutput, liveOutput, opts = {}) {
+  const maxValLen = opts.verbose ? Infinity : 60
+
   // Try JSON diff first
   let goldenObj, liveObj
   try {
@@ -245,23 +270,29 @@ function formatDiffOutput(goldenOutput, liveOutput) {
   // Both parseable as JSON → structured diff
   if (goldenObj !== null && liveObj !== null) {
     const diffs = jsonDiff(goldenObj, liveObj)
-    if (diffs.length === 0) return null  // no diff found (shouldn't happen if hashes differ)
+    if (diffs.length === 0) return null  // no diff found
 
     const lines = []
-    lines.push(`     Expected: ${truncate(JSON.stringify(goldenObj))}`)
-    lines.push(`     Actual:   ${truncate(JSON.stringify(liveObj))}`)
-    lines.push('     Diff:')
     for (const d of diffs) {
-      lines.push(`       ${d.path}: ${d.golden} → ${d.live}`)
+      const sym = DIFF_SYMBOLS[d.type]
+      if (d.type === 'added') {
+        lines.push(`   ${sym} ${d.path}: ${truncateDiffValue(d.live, maxValLen)}`)
+      } else if (d.type === 'removed') {
+        lines.push(`   ${sym} ${d.path}: ${truncateDiffValue(d.golden, maxValLen)}`)
+      } else {
+        // 'changed' or 'type_changed'
+        lines.push(`   ${sym} ${d.path}: ${truncateDiffValue(d.golden, maxValLen)} \u2192 ${truncateDiffValue(d.live, maxValLen)}`)
+      }
     }
+    lines.push('   Legend: ~ = changed, + = added, - = removed, > = type changed')
     return lines.join('\n')
   }
 
-  // Fallback: string diff for non-JSON output
-  const gStr = truncate(JSON.stringify(goldenOutput))
-  const lStr = truncate(JSON.stringify(liveOutput))
+  // Fallback: non-JSON output (string, number, etc.)
+  const gStr = truncateDiffValue(goldenOutput, maxValLen)
+  const lStr = truncateDiffValue(liveOutput, maxValLen)
   if (gStr === lStr) return null
-  return `     Expected: ${gStr}\n     Actual:   ${lStr}`
+  return `   ~ (root): ${gStr} \u2192 ${lStr}`
 }
 
 // ─── Load manifest ────────────────────────────────────────────────────────────
@@ -929,7 +960,7 @@ for (const file of regretFiles) {
         if (!jsonOutput && !quiet) {
           console.log(`  ❌ ${id.padEnd(35)} DRIFT  [${hashes.join(' / ')}]`)
           if (!noDiff && regret.output != null && lastOutput != null) {
-            const diff = formatDiffOutput(regret.output, lastOutput)
+            const diff = formatDiffOutput(regret.output, lastOutput, { verbose })
             if (diff) console.log(diff)
           }
         }
@@ -939,7 +970,7 @@ for (const file of regretFiles) {
           const icon = isMatch ? '✅' : '❌'
           console.log(`  ${icon} ${id.padEnd(35)} ${liveHash}  × ${runs}  ${isMatch ? 'PASS+STABLE' : 'FAIL'}`)
           if (!isMatch && !noDiff && regret.output != null && lastOutput != null) {
-            const diff = formatDiffOutput(regret.output, lastOutput)
+            const diff = formatDiffOutput(regret.output, lastOutput, { verbose })
             if (diff) console.log(diff)
           }
         }
@@ -951,7 +982,7 @@ for (const file of regretFiles) {
         const hstr = isMatch ? regret.goldenHash : `${regret.goldenHash} → ${liveHash}`
         console.log(`  ${icon} ${id.padEnd(35)} ${hstr.padEnd(22)} ${isMatch ? 'PASS' : 'FAIL'}`)
         if (!isMatch && !noDiff && regret.output != null && lastOutput != null) {
-          const diff = formatDiffOutput(regret.output, lastOutput)
+          const diff = formatDiffOutput(regret.output, lastOutput, { verbose })
           if (diff) console.log(diff)
         }
       }
@@ -1047,7 +1078,6 @@ if (reporter === 'junit') {
         ...(r.drift ? { drift: true } : {}),
         ...(r.updated ? { updated: true } : {}),
         ...(r.mutationMismatch ? { mutationMismatch: true, mutationDetected: r.mutationDetected } : {}),
-        ...(!noDiff && !r.pass && r.goldenOutput != null && r.liveOutput != null ? (() => { try { return { diff: jsonDiff(typeof r.goldenOutput === 'string' ? JSON.parse(r.goldenOutput) : r.goldenOutput, typeof r.liveOutput === 'string' ? JSON.parse(r.liveOutput) : r.liveOutput) } } catch { return {} } })() : {}),
       }))
   }
   console.log(JSON.stringify(jsonResult, null, 0))
@@ -1089,9 +1119,10 @@ if (reporter === 'junit') {
     console.log(`  • ${r.id}`)
     if (r.error) console.log(`    ${r.error}`)
     else if (r.mutationMismatch) console.log(`    Mutation fingerprint mismatch — function's input mutation behavior changed`)
-    else console.log(`    Expected: ${r.expected || r.golden}  Got: ${r.actual || r.live}`)
+    else if (r.expected && r.actual) console.log(`    Expected: ${r.expected}  Got: ${r.actual}`)
+    else if (r.drift) console.log(`    Drift detected — hashes vary across runs`)
     if (!noDiff && r.goldenOutput != null && r.liveOutput != null) {
-      const diff = formatDiffOutput(r.goldenOutput, r.liveOutput)
+      const diff = formatDiffOutput(r.goldenOutput, r.liveOutput, { verbose })
       if (diff) console.log(diff)
     }
   })
