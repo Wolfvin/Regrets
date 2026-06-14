@@ -195,6 +195,12 @@ switch (command) {
   }
 
   case 'ci': {
+    if (passThroughArgs.includes('--init')) {
+      // Generate GitHub Actions workflow file
+      const ciArgs = passThroughArgs.filter(a => a !== '--init')
+      success = run('node', [`${SCRIPTS_DIR}/ci-init.js`, ...ciArgs])
+      break
+    }
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react') {
@@ -426,6 +432,7 @@ Usage:
   node scripts/regret.js update <id> --reason "..."   Safe update with audit trail
   node scripts/regret.js drift [--cluster <id>]       Drift detection (5 runs)
   node scripts/regret.js ci                            CI mode (fail-fast)
+  node scripts/regret.js ci --init [--force]           Generate GitHub Actions workflow
   node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
   node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
   node scripts/regret.js list                       List all clusters with status

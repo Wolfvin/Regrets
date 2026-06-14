@@ -9,6 +9,7 @@
 //   node scripts/validate.js --no-diff
 //   node scripts/validate.js --quiet           Only print summary line
 //   node scripts/validate.js --verbose         Print extra detail (input, output, calls)
+//   node scripts/validate.js --reporter junit
 
 import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync } from 'fs'
 import { createHash } from 'crypto'
@@ -37,6 +38,7 @@ const regretDir     = resolve(process.cwd(), 'regrets')
 const auditLog      = join(regretDir, 'audit.log')
 const jsonOutput    = args.includes('--json')
 const noDiff        = args.includes('--no-diff')
+const reporter      = getArg(args, '--reporter') ?? null  // 'junit' | null
 
 // ─── --quiet / --verbose flags ─────────────────────────────────────────────────
 
@@ -800,6 +802,9 @@ else                console.log(`\n🔍 Validating ${regretFiles.length} cluster
 
 const results = []
 
+// Track start time for JUnit XML time field
+globalThis._validateStartTime = Date.now()
+
 for (const file of regretFiles) {
   const id         = basename(file, '.regret')
   const regretPath = join(regretDir, file)
@@ -887,13 +892,69 @@ for (const file of regretFiles) {
   }
 }
 
+// ─── JUnit XML output ─────────────────────────────────────────────────────────
+
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+function generateJUnitXml(results) {
+  const activeResults = results.filter(r => !r.skipped)
+  const tests = activeResults.length
+  const failures = activeResults.filter(r => !r.pass).length
+  const time = (Date.now() - (globalThis._validateStartTime ?? Date.now())) / 1000
+
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+  xml += `<testsuite name="regrets" tests="${tests}" failures="${failures}" time="${time.toFixed(3)}">\n`
+
+  for (const r of activeResults) {
+    xml += `  <testcase classname="regrets" name="${escapeXml(r.id)}" time="0.000">`
+    if (!r.pass) {
+      const message = r.error
+        ? escapeXml(r.error)
+        : r.drift
+          ? `Drift detected: hashes vary across runs`
+          : `Fingerprint mismatch: expected ${r.expected ?? 'unknown'}, got ${r.actual ?? 'unknown'}`
+      xml += `\n    <failure message="${escapeXml(message)}">${escapeXml(message)}</failure>\n  `
+    }
+    xml += `</testcase>\n`
+  }
+
+  xml += '</testsuite>\n'
+  return xml
+}
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
 const passed  = results.filter(r => r.pass).length
 const failed  = results.filter(r => !r.pass).length
 const drifted = results.filter(r => r.drift).length
 
-if (jsonOutput) {
+if (reporter === 'junit') {
+  // Write JUnit XML to regrets/results.xml
+  const junitXml = generateJUnitXml(results)
+  const resultsPath = join(regretDir, 'results.xml')
+  try {
+    writeFileSync(resultsPath, junitXml, 'utf8')
+  } catch (err) {
+    console.error(`❌ Failed to write JUnit XML: ${err.message}`)
+    process.exit(1)
+  }
+  // Still show console output
+  console.log(`\n${'─'.repeat(60)}`)
+  if (failed === 0) {
+    console.log(`✅ All ${passed} tests passed. Refactor is safe.`)
+  } else {
+    console.log(`❌ ${failed}/${results.length} FAILED.`)
+  }
+  console.log(`\n📊 JUnit XML written to: ${resultsPath}`)
+  process.exit(failed > 0 ? 1 : 0)
+} else if (jsonOutput) {
   // JSON output mode
   const jsonResult = {
     passed,
