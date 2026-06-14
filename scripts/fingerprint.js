@@ -81,6 +81,19 @@ export function normalize(obj, rules = []) {
     if (rules.includes('floatPrecision')) {
       return obj.replace(/^-?(\d+)\.0+$/, '$1')
     }
+    // timezoneOffsets: replace UTC offset strings like +05:30, -04:00, +00:00, Z
+    // This is critical for time-based iterators that produce timezone-dependent output.
+    // E.g., "2025-01-15T10:30:00+05:30" → "2025-01-15T10:30:00<TZ_OFFSET>"
+    if (rules.includes('timezoneOffsets')) {
+      return obj.replace(/[Zz]|[+-]\d{2}:\d{2}/g, '<TZ_OFFSET>')
+    }
+    // isoDates: replace ISO 8601 date strings entirely with a placeholder.
+    // This removes all date sensitivity, leaving only the structure to verify.
+    // E.g., "2025-01-15T10:30:00.000Z" → "<ISO_DATE>"
+    // E.g., "2025-01-15" → "<ISO_DATE>"
+    if (rules.includes('isoDates')) {
+      return obj.replace(/\d{4}-\d{2}-\d{2}(T[\d:.]+(?:[Zz]|[+-]\d{2}:\d{2})?)?/g, '<ISO_DATE>')
+    }
   }
   if (typeof obj === 'number') {
     if (rules.includes('epochs') && obj > 1_000_000_000 && obj < 9_999_999_999_999) {
