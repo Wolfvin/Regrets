@@ -21,6 +21,7 @@ Create `regrets/manifest.json` inside the target project:
 ```json
 {"preBuild":"npx tsc -p tsconfig.json","clusters":[{
   "id":"kebab-name","entry":"fnName","watches":["fn1","fn2"],
+  "sideEffectWatches":["db.insert","emailService.sendWelcome"],
   "file":"path/to/compiled.js","stack":"js",
   "fingerprintLevel":"entry",
   "inputs":[{"key":"value"},null],
@@ -28,6 +29,11 @@ Create `regrets/manifest.json` inside the target project:
 ```
 
 Required: `id`, `entry`, `watches`, `file` (JS) or `module` (Python), `stack`, `inputs`.
+Optional: `sideEffectWatches` — array of dot-notation paths to side-effect functions
+(e.g., `"db.insert"` = `rawModule.db.insert`). These functions are wrapped with a
+Proxy recorder during capture and validation. Their calls (function name, args,
+call count) are included in the fingerprint, so dropped or changed side effects
+are detected even when the return value is unchanged.
 Python: use `module` + `pythonPath` instead of `file`. React: add `renderMode: "static"`.
 Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
 Stack: `js` | `ts` | `css` | `python` | `rust` | `react` | `go` | `php` | `extension`.
@@ -59,7 +65,10 @@ Use `__expectThrow` to declare that a specific input MUST cause the function to 
 
 ```
   ✅ transform-user-data     9jadb                  PASS       ← single run
-  ❌ fetch-invoice           x7k2m → ff33z          FAIL
+  ❌ fetch-invoice           x7k2k → ff33z          FAIL
+    side effect dropped: emailService.sendWelcome (was called 1x, now 0x)  ← sideEffectWatches
+  ❌ create-order            a1b2c → d4e5f          FAIL
+    side effect args changed: db.insert call[0].[0].role "user" → "admin"
   ✅ compute-total           x7k2m  × 5  PASS+STABLE           ← drift mode
   ❌ fetch-invoice           x7k2m / ff3z           DRIFT
   ✅ transform-user-data     9jadb → x3kp1  UPDATED            ← update mode

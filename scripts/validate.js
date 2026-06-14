@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync, o
 import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
 import { pathToFileURL, fileURLToPath } from 'url'
-import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
+import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify, normalize as fpNormalize, stripFields } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
@@ -180,6 +180,9 @@ export function parseRegret(content) {
     else if (key === 'singletonName') meta.singletonName = val
     else if (key === 'dispatch') meta.dispatch = val
     else if (key === 'expectThrow') meta.expectThrow = val === 'true'
+    else if (key === 'sideEffectWatches') {
+      try { meta.sideEffectWatches = JSON.parse(val) } catch { meta.sideEffectWatches = [] }
+    }
     else meta[key] = val
   }
   const lines = dataSection?.split('\n') ?? []
@@ -208,6 +211,12 @@ export function parseRegret(content) {
   // Parse MUTATION_BEFORE/AFTER lines
   const mutationBeforeLine = lines.find(l => l.startsWith('MUTATION_BEFORE '))
   const mutationAfterLine = lines.find(l => l.startsWith('MUTATION_AFTER '))
+  // Parse SIDE_EFFECTS line
+  const sideEffectsLine = lines.find(l => l.startsWith('SIDE_EFFECTS '))
+  let goldenSideEffects = null
+  if (sideEffectsLine) {
+    try { goldenSideEffects = JSON.parse(sideEffectsLine.replace(/^SIDE_EFFECTS\s+/, '')) } catch { goldenSideEffects = null }
+  }
   return {
     ...meta,
     input:      parsedInput,
@@ -216,6 +225,7 @@ export function parseRegret(content) {
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
     mutationBefore: mutationBeforeLine ? JSON.parse(mutationBeforeLine.replace(/^MUTATION_BEFORE\s+/, '')) : null,
     mutationAfter:  mutationAfterLine  ? JSON.parse(mutationAfterLine.replace(/^MUTATION_AFTER\s+/, ''))   : null,
+    goldenSideEffects,
     raw:        content
   }
 }
@@ -520,7 +530,8 @@ export async function runCluster(clusterDef, regret, options = {}) {
           classMethod, constructor: constructorName, constructorArgs, setup,
           instanceMethods = {}, outputTransform: manifestOutputTransform = null,
           resetState, deepCloneInput = true, seed, singletonMethod, singletonName,
-          storeDispatch, initialState } = clusterDef
+          storeDispatch, initialState,
+          sideEffectWatches = [] } = clusterDef
   const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
   // trackMutation: check from .regret metadata first, then cluster config
   const trackMutation = regret.trackMutation || clusterDef.trackMutation || false
@@ -560,10 +571,101 @@ export async function runCluster(clusterDef, regret, options = {}) {
   // Handle CJS modules — merge default exports for consistent access
   mod = mergeCjsModule(mod)
 
+  // ─── sideEffectWatches: wrap side-effect methods with Proxy recorder ──────
+  // Same logic as capture.js — must be applied in both places for consistent fingerprinting
+  const seWatchPaths = regret.sideEffectWatches || sideEffectWatches
+  const sideEffectRecorder = []
+  const sideEffectRestores = []
+
+  for (const sePath of seWatchPaths) {
+    const parts = sePath.split('.')
+    if (parts.length > 2) continue  // v1: only 2-level paths
+    const [objName, methodName] = parts
+    const parentObj = mod[objName]
+    if (!parentObj || typeof parentObj !== 'object') {
+      console.warn(`  ⚠️  sideEffectWatch "${sePath}": object "${objName}" not found — skipping`)
+      continue
+    }
+    if (methodName) {
+      const original = parentObj[methodName]
+      if (typeof original !== 'function') {
+        console.warn(`  ⚠️  sideEffectWatch "${sePath}": "${methodName}" is not a function — skipping`)
+        continue
+      }
+      sideEffectRestores.push({ obj: parentObj, key: methodName, original })
+      parentObj[methodName] = new Proxy(original, {
+        apply(target, thisArg, args) {
+          let result
+          try { result = target.apply(thisArg, args) } catch (err) {
+            sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+            throw err
+          }
+          if (result && typeof result.then === 'function') {
+            return result.then(resolved => {
+              sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(resolved) })
+              return resolved
+            }).catch(err => {
+              sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+              throw err
+            })
+          }
+          sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(result) })
+          return result
+        }
+      })
+    } else {
+      const original = mod[objName]
+      if (typeof original !== 'function') continue
+      sideEffectRestores.push({ obj: mod, key: objName, original })
+      mod[objName] = new Proxy(original, {
+        apply(target, thisArg, args) {
+          let result
+          try { result = target.apply(thisArg, args) } catch (err) {
+            sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+            throw err
+          }
+          if (result && typeof result.then === 'function') {
+            return result.then(resolved => {
+              sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(resolved) })
+              return resolved
+            }).catch(err => {
+              sideEffectRecorder.push({ fn: sePath, args: deepClone(args), error: String(err) })
+              throw err
+            })
+          }
+          sideEffectRecorder.push({ fn: sePath, args: deepClone(args), result: deepClone(result) })
+          return result
+        }
+      })
+    }
+  }
+
+  /**
+   * Compute side-effect signature and merge into output for fingerprint computation.
+   * Same logic as capture.js for consistent fingerprinting.
+   */
+  function computeSideEffectSignature(seRecorder) {
+    if (!seRecorder || seRecorder.length === 0) return null
+    const normalized = seRecorder.map((call, idx) => ({
+      fn: call.fn,
+      args: stripFields(fpNormalize(deepClone(call.args), normalize), ignoreFields, ignorePaths),
+      callIndex: idx,
+    }))
+    normalized.sort((a, b) => a.fn.localeCompare(b.fn) || a.callIndex - b.callIndex)
+    return { sideEffects: normalized }
+  }
+
+  function maybeMergeSideEffects(outputVal) {
+    const seSig = computeSideEffectSignature(sideEffectRecorder)
+    if (!seSig) return outputVal
+    return { output: outputVal, sideEffects: seSig.sideEffects }
+  }
+
   const hashes = []           // flat list of all hashes (for backward compat)
   const hashesPerInput = {}   // { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
   let lastOutput = null
   let lastErrorContract = null  // expectThrow: error contract from last run
+  let lastSideEffectRecording = []  // side effect calls from last run (for diff display)
   // trackMutation: collect mutation fingerprints across all runs/inputs
   let mutationMatch = true
   let mutationDetected = false
@@ -582,6 +684,7 @@ export async function runCluster(clusterDef, regret, options = {}) {
   for (let i = 0; i < runCount; i++) {
     for (const currentInput of inputsToValidate) {
       const recorder = []
+      sideEffectRecorder.length = 0  // clear side effect recordings for each input
       let output
       let fpInput
 
@@ -873,10 +976,13 @@ export async function runCluster(clusterDef, regret, options = {}) {
         fp = fingerprint(fpInput, combined, fpConfig)
       } else {
         fp = fingerprintLevel === 'entry'
-          ? fingerprint(fpInput, output, fpConfig)
+          ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
           : fingerprintSequence(recorder, fpConfig)
       }
       hashes.push(fp)
+
+      // Save side effect recording for diff display on FAIL
+      lastSideEffectRecording = [...sideEffectRecorder]
 
       // Track per-input hashes for drift detection
       const inputKey = JSON.stringify(currentInput)
@@ -884,7 +990,12 @@ export async function runCluster(clusterDef, regret, options = {}) {
       hashesPerInput[inputKey].push(fp)
     } // end for each input
   } // end for each run
-  return { hashes, hashesPerInput, lastOutput, lastErrorContract, mutationMatch, mutationDetected, liveMutationFingerprint }
+  // Restore original side-effect-watched methods
+  for (const { obj, key, original } of sideEffectRestores) {
+    obj[key] = original
+  }
+
+  return { hashes, hashesPerInput, lastOutput, lastErrorContract, mutationMatch, mutationDetected, liveMutationFingerprint, lastSideEffectRecording, goldenSideEffects: regret.goldenSideEffects }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -979,7 +1090,22 @@ function reconstructRegret(structure, updates) {
   return [...updatedMeta, '---', ...updatedData].join('\n')
 }
 
-function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
+/**
+ * Compute side effect signature for use in updateRegret.
+ * Shared logic with the same function in runCluster.
+ */
+function computeSideEffectSignatureForUpdate(seRecorder, normalizeRules = [], ignoreFieldsList = [], ignorePathsList = []) {
+  if (!seRecorder || seRecorder.length === 0) return { sideEffects: [] }
+  const normalized = seRecorder.map((call, idx) => ({
+    fn: call.fn,
+    args: stripFields(fpNormalize(deepClone(call.args), normalizeRules), ignoreFieldsList, ignorePathsList),
+    callIndex: idx,
+  }))
+  normalized.sort((a, b) => a.fn.localeCompare(b.fn) || a.callIndex - b.callIndex)
+  return { sideEffects: normalized }
+}
+
+function updateRegret(regretPath, regret, newHash, liveOutput, reason, liveSideEffects = null) {
   const oldHash = regret.goldenHash
   const now = new Date().toISOString()
   // Sanitize reason: replace newlines to prevent audit.log corruption
@@ -990,14 +1116,31 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
     : liveOutput
 
   const structure = parseRegretStructure(regret.raw)
-  const newContent = reconstructRegret(structure, {
+
+  // Build update object
+  const updates = {
     meta: {
       fingerprint: newHash,
       captured: now,
     },
     output: `OUTPUT ${JSON.stringify(serializableOutput)}`,
     hash: `HASH   ${newHash}`,
-  })
+  }
+
+  // Update SIDE_EFFECTS line if the .regret file has one and we have new side effects
+  if (regret.goldenSideEffects && liveSideEffects !== null) {
+    // Find and replace the SIDE_EFFECTS line in dataLines
+    const seIdx = structure.dataLines.findIndex(l => l.startsWith('SIDE_EFFECTS '))
+    if (seIdx !== -1) {
+      // Compute new side effect signature from live recording
+      const seSig = liveSideEffects.length > 0
+        ? computeSideEffectSignatureForUpdate(liveSideEffects, regret.normalize ?? [], regret.ignoreFields ?? [], regret.ignorePaths ?? [])
+        : { sideEffects: [] }
+      structure.dataLines[seIdx] = `SIDE_EFFECTS ${JSON.stringify(seSig)}`
+    }
+  }
+
+  const newContent = reconstructRegret(structure, updates)
   const _regretLock = acquireLock(regretPath)
   try {
     writeFileSync(regretPath, newContent, 'utf8')
@@ -1070,6 +1213,71 @@ export function generateJUnitXml(results) {
   return xml
 }
 
+// ─── Side Effect Diff formatting ──────────────────────────────────────────────
+
+/**
+ * Format a side effect diff between golden and live recordings.
+ * Shows dropped side effects, added side effects, and changed args.
+ */
+export function formatSideEffectDiff(goldenSideEffects, liveSERecording, normalizeRules = [], ignoreFieldsList = [], ignorePathsList = []) {
+  if (!goldenSideEffects && (!liveSERecording || liveSERecording.length === 0)) return ''
+
+  const golden = goldenSideEffects?.sideEffects ?? []
+  const live = liveSERecording ?? []
+
+  // Build call counts by function name
+  const goldenCallsByFn = {}
+  for (const call of golden) {
+    goldenCallsByFn[call.fn] = goldenCallsByFn[call.fn] || []
+    goldenCallsByFn[call.fn].push(call)
+  }
+  const liveCallsByFn = {}
+  for (const call of live) {
+    liveCallsByFn[call.fn] = liveCallsByFn[call.fn] || []
+    liveCallsByFn[call.fn].push(call)
+  }
+
+  const allFns = new Set([...Object.keys(goldenCallsByFn), ...Object.keys(liveCallsByFn)])
+  const lines = []
+
+  for (const fn of [...allFns].sort()) {
+    const goldenCalls = goldenCallsByFn[fn] || []
+    const liveCalls = liveCallsByFn[fn] || []
+
+    if (goldenCalls.length > 0 && liveCalls.length === 0) {
+      // Side effect dropped entirely
+      lines.push(`    side effect dropped: ${fn} (was called ${goldenCalls.length}x, now 0x)`)
+    } else if (goldenCalls.length === 0 && liveCalls.length > 0) {
+      // New side effect appeared
+      lines.push(`    side effect added: ${fn} (was 0x, now called ${liveCalls.length}x)`)
+    } else if (goldenCalls.length !== liveCalls.length) {
+      // Call count changed
+      lines.push(`    side effect count changed: ${fn} (${goldenCalls.length}x → ${liveCalls.length}x)`)
+    }
+
+    // Compare args for matching calls
+    const minLen = Math.min(goldenCalls.length, liveCalls.length)
+    for (let idx = 0; idx < minLen; idx++) {
+      const gArgs = stripFields(fpNormalize(goldenCalls[idx].args, normalizeRules), ignoreFieldsList, ignorePathsList)
+      const lArgs = stripFields(fpNormalize(deepClone(liveCalls[idx].args), normalizeRules), ignoreFieldsList, ignorePathsList)
+      const gStr = stableStringify(gArgs)
+      const lStr = stableStringify(lArgs)
+      if (gStr !== lStr) {
+        const diffs = jsonDiff(gArgs, lArgs)
+        for (const d of diffs) {
+          const truncate = (v, max = 60) => {
+            const s = JSON.stringify(v)
+            return s && s.length > max ? s.slice(0, max) + '…' : s
+          }
+          lines.push(`    side effect args changed: ${fn} call[${idx}].${d.path}: ${truncate(d.golden)} → ${truncate(d.live)}`)
+        }
+      }
+    }
+  }
+
+  return lines.length > 0 ? lines.join('\n') : ''
+}
+
 // ─── Main (CLI only) ──────────────────────────────────────────────────────────
 
 if (isMainModule) {
@@ -1103,7 +1311,9 @@ for (const file of regretFiles) {
     const { hashes, hashesPerInput, lastOutput, lastErrorContract, skipped,
             mutationMatch: clusterMutationMatch,
             mutationDetected: clusterMutationDetected,
-            liveMutationFingerprint: clusterLiveMutationFp } = await runCluster(def, regret)
+            liveMutationFingerprint: clusterLiveMutationFp,
+            lastSideEffectRecording: clusterLastSERecording,
+            goldenSideEffects: clusterGoldenSE } = await runCluster(def, regret)
     if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
 
     // ── trackMutation check: mutation mismatch takes priority over fingerprint match ──
@@ -1187,7 +1397,7 @@ for (const file of regretFiles) {
         if (!jsonOutput && !quiet) console.log(`  ℹ️  ${id.padEnd(35)} unchanged — no update needed`)
         results.push({ id, pass: true })
       } else {
-        const { oldHash, newHash } = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason)
+        const { oldHash, newHash } = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason, clusterLastSERecording)
         if (!jsonOutput && !quiet) console.log(`  ✅ ${id.padEnd(35)} ${oldHash} → ${newHash}  UPDATED`)
         results.push({ id, pass: true, updated: true })
       }
@@ -1209,6 +1419,10 @@ for (const file of regretFiles) {
             const diff = formatDiffOutput(regret.output, lastOutput, { verbose })
             if (diff) console.log(diff)
           }
+          if (!isMatch && clusterGoldenSE) {
+            const seDiff = formatSideEffectDiff(clusterGoldenSE, clusterLastSERecording, regret.normalize ?? [], regret.ignoreFields ?? [], regret.ignorePaths ?? [])
+            if (seDiff) console.log(seDiff)
+          }
         }
         results.push({ id, pass: isMatch, goldenOutput: regret.output, liveOutput: lastOutput })
       }
@@ -1220,6 +1434,11 @@ for (const file of regretFiles) {
         if (!isMatch && !noDiff && regret.output != null && lastOutput != null) {
           const diff = formatDiffOutput(regret.output, lastOutput, { verbose })
           if (diff) console.log(diff)
+        }
+        // Show side effect diff if applicable
+        if (!isMatch && clusterGoldenSE) {
+          const seDiff = formatSideEffectDiff(clusterGoldenSE, clusterLastSERecording, regret.normalize ?? [], regret.ignoreFields ?? [], regret.ignorePaths ?? [])
+          if (seDiff) console.log(seDiff)
         }
       }
       results.push({ id, pass: isMatch, expected: regret.goldenHash, actual: liveHash, goldenOutput: regret.output, liveOutput: lastOutput })
