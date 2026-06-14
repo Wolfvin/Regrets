@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 # health.py — cluster health score report for Python + all stacks
-# Reads audit.log + .regret files to score cluster stability
+# Reads audit.log + .regret files + manifest to score cluster stability.
+# Non-Python clusters are shown with a SKIP label since the Python runner
+# cannot load JS/PHP/Go modules, giving agents full visibility without
+# switching runners.
 #
 # Usage:
 #   python scripts/health.py
 #   python scripts/health.py --sort fragile
+#   python scripts/health.py --cluster my-cluster
 
 import sys
 import os
@@ -17,16 +21,20 @@ from datetime import datetime, timezone
 def parse_args():
     args = sys.argv[1:]
     sort_by = 'health'
+    cluster_filter = None
 
     i = 0
     while i < len(args):
         if args[i] == '--sort' and i + 1 < len(args):
             sort_by = args[i + 1]
             i += 2
+        elif args[i] == '--cluster' and i + 1 < len(args):
+            cluster_filter = args[i + 1]
+            i += 2
         else:
             i += 1
 
-    return sort_by
+    return sort_by, cluster_filter
 
 
 # ─── Parse audit.log ──────────────────────────────────────────────────────────
@@ -119,9 +127,23 @@ def health_label(score, *, is_new=False):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    sort_by = parse_args()
+    sort_by, cluster_filter = parse_args()
     regret_dir = os.path.join(os.getcwd(), 'regrets')
     audit_log = os.path.join(regret_dir, 'audit.log')
+
+    # Load manifest for cross-stack visibility
+    manifest_path = os.path.join(regret_dir, 'manifest.json')
+    manifest = {'clusters': []}
+    try:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            manifest = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # Build stack lookup: cluster-id -> stack
+    stack_map = {}
+    for c in manifest.get('clusters', []):
+        stack_map[c['id']] = c.get('stack', 'python')
 
     # Find .regret files
     try:
@@ -134,16 +156,37 @@ def main():
         print("No .regret files found. Nothing to report.")
         sys.exit(0)
 
+    # Apply --cluster filter
+    if cluster_filter:
+        regret_files = [f for f in regret_files if os.path.splitext(f)[0] == cluster_filter]
+        if not regret_files:
+            print(f"No .regret file found for cluster '{cluster_filter}'.")
+            sys.exit(1)
+
     audit_data = parse_audit_log(audit_log)
     now = datetime.now(timezone.utc).timestamp()
 
     clusters = []
+    skipped_clusters = []
     for f in regret_files:
         cluster_id = os.path.splitext(f)[0]
+        stack = stack_map.get(cluster_id, 'python')
+
+        # Read .regret metadata
         with open(os.path.join(regret_dir, f), 'r', encoding='utf-8') as fh:
             meta = parse_regret_meta(fh.read())
 
         audit = audit_data.get(cluster_id, {'updates': 0, 'drifts': 0, 'history': []})
+
+        # Non-Python stacks: show with SKIP label
+        if stack != 'python':
+            skipped_clusters.append({
+                'id': cluster_id,
+                'stack': stack,
+                'health': {'label': 'SKIP', 'bar': '░░░░░░', 'color': '⏭️',
+                           'note': f'[{"JS" if stack == "js" else "TS" if stack == "ts" else stack.upper()}] SKIP — use regret.js for non-Python stacks'},
+            })
+            continue
 
         captured_str = meta.get('captured', '')
         if captured_str:
@@ -204,6 +247,17 @@ def main():
             f"{c['health']['bar']} {c['health']['label']}{note}"
         )
 
+    # Show non-Python clusters with SKIP label
+    for c in skipped_clusters:
+        note = f"  {c['health']['note']}" if c['health'].get('note') else ''
+        print(
+            f"{c['id']:<{COL['id']}}"
+            f"{'—':<{COL['updates']}}"
+            f"{'—':<{COL['drifts']}}"
+            f"{'—':<{COL['age']}}"
+            f"{c['health']['bar']} {c['health']['label']}{note}"
+        )
+
     print('─' * 72)
 
     # ─── Legend ─────────────────────────────────────────────────────────────
@@ -214,6 +268,7 @@ def main():
     print('  🟢 GOOD     = minor changes, still healthy')
     print('  🟡 UNSTABLE = frequent changes, needs attention')
     print('  🔴 FRAGILE  = critical, high drift or update rate')
+    print('  ⏭️  SKIP     = non-Python stack — use regret.js for full health')
 
     # ─── Recommendations ──────────────────────────────────────────────────────
 
@@ -231,6 +286,11 @@ def main():
             print(f"  {c['id']:<{COL['id']}} → monitor closely, {c['updates']} update(s), {c['drifts']} drift(s)")
     else:
         print('\n✅ All clusters are healthy. Safe to refactor.')
+
+    if skipped_clusters:
+        print(f'\n⏭️  {len(skipped_clusters)} non-Python cluster(s) skipped:')
+        for c in skipped_clusters:
+            print(f"  {c['id']} (stack={c['stack']})")
 
     solid = [c for c in sorted_clusters if c['score'] >= 90 and not c.get('isNew')]
     if solid:
