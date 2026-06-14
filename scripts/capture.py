@@ -332,10 +332,12 @@ def main():
                     instance = Cls(*deep_clone(constructor_args))
 
                     # Apply ghost proxy to instance methods for watch recording
+                    # Uses the unbound __func__ so we can call unbound_fn(instance, *args)
+                    # and avoid double-binding (which would pass instance as a positional arg).
                     for watch_fn in watches:
                         orig_method = getattr(instance, watch_fn, None)
                         if orig_method is not None and callable(orig_method):
-                            bound = orig_method.__func__.__get__(instance, type(instance))
+                            unbound = orig_method.__func__  # raw function, not bound
                             def make_instance_ghost(orig, name, rec, inst):
                                 @wraps(orig)
                                 def wrapper(*args, **kwargs):
@@ -355,7 +357,7 @@ def main():
                                         })
                                         raise
                                 return wrapper
-                            setattr(instance, watch_fn, make_instance_ghost(bound, watch_fn, recorder_local, instance))
+                            setattr(instance, watch_fn, make_instance_ghost(unbound, watch_fn, recorder_local, instance))
 
                     # Run setup methods
                     for step in setup_steps:
@@ -411,7 +413,12 @@ def main():
                         print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
 
                 # Apply output transform if specified (e.g., "str" for Statement objects)
-                output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                # For "snapshot" transform, apply snapshot_state BEFORE deep_clone to ensure
+                # nested class instances are properly converted to dicts first.
+                if output_transform == 'snapshot':
+                    output_for_fp = deep_clone(snapshot_state(output))
+                else:
+                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
                 # Snapshot input state AFTER call (for mutation tracking)
                 input_snapshot_after = None
@@ -513,8 +520,6 @@ def main():
                 lines.append(f"module: {module_path}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
-            if class_method:
-                lines.append(f"classMethod: {class_method}")
             if materialize_output_flag:
                 lines.append("materializeOutput: true")
             if track_mutation:

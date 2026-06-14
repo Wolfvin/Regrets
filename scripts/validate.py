@@ -157,6 +157,16 @@ def parse_regret(content):
             meta['trackMutation'] = val.lower() == 'true'
         elif key == 'mutationFingerprint':
             meta['mutationFingerprint'] = val.strip()
+        elif key == 'constructorArgs':
+            try:
+                meta['constructorArgs'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['constructorArgs'] = val
+        elif key == 'setup':
+            try:
+                meta['setup'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['setup'] = val
         else:
             meta[key] = val
 
@@ -447,10 +457,12 @@ def main():
                         instance = Cls(*deep_clone(constructor_args))
 
                         # Apply ghost proxy to instance methods for watch recording
+                        # Uses the unbound __func__ so we can call unbound_fn(instance, *args)
+                        # and avoid double-binding (which would pass instance as a positional arg).
                         for watch_fn in (regret.get('watches', cluster_def.get('watches', []))):
                             orig_method = getattr(instance, watch_fn, None)
                             if orig_method is not None and callable(orig_method):
-                                bound = orig_method.__func__.__get__(instance, type(instance))
+                                unbound = orig_method.__func__  # raw function, not bound
                                 def make_instance_ghost(orig, name, rec, inst):
                                     @wraps(orig)
                                     def wrapper(*args, **kwargs):
@@ -462,7 +474,7 @@ def main():
                                             rec.append({'fn': name, 'args': deep_clone(args), 'error': str(err)})
                                             raise
                                     return wrapper
-                                setattr(instance, watch_fn, make_instance_ghost(bound, watch_fn, recorder, instance))
+                                setattr(instance, watch_fn, make_instance_ghost(unbound, watch_fn, recorder, instance))
 
                         # Run setup methods
                         for step in (setup_steps or []):
@@ -506,7 +518,11 @@ def main():
                         output = consume_generator(output)
 
                     # Apply output transform if specified
-                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                    # For "snapshot" transform, apply snapshot_state BEFORE deep_clone
+                    if output_transform == 'snapshot':
+                        output_for_fp = deep_clone(snapshot_state(output))
+                    else:
+                        output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
                     # Snapshot input state AFTER call (for mutation tracking)
                     mutation_match = True
