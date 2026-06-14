@@ -350,9 +350,23 @@ switch (command) {
     if (stacksForAudit.includes('python')) {
       success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
     } else {
-      // JS/TS audit — uses the new audit.js
       success = run('node', [`${SCRIPTS_DIR}/audit.js`, ...passThroughArgs])
     }
+    break
+  }
+
+  case 'analyze': {
+    success = run('python3', [`${SCRIPTS_DIR}/analyze.py`, ...passThroughArgs])
+    break
+  }
+
+  case 'diagnose': {
+    success = run('node', [`${SCRIPTS_DIR}/diagnose.js`, ...passThroughArgs])
+    break
+  }
+
+  case 'compare': {
+    success = run('node', [`${SCRIPTS_DIR}/compare.js`, ...passThroughArgs])
     break
   }
 
@@ -399,11 +413,14 @@ Usage:
   node scripts/regret.js list                       List all clusters with status
   node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python+PHP)
-  node scripts/regret.js truth                         Save dual truth baselines
+  node scripts/regret.js truth [--outdir <dir>]        Save dual truth baselines (JS+Python)
   node scripts/regret.js scan [--dir src/] [--stack]   Scan project for cluster suggestions
   node scripts/regret.js structure [--dir src/]        Structural analysis (God Objects, pure/impure, refactor priority)
   node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
   node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
+  node scripts/regret.js analyze [dir] [--json]        Deep structural analysis (god functions, duplicates)
+  node scripts/regret.js diagnose <file>                Diagnose module exports & recommend mode
+  node scripts/regret.js compare --pre <dir> --post <dir>  Compare pre vs post truth baselines
   node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
   node scripts/regret.js mutate-audit <path>            Detect functions that mutate input args
   node scripts/regret.js guard                         Pre-build gate
