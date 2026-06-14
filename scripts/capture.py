@@ -1117,11 +1117,16 @@ def main():
                     })
 
             # Warn about watched functions that were never called during capture
+            # Note: If the entry function is also in the watches list, it IS called
+            # (the ghost wrapper records it), but the recorder only captures calls
+            # made by watched functions to OTHER watched functions. The entry function
+            # call itself is recorded. So we should not warn about the entry function
+            # being "uncalled" — it was called, just not as an internal call.
             called_fns = set()
             for r in results:
                 for call in r['calls']:
                     called_fns.add(call['fn'])
-            uncalled_watches = [w for w in watches if w not in called_fns]
+            uncalled_watches = [w for w in watches if w not in called_fns and w != entry]
             if uncalled_watches:
                 # Self-watching is common for simple pure functions where entry == watch.
                 # In this case, the entry function IS the watch — it's called directly,
