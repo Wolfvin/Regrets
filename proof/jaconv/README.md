@@ -1,20 +1,63 @@
 # jaconv — Japanese Character Interconverter
 
-**Repository**: [ikegami-yukino/jaconv](https://github.com/ikegami-yukino/jaconv)  
-**Stack**: Python  
-**Clusters**: 14  
-**Status**: All SOLID
+## Library/Project
 
-## What is jaconv?
+| Field | Value |
+|-------|-------|
+| **Name** | jaconv |
+| **Repository** | [ikegami-yukino/jaconv](https://github.com/ikegami-yukino/jaconv) |
+| **Version/tag tested** | *(see manifest.json for commit)* |
+| **Stack** | Python |
+| **Domain** | Japanese character encoding conversion (Hiragana, Katakana, Hankaku/Zenkaku, Romaji, Julius) |
 
-jaconv is a pure-Python library for converting between Japanese character encodings: Hiragana, Katakana (full-width and half-width), Hankaku/Zenkaku ASCII and digits, Roman-input alphabets, and Julius speech recognizer phoneme format.
+## Challenge
 
-## Why This Repo?
+jaconv is a pure-Python library for converting between Japanese character encodings, presenting a fingerprinting challenge due to its niche domain far from typical CRUD/web apps. The codebase is a 959-line monolithic module with massive `replace()` chains, where every function is a pure string-in/string-out deterministic operation with no side effects. The refactoring challenge lies in decomposing this monolith into domain modules (kana, width, romaji, julius) while preserving the exact behavioral contract of 14 distinct conversion functions.
 
-- **Niche domain**: Japanese character encoding — far from typical CRUD/web apps
-- **Pure functions**: Every function is string-in → string-out, deterministic, no side effects
-- **Large codebase**: 959-line monolithic module with massive `replace()` chains
-- **Refactoring challenge**: Natural decomposition into domain modules (kana, width, romaji, julius)
+## Solution
+
+Direct fingerprinting — all functions are pure and deterministic, requiring no adapter pattern. The monolithic `jaconv.py` was decomposed into 6 domain-specific modules plus a facade that re-exports all public functions. Each cluster uses `fingerprintLevel: "entry"` to hash only the entry function's output. The `pythonPath: "."` manifest setting ensures the single-file module is importable.
+
+## Key Lessons
+
+1. **Nested function watch limitation**
+   When a function contains a nested helper (e.g., `_conv_dakuten` inside `h2z`), the Ghost Proxy cannot wrap it because it's not accessible at module level. Only add top-level module functions to `watches` — nested function names will be skipped with a misleading warning. Use `fingerprintLevel: "entry"` (default) for clusters with nested helpers.
+
+2. **Multi-args with keyword arguments**
+   The `h2z` and `z2h` functions accept keyword arguments (`kana=`, `ascii=`, `digit=`). The `multiArgs: true` pattern works when inputs are arrays spread as positional arguments, but boolean keyword arguments must be passed positionally in the input array for the ghost wrapper to capture them correctly.
+
+3. **Same entry, different clusters**
+   A single entry function (`h2z`) can appear in multiple clusters with different inputs and configurations. This is useful when the function has multiple behavioral modes (e.g., default kana-only vs. ascii+digit). Each cluster captures a distinct behavioral contract.
+
+4. **Monolith decomposition pattern**
+   A large single-file module can be decomposed by domain into smaller modules, with a facade file that re-exports all public functions. This preserves backward compatibility while allowing each domain to be maintained independently. The key is ensuring every re-export maps 1:1 to the original public API.
+
+## How to Reproduce
+
+```bash
+# 1. Clone the target library
+git clone https://github.com/ikegami-yukino/jaconv.git target-jaconv
+cd target-jaconv
+
+# 2. Install dependencies
+pip install .
+
+# 3. Copy the manifest into the project
+mkdir -p regrets
+cp /path/to/Regrets/proof/jaconv/manifest.json regrets/manifest.json
+
+# 4. Capture baseline (if not already captured)
+# node scripts/capture.js --manifest regrets/manifest.json
+
+# 5. Validate against KEBENARAN baselines
+# node scripts/validate.js --manifest regrets/manifest.json
+
+# 6. Verify fingerprints match
+# Compare output with proof/jaconv/KEBENARAN_1_raw_output.json
+# Compare fingerprints with proof/jaconv/KEBENARAN_2_fingerprints.json
+```
+
+---
 
 ## Clusters
 
@@ -35,7 +78,7 @@ jaconv is a pure-Python library for converting between Japanese character encodi
 | hiragana2julius | hiragana2julius | 3ckg83v |
 | enlarge-smallkana | enlarge_smallkana | 25poxfr |
 
-## Refactoring Proof
+### Refactoring Proof: Module Decomposition
 
 The monolithic `jaconv.py` (959 lines) was decomposed into 6 domain-specific modules:
 
@@ -49,24 +92,11 @@ The monolithic `jaconv.py` (959 lines) was decomposed into 6 domain-specific mod
 | julius_convert.py | 332 | hiragana2julius |
 | jaconv.py (facade) | 46 | Re-exports all public functions |
 
-### Triple Verification Results
+## Verification
 
-1. **Regrets validation**: All 14 clusters GREEN
-2. **Raw output comparison**: All 45 input/output pairs match KEBENARAN 1
-3. **Fingerprint cross-check**: All fingerprints match KEBENARAN 2 (5 runs, PASS+STABLE)
-
-## Lessons Learned
-
-### Nested Function Watch Limitation
-
-When a function contains a nested helper (e.g., `_conv_dakuten` inside `h2z`), the Ghost Proxy cannot wrap it because it's not accessible at module level. The capture.py correctly warns: `Watch target "_conv_dakuten" is not callable — skipping`.
-
-**Recommendation**: For clusters with nested helpers, use `fingerprintLevel: "entry"` (default) which only hashes the entry function's output. Avoid adding nested function names to `watches` — they will be skipped and the warning is misleading. Only add top-level module functions to `watches`.
-
-### Multi-Args with Keyword Arguments
-
-The `h2z` and `z2h` functions accept keyword arguments (`kana=`, `ascii=`, `digit=`). The `multiArgs: true` pattern works correctly when inputs are arrays that get spread as positional arguments. However, boolean keyword arguments must be passed positionally in the input array for the ghost wrapper to capture them correctly.
-
-### Same Entry, Different Clusters
-
-A single entry function (`h2z`) can appear in multiple clusters with different inputs and configurations. This is useful when the function has multiple behavioral modes (e.g., default kana-only vs. ascii+digit). Each cluster captures a distinct behavioral contract.
+| # | Method | Result |
+|---|--------|--------|
+| V1 | Cluster validate (all 14 GREEN) | PASS |
+| V2 | Raw output vs KEBENARAN 1 (45 pairs) | IDENTICAL |
+| V3 | Fingerprint match vs KEBENARAN 2 (5 runs, PASS+STABLE) | MATCH |
+| V4 | Chain hash match | N/A |
