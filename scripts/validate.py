@@ -239,6 +239,8 @@ def parse_args():
     result = {
         'cluster': None,
         'runs': 1,
+        'runs_explicit': False,  # whether --runs was explicitly provided via CLI
+        'drift_mode_flag': False,  # whether --drift-mode was passed (from regret drift)
         'update': None,
         'reason': None,
         'fail_fast': False,
@@ -250,13 +252,17 @@ def parse_args():
         if args[i] == '--cluster' and i + 1 < len(args):
             result['cluster'] = args[i + 1]; i += 2
         elif args[i] == '--runs' and i + 1 < len(args):
-            result['runs'] = int(args[i + 1]); i += 2
+            result['runs'] = int(args[i + 1]); result['runs_explicit'] = True; i += 2
         elif args[i] == '--update' and i + 1 < len(args):
             result['update'] = args[i + 1]; i += 2
         elif args[i] == '--reason' and i + 1 < len(args):
             result['reason'] = args[i + 1]; i += 2
         elif args[i] == '--fail-fast':
             result['fail_fast'] = True; i += 1
+        elif args[i] == '--drift-mode':
+            result['drift_mode_flag'] = True; i += 1
+            if not result['runs_explicit']:
+                result['runs'] = 5
         elif args[i] == '--manifest' and i + 1 < len(args):
             result['manifest'] = args[i + 1]; i += 2
         else:
@@ -930,6 +936,10 @@ def main():
             print(f"  ⚠️  {cluster_id}: not in manifest — skipping")
             continue
 
+        # Compute effective runs for this cluster:
+        # Priority: --runs CLI (explicit) > manifest driftRuns > default runs
+        effective_runs = cli['runs'] if cli['runs_explicit'] else cluster_def.get('driftRuns', cli['runs'])
+
         # Only validate Python clusters
         if cluster_def.get('stack') != 'python':
             print(f"  ⏭️  {cluster_id}: stack={cluster_def.get('stack', 'js')} — use JS validator")
@@ -992,7 +1002,7 @@ def main():
             effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
             effective_value_paths = regret.get('valuePaths') or value_paths or []
 
-            for _ in range(cli['runs']):
+            for _ in range(effective_runs):
                 # Global state isolation — snapshot before each run, restore after
                 saved_globals = None
                 if isolate_globals:
@@ -1470,7 +1480,7 @@ def main():
                     results.append({'id': cluster_id, 'pass': False, 'drift': True})
                 else:
                     icon = '✅' if is_match else '❌'
-                    print(f"  {icon} {cluster_id:<35} {live_hash}  × {cli['runs']}  {'PASS+STABLE' if is_match else 'FAIL'}")
+                    print(f"  {icon} {cluster_id:<35} {live_hash}  × {effective_runs}  {'PASS+STABLE' if is_match else 'FAIL'}")
                     results.append({'id': cluster_id, 'pass': is_match})
 
             else:

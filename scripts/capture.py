@@ -879,6 +879,7 @@ def main():
         constructor_args = cluster.get('constructorArgs', [])
         setup_fn = cluster.get('setup', None)
         instance_methods = cluster.get('instanceMethods', {})
+        detect_mode = cluster.get('detectMode', False)
 
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
@@ -922,6 +923,36 @@ def main():
                         print(f"      This happens when the project directory name matches the package name.")
                         print(f"      Fix: Run from a different directory, or use `pip install -e .`")
                         break
+
+            # ── detectMode: auto-infer execution mode from module structure ──────
+            # When detectMode: true is set in manifest, inspect module to infer
+            # the execution mode. This helps agents who are unsure which mode to use.
+            # If classMethod is already set, skip inference.
+            if detect_mode and not class_method:
+                entry_obj = getattr(mod, entry, None)
+                if entry_obj is not None and isinstance(entry_obj, type):
+                    # Entry is a class
+                    method_names = [m for m in dir(entry_obj)
+                                    if not m.startswith('_') and callable(getattr(entry_obj, m))]
+                    print(f'   ℹ️  Auto-detected mode: class-based (entry "{entry}" is a class)')
+                    if method_names:
+                        print(f'      Suggested: add "classMethod": "{method_names[0]}" to manifest')
+                        print(f'      Available methods: {", ".join(method_names)}')
+                elif entry_obj is not None and callable(entry_obj):
+                    # Entry is a function
+                    print(f'   ℹ️  Auto-detected mode: function-based (entry "{entry}" is a function)')
+                elif entry_obj is not None and isinstance(entry_obj, object):
+                    # Entry is an object — likely a singleton
+                    obj_methods = [m for m in dir(entry_obj)
+                                   if not m.startswith('_') and callable(getattr(entry_obj, m))]
+                    if obj_methods:
+                        print(f'   ℹ️  Auto-detected mode: singleton (entry "{entry}" is an object with methods)')
+                        print(f'      Suggested: add "singletonMethod": "{obj_methods[0]}" to manifest')
+                        print(f'      Available methods: {", ".join(obj_methods)}')
+                    else:
+                        print(f'   ℹ️  Auto-detected mode: unable to infer — entry "{entry}" is an object but has no callable methods')
+                else:
+                    print(f'   ℹ️  Auto-detected mode: unable to infer — entry "{entry}" not found in module')
 
             # ── classMethod mode ────────────────────────────────────────────
             # For class-based APIs: construct a fresh instance for each input,

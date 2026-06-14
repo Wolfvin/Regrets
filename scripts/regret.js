@@ -183,13 +183,18 @@ switch (command) {
 
   case 'drift': {
     const stacks = detectStacks()
+    // Pass --drift-mode so validate.js knows to use driftRuns || 5 as default
+    // If user explicitly provides --runs, it takes priority over driftRuns
+    const driftDefault = passThroughArgs.includes('--runs')
+      ? []  // user provided --runs, don't add default
+      : ['--drift-mode']
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--runs', '5', ...passThroughArgs]) && success
+        success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--runs', '5', ...passThroughArgs]) && success
+        success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'php') {
-        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--runs', '5', ...passThroughArgs]) && success
+        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
