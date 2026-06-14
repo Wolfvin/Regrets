@@ -541,7 +541,8 @@ export async function runCluster(clusterDef, regret, options = {}) {
           instanceMethods = {}, outputTransform: manifestOutputTransform = null,
           resetState, deepCloneInput = true, seed, singletonMethod, singletonName,
           storeDispatch, initialState,
-          sideEffectWatches = [] } = clusterDef
+          sideEffectWatches = [],
+          freezeTime = null, inputTransform = null, isolateGlobals = false } = clusterDef
   const materializeOutputFlag = regret.materializeOutput || clusterDef.materializeOutput || false
   // trackMutation: check from .regret metadata first, then cluster config
   const trackMutation = regret.trackMutation || clusterDef.trackMutation || false
@@ -865,6 +866,51 @@ export async function runCluster(clusterDef, regret, options = {}) {
       } else {
         // ── Function-based entry (original behavior) ──────────────────────
 
+        // ─── freezeTime: freeze Date during validation run ──────────────────
+        const OriginalDate = globalThis.Date
+        let dateFrozen = false
+        if (freezeTime) {
+          const frozenMs = new OriginalDate(freezeTime).getTime()
+          globalThis.Date = class extends OriginalDate {
+            constructor(...args) {
+              if (args.length > 0) return new OriginalDate(...args)
+              return new OriginalDate(frozenMs)
+            }
+            static now() { return frozenMs }
+            static parse(...a) { return OriginalDate.parse(...a) }
+            static UTC(...a) { return OriginalDate.UTC(...a) }
+          }
+          dateFrozen = true
+        }
+
+        // ─── inputTransform: transform inputs before calling entry ──────────
+        function applyInputTransformVal(inputVal, transform) {
+          if (!transform) return inputVal
+          if (transform === 'str') {
+            if (Array.isArray(inputVal)) return inputVal.map(v => String(v))
+            return String(inputVal)
+          }
+          if (transform === 'hex_to_bytes') {
+            if (typeof inputVal === 'string') return Buffer.from(inputVal, 'hex')
+            if (Array.isArray(inputVal)) return inputVal.map(v => typeof v === 'string' ? Buffer.from(v, 'hex') : v)
+            return inputVal
+          }
+          if (transform === 'list_to_bytes') {
+            if (Array.isArray(inputVal) && inputVal.every(v => typeof v === 'number')) return Buffer.from(inputVal)
+            if (Array.isArray(inputVal)) return inputVal.map(v => Array.isArray(v) && v.every(x => typeof x === 'number') ? Buffer.from(v) : v)
+            return inputVal
+          }
+          return inputVal
+        }
+
+        // ─── isolateGlobals: re-import module with cache-busting ────────────
+        if (isolateGlobals) {
+          const reimportUrl = pathToFileURL(resolve(process.cwd(), file)).href + `?_t=${Date.now()}`
+          const freshModule = await import(reimportUrl)
+          const freshMerged = mergeCjsModule(freshModule)
+          mod = freshMerged
+        }
+
         // ─── Seed random number generator for deterministic output ────────
         const origRandom = Math.random
         if (seed != null) {
@@ -894,7 +940,12 @@ export async function runCluster(clusterDef, regret, options = {}) {
         const actualInput = extractInputValue(currentInput)
         const inputForArgs = deepCloneInput ? deepClone(actualInput) : actualInput
         inputForArgsRef = inputForArgs  // trackMutation: keep reference for post-call snapshot
-        const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+        // ─── inputTransform: apply transform before calling entry ──────────
+        let transformedInputForArgs = inputForArgs
+        if (inputTransform) {
+          transformedInputForArgs = applyInputTransformVal(inputForArgs, inputTransform)
+        }
+        const args_ = multiArgs && Array.isArray(transformedInputForArgs) ? [...transformedInputForArgs] : [transformedInputForArgs]
         const expectThrow = isExpectThrow(currentInput)
 
         // ─── expectThrow: catch error and build error contract ────────────
@@ -906,6 +957,7 @@ export async function runCluster(clusterDef, regret, options = {}) {
             caughtError = err
           }
           if (seed != null) Math.random = origRandom
+          if (dateFrozen) globalThis.Date = OriginalDate
           if (!caughtError) {
             // Function did NOT throw when it should have — this is a FAIL
             lastOutput = null
@@ -925,6 +977,7 @@ export async function runCluster(clusterDef, regret, options = {}) {
           lastOutput = null
           fpInput = inputForFp
           if (seed != null) Math.random = origRandom
+          if (dateFrozen) globalThis.Date = OriginalDate
           // Fingerprint the error contract (same as capture)
           const fpConfig = { normalize, ignoreFields, ignorePaths }
           const fp = fingerprint(fpInput, errorContract, fpConfig)
@@ -937,8 +990,9 @@ export async function runCluster(clusterDef, regret, options = {}) {
 
         const rawOutput = await entryFn(...args_)
 
-        // Restore original Math.random after the call
+        // Restore original Math.random and Date after the call
         if (seed != null) Math.random = origRandom
+        if (dateFrozen) globalThis.Date = OriginalDate
 
         // Materialize generator/iterator output if configured
         const { result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutputFlag })
