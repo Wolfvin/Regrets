@@ -526,6 +526,28 @@ export async function runCluster(clusterDef, regret, options = {}) {
   const trackMutation = regret.trackMutation || clusterDef.trackMutation || false
   const goldenMutationFingerprint = regret.mutationFingerprint || null
 
+  // ─── Helper: reduce call sequence to { fn, count } pairs (sorted by fn) ──
+  // Used by fingerprintLevel: "calls" — tracks WHO was called and HOW MANY
+  // times, without recording args or results per call.
+  function reduceToCallCounts(recorder) {
+    const counts = {}
+    for (const call of recorder) {
+      counts[call.fn] = (counts[call.fn] || 0) + 1
+    }
+    return Object.entries(counts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([fn, count]) => ({ fn, count }))
+  }
+
+  // ─── Fallback: "calls" with empty watches → "entry" ─────────────────────
+  const effectiveWatches = regret.watches ?? clusterDef.watches ?? []
+  let effectiveFingerprintLevel = fingerprintLevel
+  if (fingerprintLevel === 'calls' && (!effectiveWatches || effectiveWatches.length === 0)) {
+    console.warn(`  ⚠️  ${clusterDef.id}: fingerprintLevel: "calls" but watches is empty — falling back to "entry"`)
+    console.warn(`      Call counts require watched functions. Add watches or use fingerprintLevel: "entry".`)
+    effectiveFingerprintLevel = 'entry'
+  }
+
   // Check environment snapshot if present in .regret file
   if (regret.env && typeof regret.env === 'object') {
     const currentEnv = getEnvSnapshot()
@@ -871,6 +893,9 @@ export async function runCluster(clusterDef, regret, options = {}) {
         }
         const combined = { schema, values: selectedValues }
         fp = fingerprint(fpInput, combined, fpConfig)
+      } else if (effectiveFingerprintLevel === 'calls') {
+        const callCounts = reduceToCallCounts(recorder)
+        fp = fingerprint(fpInput, callCounts, fpConfig)
       } else {
         fp = fingerprintLevel === 'entry'
           ? fingerprint(fpInput, output, fpConfig)
