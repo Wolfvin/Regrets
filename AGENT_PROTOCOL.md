@@ -110,7 +110,14 @@ Parse: `✅` = green, `❌` = red. Format: `{icon} {cluster-id} {hash-info} {sta
 START: Agent plans to refactor code
 │
 ├─ regrets/manifest.json exists?
-│   NO → regret init --stack <stack> → edit manifest → GATE 1
+│   NO ── NEW CODEBASE? ──
+│   │
+│   ├─ regret discover --entry <fn> --file <path>
+│   │     Auto-traces call graph, generates draft manifest cluster
+│   │     Review watches + inputs, then proceed to GATE 1
+│   │
+│   ├─ OR: regret init --stack <stack> → edit manifest manually → GATE 1
+│   │
 │   YES → GATE 1
 │
 ├─ GATE 1: regret check (verify exports exist)
@@ -262,7 +269,9 @@ regret scan [--dir src/]          regret chain            regret truth
 regret rollback <id>              regret guard            regret list [--json]
 regret branches [--cluster <id>] [--json]  Static branch coverage
 regret risk [--since HEAD~1] [--diff file] [--json]
+regret discover --entry <fn> --file <path> [--inputs '[...]'] [--out <path>]
 ```
 All auto-detect stack from manifest. Add `--skip-build` to skip preBuild.
 `regret health --json` and `regret list --json` include `confidence` + `confidenceScore` per cluster.
 `regret validate --json` includes `confidence` per cluster result.
+`regret discover` — runtime call graph tracing for new codebases (before GATE 1). Auto-generates draft manifest with discovered watches.
