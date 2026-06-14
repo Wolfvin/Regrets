@@ -14,18 +14,49 @@ const regretDir = resolve(process.cwd(), 'regrets')
 
 // ─── Load KEBENARAN files ──────────────────────────────────────────────────────
 
-const k1Path = join(regretDir, 'KEBENARAN_1_raw_output.json')
-const k2Path = join(regretDir, 'KEBENARAN_2_fingerprints.json')
+// KEBENARAN files may be in regrets/ or proof/<projectName>/
+// truth.js saves to proof/<projectName>/ by default, but verify_kebenaran.js
+// previously only looked in regrets/. This caused a friction point where
+// agents had to manually copy files between directories.
+// Now we search both locations automatically.
+
+let k1Path = join(regretDir, 'KEBENARAN_1_raw_output.json')
+let k2Path = join(regretDir, 'KEBENARAN_2_fingerprints.json')
+
+// If not in regrets/, try to find in proof/ directory
+if (!existsSync(k1Path) || !existsSync(k2Path)) {
+  const proofDir = resolve(process.cwd(), 'proof')
+  if (existsSync(proofDir)) {
+    // Try to find KEBENARAN files in any subdirectory of proof/
+    const { readdirSync: readdirSync2, statSync: statSync2 } = await import('fs')
+    try {
+      const entries = readdirSync2(proofDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const candidate = join(proofDir, entry.name)
+          const k1Candidate = join(candidate, 'KEBENARAN_1_raw_output.json')
+          const k2Candidate = join(candidate, 'KEBENARAN_2_fingerprints.json')
+          if (existsSync(k1Candidate) && existsSync(k2Candidate)) {
+            k1Path = k1Candidate
+            k2Path = k2Candidate
+            console.log(`📂 Found KEBENARAN files in proof/${entry.name}/`)
+            break
+          }
+        }
+      }
+    } catch { /* no proof/ subdirectories */ }
+  }
+}
 
 if (!existsSync(k1Path)) {
-  console.error('❌ KEBENARAN 1 not found at: ' + k1Path)
-  console.error('   Run this first: capture raw outputs before refactoring')
+  console.error('❌ KEBENARAN 1 not found in regrets/ or proof/')
+  console.error('   Run `regret truth` first to capture dual truth baselines')
   process.exit(1)
 }
 
 if (!existsSync(k2Path)) {
-  console.error('❌ KEBENARAN 2 not found at: ' + k2Path)
-  console.error('   Run this first: capture Regrets fingerprints before refactoring')
+  console.error('❌ KEBENARAN 2 not found in regrets/ or proof/')
+  console.error('   Run `regret truth` first to capture dual truth baselines')
   process.exit(1)
 }
 
