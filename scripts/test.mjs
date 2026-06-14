@@ -120,6 +120,29 @@ assertEqual(JSON.stringify(stripped), JSON.stringify({ a: 1, c: 3 }), 'stripFiel
 const nested = stripFields({ a: { b: 1, c: 2 }, d: 3 }, ['c'])
 assertEqual(JSON.stringify(nested), JSON.stringify({ a: { b: 1 }, d: 3 }), 'stripFields works recursively')
 
+// ignorePaths round-trip: verify serialize/parse consistency between capture.js and validate.js
+// capture.js writes: ignorePaths: [a.b, c.d]
+// validate.js reads: val.slice(1, -1).split(', ').filter(Boolean)
+// These must produce the same array that the manifest provided.
+const manifestIgnorePaths = ['request.socket', 'response.headers.x-request-id']
+
+// Simulate capture.js serialization
+const serialized = `ignorePaths: [${manifestIgnorePaths.join(', ')}]`
+
+// Simulate validate.js parseRegret parsing (same pattern as line 72 of validate.js)
+const val = serialized.slice(serialized.indexOf(': ') + 2).trim()
+const parsedVal = val.slice(1, -1).split(', ').filter(Boolean)
+
+assertEqual(JSON.stringify(parsedVal), JSON.stringify(manifestIgnorePaths), 'ignorePaths round-trip: serialized → parsed matches original array')
+
+// Verify that parsed ignorePaths produces same fingerprint config as manifest ignorePaths
+// (this confirms that capture→validate pipeline is consistent)
+const testInput = { request: { socket: 'sock1', data: 'hello' }, response: { headers: { 'x-request-id': 'abc', 'content-type': 'json' } } }
+const testOutput = { ok: true }
+const fpManifest = fingerprint(testInput, testOutput, { ignorePaths: manifestIgnorePaths })
+const fpParsed = fingerprint(testInput, testOutput, { ignorePaths: parsedVal })
+assertEqual(fpManifest, fpParsed, 'ignorePaths round-trip: fingerprint with manifest array matches fingerprint with parsed-from-.regret array')
+
 // ─── 4. extractSchema ─────────────────────────────────────────────────────────
 
 console.log('\n🧪 extractSchema\n')
