@@ -14,6 +14,7 @@ import { pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
+import { applyOutputTransform } from './outputTransform.js'
 
 // ─── Shared output transform logic (mirrors capture.js) ────────────────────────
 // Supports: 'str', 'json', 'keys', 'toString', 'toJSON', 'pojo', 'repr', 'len', 'type'

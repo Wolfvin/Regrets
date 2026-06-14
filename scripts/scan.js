@@ -689,6 +689,7 @@ if (formatManifest) {
     console.log(`\n  See references/zustand-store.md for the extraction pattern.`)
   }
 
+
   // Report barrel files
   if (barrelFiles.length > 0) {
     console.log(`\n📦 Barrel files detected (re-export aggregators):`)

@@ -14,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
+import { applyOutputTransform } from './outputTransform.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -45,6 +46,7 @@ if (!clusters.length) {
 }
 
 // Ghost Proxy and deepClone imported from ghost.js
+// Output transform logic imported from outputTransform.js
 
 // ─── Output Transform Helper ──────────────────────────────────────────────────
 // Centralized transform logic shared between classMethod and function-based paths.
