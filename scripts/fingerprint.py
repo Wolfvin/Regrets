@@ -8,6 +8,7 @@
 import hashlib
 import json
 import re
+from datetime import datetime, date, time, timedelta, timezone
 
 
 def _numpy_to_native(obj):
@@ -72,6 +73,16 @@ def normalize(obj, rules=None):
             obj = obj.item()  # Convert numpy scalar to Python native
     except ImportError:
         pass
+
+    # datetimeNow: replace serialized datetime dicts that represent "now"
+    # This handles the common pattern where functions default to datetime.now()
+    # (e.g. dateutil.parser.parse, dateutil.rrule.rrule).
+    if 'datetimeNow' in rules and isinstance(obj, dict):
+        if '__datetime__' in obj:
+            dt_iso = obj['__datetime__']
+            today_iso = datetime.now().strftime('%Y-%m-%d')
+            if dt_iso.startswith(today_iso):
+                return {'__datetime__': '<DATETIME_NOW>', 'fold': obj.get('fold', 0)}
 
     if isinstance(obj, str):
         if 'timestamps' in rules and re.match(r'^\d{4}-\d{2}-\d{2}T[\d:.Z+\-]+$', obj):
@@ -178,6 +189,50 @@ def to_base36(n):
     return result
 
 
+def _serialize_datetime(val):
+    """Serialize datetime/date/time/timedelta to a deterministic JSON-safe dict.
+
+    Critical for libraries returning datetime objects (e.g. python-dateutil,
+    arrow, pendulum). Without this, deep_clone falls back to repr() which is
+    lossy and inconsistent across Python versions.
+
+    Serialization format:
+    - datetime: {"__datetime__": isoformat, "fold": int, "tzname": str|None}
+    - date: {"__date__": isoformat}
+    - time: {"__time__": isoformat, "fold": int, "tzinfo": str|None}
+    - timedelta: {"__timedelta__": total_seconds}
+    """
+    if isinstance(val, datetime):
+        result = {"__datetime__": val.isoformat(), "fold": val.fold}
+        if val.tzinfo is not None:
+            tzname = getattr(val.tzinfo, 'tzname', None)
+            if callable(tzname):
+                try:
+                    result["tzname"] = tzname(val)
+                except Exception:
+                    result["tzname"] = repr(val.tzinfo)
+            else:
+                result["tzname"] = repr(val.tzinfo)
+            utcoff = getattr(val.tzinfo, 'utcoffset', None)
+            if callable(utcoff):
+                try:
+                    offset = utcoff(val)
+                    result["utcoffset"] = offset.total_seconds() if offset is not None else None
+                except Exception:
+                    pass
+        return result
+    if isinstance(val, date):
+        return {"__date__": val.isoformat()}
+    if isinstance(val, time):
+        result = {"__time__": val.isoformat(), "fold": val.fold}
+        if val.tzinfo is not None:
+            result["tzinfo"] = repr(val.tzinfo)
+        return result
+    if isinstance(val, timedelta):
+        return {"__timedelta__": val.total_seconds()}
+    return None
+
+
 def deep_clone(val):
     """Deep clone via JSON round-trip. Handles numpy arrays by converting to native types.
 
@@ -193,6 +248,10 @@ def deep_clone(val):
     instead of an actual clone, which causes mutation corruption in the ghost recorder.
     """
     val = _numpy_to_native(val)
+    # Handle datetime/date/time/timedelta → deterministic JSON-safe dict
+    dt_result = _serialize_datetime(val)
+    if dt_result is not None:
+        return dt_result
     # Handle bytes → hex string (deterministic, recoverable)
     if isinstance(val, bytes):
         return val.hex()
@@ -229,7 +288,7 @@ def deep_clone(val):
         return repr(val)
 
 
-def materialize_output(val):
+def materialize_output(val, max_yields=None):
     """Materialize generator/iterator output into a list for fingerprinting.
 
     When a function returns a generator, iterator, or other lazy sequence,
@@ -239,13 +298,15 @@ def materialize_output(val):
     Handles:
     - Generators (generator type)
     - Iterators (has __next__ but is not str/bytes/dict/list)
+    - Custom iterables (has __iter__ but is not a concrete type) — e.g. rrule objects
     - map/filter objects
     - range objects
 
-    Does NOT materialize:
-    - str, bytes, dict, list, tuple, set (already concrete)
-    - numpy arrays (handled by _numpy_to_native)
-    - Numbers, booleans, None (primitives)
+    Args:
+        val: The value to potentially materialize.
+        max_yields: If set, only consume up to this many items.
+            Critical for infinite generators (e.g., rrule with no count/until).
+            materializeLimit is an alias for maxYields in manifest config.
 
     Returns a tuple: (materialized_value, was_materialized_bool)
     """
@@ -267,11 +328,25 @@ def materialize_output(val):
     is_map_filter = isinstance(val, (map, filter))
     is_range = isinstance(val, range)
     is_iterator = hasattr(val, '__next__') and not isinstance(val, (str, bytes, dict))
-    is_iterable_only = hasattr(val, '__iter__') and not hasattr(val, '__len__') and not isinstance(val, (str, bytes, dict))
+    # Custom iterables: has __iter__ but may or may not have __len__
+    # This catches rrule objects, custom iterator classes, etc.
+    has_iter = hasattr(val, '__iter__')
+    is_concrete = isinstance(val, (list, tuple, set, dict, str, bytes))
+    is_custom_iterable = has_iter and not is_concrete
 
-    if is_generator or is_map_filter or is_range or is_iterator or is_iterable_only:
+    if is_generator or is_map_filter or is_range or is_iterator or is_custom_iterable:
         try:
-            return list(val), True
+            if max_yields is not None and isinstance(max_yields, int) and max_yields > 0:
+                # Bounded materialization: take only max_yields items
+                result = []
+                for i, item in enumerate(val):
+                    if i >= max_yields:
+                        result.append({"__truncated__": True, "maxYields": max_yields})
+                        break
+                    result.append(item)
+                return result, True
+            else:
+                return list(val), True
         except Exception:
             # If materialization fails, return as-is
             return val, False

@@ -33,6 +33,18 @@ export function applyOutputTransform(output, transform) {
     return String(output)
   }
 
+  if (transform === 'isoformat') {
+    // Convert Date/datetime objects to ISO 8601 strings.
+    // Recommended for libraries returning datetime objects (python-dateutil, arrow, etc.)
+    if (Array.isArray(output)) {
+      return output.map(item =>
+        (item && typeof item.toISOString === 'function') ? item.toISOString() : String(item)
+      )
+    }
+    if (output && typeof output.toISOString === 'function') return output.toISOString()
+    return String(output)
+  }
+
   if (transform === 'json') {
     if (Array.isArray(output)) return output.map(item => JSON.parse(JSON.stringify(item)))
     return JSON.parse(JSON.stringify(output))

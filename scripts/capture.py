@@ -115,6 +115,11 @@ def apply_output_transform(output, transform):
             return str(obj)
         elif transform == 'repr':
             return repr(obj)
+        elif transform == 'isoformat':
+            # Convert datetime/date/time objects to ISO 8601 strings.
+            if hasattr(obj, 'isoformat') and callable(obj.isoformat):
+                return obj.isoformat()
+            return str(obj)
         elif transform == 'dict':
             if hasattr(obj, 'to_dict') and callable(obj.to_dict):
                 return obj.to_dict()
