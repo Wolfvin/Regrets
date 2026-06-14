@@ -582,3 +582,191 @@ def get_env_snapshot():
             snapshot[pkg] = 'not_installed'
 
     return snapshot
+
+
+def object_state_serialize(obj, max_depth=10, _seen=None, _depth=0, include_private=False):
+    """Deeply serialize an object's state for fingerprinting, with cycle detection.
+
+    This is essential for libraries with deeply-nested, stateful objects where
+    snapshot_state() fails due to circular references (e.g., pycrate's ASN1Obj
+    tree with _parent back-references, or Element trees with _env pointers).
+
+    Key features:
+    - Cycle detection via id() memoization — circular references become <CIRCULAR:ClassName>
+    - Depth limiting — prevents infinite recursion on unexpectedly deep structures
+    - Type discriminator — every object gets a __class__ field so different types
+      with same attribute values produce different fingerprints
+    - Private attribute support — set include_private=True to capture _prefixed attrs
+      (needed for pycrate where _val, _struct, _tag, etc. are critical state)
+
+    Args:
+        obj: The object to serialize
+        max_depth: Maximum recursion depth (default 10)
+        _seen: Internal — set of seen object ids for cycle detection
+        _depth: Internal — current recursion depth
+        include_private: If True, include attributes starting with _
+
+    Returns:
+        A JSON-serializable representation
+    """
+    if _seen is None:
+        _seen = set()
+
+    if _depth > max_depth:
+        return f'<max_depth:{type(obj).__name__}>'
+
+    # Primitives — return as-is
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    # bytes → hex string
+    if isinstance(obj, bytes):
+        return obj.hex()
+
+    # bytearray → hex string
+    if isinstance(obj, bytearray):
+        return obj.hex()
+
+    # list — recurse
+    if isinstance(obj, list):
+        return [object_state_serialize(v, max_depth, _seen, _depth + 1, include_private) for v in obj]
+
+    # tuple → list + recurse
+    if isinstance(obj, tuple):
+        return [object_state_serialize(v, max_depth, _seen, _depth + 1, include_private) for v in obj]
+
+    # dict — recurse on values, add type hint if dict has special meaning
+    if isinstance(obj, dict):
+        return {k: object_state_serialize(v, max_depth, _seen, _depth + 1, include_private) for k, v in obj.items()}
+
+    # set — sorted list
+    if isinstance(obj, set):
+        return sorted([object_state_serialize(v, max_depth, _seen, _depth + 1, include_private) for v in obj],
+                       key=lambda x: str(x))
+
+    # For objects with identity — check for circular references
+    obj_id = id(obj)
+    if obj_id in _seen:
+        return f'<CIRCULAR:{type(obj).__name__}>'
+    _seen.add(obj_id)
+
+    try:
+        cls_name = type(obj).__name__
+
+        # Objects with get_val_d() — use it for a clean value dump
+        if hasattr(obj, 'get_val_d') and callable(obj.get_val_d):
+            try:
+                val_d = obj.get_val_d()
+                result = object_state_serialize(val_d, max_depth, _seen, _depth + 1, include_private)
+                if isinstance(result, dict):
+                    result['__class__'] = cls_name
+                return result
+            except Exception:
+                pass
+
+        # Objects with to_dict() — use it for serialization
+        if hasattr(obj, 'to_dict') and callable(obj.to_dict):
+            try:
+                to_dict_result = obj.to_dict()
+                result = object_state_serialize(to_dict_result, max_depth, _seen, _depth + 1, include_private)
+                if isinstance(result, dict):
+                    result['__class__'] = cls_name
+                return result
+            except Exception:
+                pass
+
+        # Objects with __dict__ — serialize instance attributes
+        if hasattr(obj, '__dict__'):
+            attrs = {'__class__': cls_name}
+            for k, v in sorted(obj.__dict__.items()):
+                if not include_private and k.startswith('_'):
+                    continue
+                try:
+                    attrs[k] = object_state_serialize(v, max_depth, _seen, _depth + 1, include_private)
+                except Exception:
+                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+            return attrs
+
+        # Objects with __slots__ — serialize slot values
+        if hasattr(obj, '__slots__'):
+            attrs = {'__class__': cls_name}
+            for slot in sorted(obj.__slots__):
+                try:
+                    attrs[slot] = object_state_serialize(getattr(obj, slot), max_depth, _seen, _depth + 1, include_private)
+                except AttributeError:
+                    pass
+            return attrs
+
+        # Fallback — repr
+        return repr(obj)
+    finally:
+        # Remove from seen when backtracking — allows same object in different branches
+        _seen.discard(obj_id)
+
+
+def snapshot_module_globals(module_names):
+    """Snapshot specified module-level global variables for isolation.
+
+    This is critical for libraries that use module-level mutable state
+    (e.g., pycrate's ASN1CodecPER.ALIGNED, ASN1CodecBER.ENC_* flags).
+    Without isolation, running multiple codec clusters back-to-back
+    can corrupt state between them.
+
+    Args:
+        module_names: dict of {module_path: [attr_name, ...]}
+                     e.g., {'pycrate_asn1rt.asnobj': ['ASN1CodecPER', 'ASN1CodecBER']}
+
+    Returns:
+        dict of {module_path.attr_name: saved_value} for restoration
+    """
+    saved = {}
+    for mod_path, attr_names in module_names.items():
+        try:
+            mod = __import__(mod_path, fromlist=attr_names)
+            for attr_name in attr_names:
+                obj = getattr(mod, attr_name, None)
+                if obj is not None:
+                    # If it's a class, snapshot its class-level attributes
+                    if isinstance(obj, type):
+                        for k, v in vars(obj).items():
+                            if not k.startswith('_') and not callable(v):
+                                key = f'{mod_path}.{attr_name}.{k}'
+                                try:
+                                    saved[key] = deep_clone(v)
+                                except Exception:
+                                    saved[key] = repr(v)
+                    else:
+                        key = f'{mod_path}.{attr_name}'
+                        try:
+                            saved[key] = deep_clone(obj)
+                        except Exception:
+                            saved[key] = repr(obj)
+        except ImportError:
+            pass
+    return saved
+
+
+def restore_module_globals(saved):
+    """Restore module-level global variables from a snapshot.
+
+    Args:
+        saved: dict as returned by snapshot_module_globals
+    """
+    for key, value in saved.items():
+        parts = key.rsplit('.', 2)
+        if len(parts) == 3:
+            mod_path, class_name, attr_name = parts
+            try:
+                mod = __import__(mod_path, fromlist=[class_name])
+                cls = getattr(mod, class_name, None)
+                if cls is not None:
+                    setattr(cls, attr_name, value)
+            except (ImportError, AttributeError):
+                pass
+        elif len(parts) == 2:
+            mod_path, attr_name = parts
+            try:
+                mod = __import__(mod_path, fromlist=[attr_name])
+                setattr(mod, attr_name, value)
+            except (ImportError, AttributeError):
+                pass

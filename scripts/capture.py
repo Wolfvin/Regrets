@@ -21,7 +21,8 @@ from functools import wraps
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    materialize_output, snapshot_state, get_env_snapshot
+    materialize_output, snapshot_state, get_env_snapshot,
+    object_state_serialize, snapshot_module_globals, restore_module_globals
 )
 
 # ─── CLI args ─────────────────────────────────────────────────────────────────
@@ -217,6 +218,14 @@ def apply_output_transform(output, transform):
             if isinstance(obj, bytes):
                 return obj.hex()
             return obj
+        elif transform == 'state':
+            # Deep object state serialization with cycle detection and type discriminator
+            # Essential for stateful objects with circular references (e.g., pycrate ASN1Obj)
+            include_private = getattr(apply_output_transform, '_include_private', False)
+            return object_state_serialize(obj, include_private=include_private)
+        elif transform == 'state_private':
+            # Same as 'state' but includes private attributes (_prefixed)
+            return object_state_serialize(obj, include_private=True)
         else:
             raise ValueError(f"Unknown outputTransform: '{transform}'")
 
@@ -370,6 +379,7 @@ def main():
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
         track_mutation = cluster.get('trackMutation', False)
+        isolate_globals = cluster.get('isolateGlobals', None)
         class_method = cluster.get('classMethod', None)
         constructor_name = cluster.get('constructor', entry)
         constructor_args = cluster.get('constructorArgs', [])
@@ -384,6 +394,13 @@ def main():
         print(f"   Watches: {', '.join(watches)}")
 
         try:
+            # Global state isolation — snapshot before, restore after
+            # This is critical for libraries with module-level mutable state
+            # (e.g., pycrate's ASN1CodecPER.ALIGNED, ASN1CodecBER.ENC_* flags)
+            saved_globals = None
+            if isolate_globals:
+                saved_globals = snapshot_module_globals(isolate_globals)
+
             # Dynamic import of target module
             # module uses dot notation: "src.invoice.processor"
             mod = importlib.import_module(module_path)
@@ -737,6 +754,10 @@ def main():
             import traceback
             traceback.print_exc()
             failed += 1
+        finally:
+            # Restore global state even if capture failed
+            if saved_globals:
+                restore_module_globals(saved_globals)
 
     # ─── Summary ──────────────────────────────────────────────────────────────
 
