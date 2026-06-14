@@ -428,7 +428,7 @@ Usage:
 
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts   → capture.js / validate.js
-  python  → capture.py / validate.py
+  python  → capture.py / validate.py / truth.py
   php     → capture_php.php / validate_php.php
   react   → capture_react.mjs / validate.js
   rust    → capture_rust.sh

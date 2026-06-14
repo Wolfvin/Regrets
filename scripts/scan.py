@@ -60,6 +60,7 @@ class FunctionCollector(ast.NodeVisitor):
     def __init__(self):
         self.functions: list[FunctionInfo] = []
         self.classes: dict[str, list[FunctionInfo]] = {}
+        self.lambdas: list[tuple[str, 'FunctionInfo']] = []  # (var_name, info)
         self._current_class = None
         self._current_function = None
         self._current_calls = []
@@ -353,6 +354,52 @@ class FunctionCollector(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
+    def visit_Assign(self, node):
+        """Detect lambda assignments like: my_func = lambda x: x + 1
+
+        Many Python libraries (especially scientific/niche ones) use lambda
+        assignments instead of def statements. The AST visitor for FunctionDef
+        won't catch these, so we need explicit handling.
+
+        This addresses the gap found in PyJHora's house.py where ~30 key
+        functions are lambda-assigned (e.g., quadrants_of_the_raasi = lambda raasi: [...]).
+        """
+        # Only handle simple assignments (single target, lambda value)
+        if not isinstance(node.value, ast.Lambda):
+            return
+        if len(node.targets) != 1:
+            return
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            return
+
+        var_name = target.id
+        if var_name.startswith('_'):
+            return
+
+        lam = node.value
+
+        # Collect info from the lambda
+        args = [a.arg for a in lam.args.args if a.arg != 'self']
+        defaults = [ast.literal_eval(d) if isinstance(d, ast.Constant) else None for d in lam.args.defaults]
+        calls = self._collect_calls(lam)
+        branches = self._count_branches(lam)
+        is_pure = self._check_purity(lam)
+
+        func_info = FunctionInfo(
+            name=var_name,
+            lineno=node.lineno,
+            args=args,
+            defaults=defaults,
+            has_return_annotation=False,
+            is_method=False,
+            decorators=[],
+            calls=calls,
+            branch_count=branches,
+            is_pure=is_pure,
+        )
+        self.lambdas.append((var_name, func_info))
+
 
 # ─── Flow Annotation Parsing ────────────────────────────────────────────────────
 
@@ -559,6 +606,42 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
             }
             suggestions.append(suggestion)
 
+    # Also suggest clusters from lambda-assigned functions
+    # Many scientific/niche libraries use lambda assignments (e.g., PyJHora's house.py)
+    for var_name, lam_info in result.lambdas:
+        if not lam_info.is_pure:
+            continue
+
+        # Convert camelCase/PascalCase variable name to kebab-case cluster ID
+        cluster_id = ''
+        for c in var_name:
+            if c.isupper() and cluster_id:
+                cluster_id += '-'
+            cluster_id += c.lower()
+
+        watches = [var_name]
+        for called in lam_info.calls:
+            if called in all_func_names and called != var_name:
+                watches.append(called)
+
+        suggestion = {
+            'id': cluster_id,
+            'entry': var_name,
+            'watches': watches,
+            'file': result.file,
+            'module': result.module,
+            'stack': 'python',
+            'fingerprintLevel': 'entry',
+            'branchCount': lam_info.branch_count,
+            'isPure': lam_info.is_pure,
+            'isLambda': True,
+            'multiArgs': len(lam_info.args) > 1,
+            'args': lam_info.args,
+            'suggestedInputs': f"Lambda function — provide input for args: {', '.join(lam_info.args)}" if lam_info.args else "Provide at least one input",
+            'coverageNote': f"Has {lam_info.branch_count} branch(es)" if lam_info.branch_count else 'All paths covered with single input',
+        }
+        suggestions.append(suggestion)
+
     return suggestions
 
 
@@ -596,12 +679,14 @@ def scan_file(filepath: str, base_dir: str = '') -> ScanResult:
     result = ScanResult(
         file=filepath,
         module=module,
-        functions=collector.functions,
+        functions=collector.functions + [info for _, info in collector.lambdas],
         classes=collector.classes,
         suggested_clusters=[],
         dead_imports=collector.get_dead_imports(),
         oversized_functions=oversized,
     )
+    # Store lambdas separately for rendering
+    result.lambdas = collector.lambdas
     result.suggested_clusters.extend(suggest_clusters(result))
 
     # Detect sys.path.insert calls and attach pythonPath suggestion

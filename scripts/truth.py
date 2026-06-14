@@ -3,14 +3,14 @@
 # KEBENARAN 1: Raw output from every entry function
 # KEBENARAN 2: Fingerprint contracts from .regret files + chain hashes
 #
-# Mirrors truth.js functionality for Python stack clusters.
+# This is the Python stack equivalent of truth.js.
+# Both truths must be identical in meaning. If they disagree,
+# there's a false negative in Regrets — fix it before refactoring.
 #
 # Usage:
 #   python scripts/truth.py
 #   python scripts/truth.py --outdir ./proof/myproject
-#
-# Both truths must be identical in meaning. If they disagree,
-# there's a false negative in Regrets — fix it before refactoring.
+#   python scripts/truth.py --cluster my-cluster
 
 import sys
 import os
@@ -19,11 +19,12 @@ import importlib
 import re
 import types
 from pathlib import Path
+from datetime import datetime, timezone
 
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    materialize_output, snapshot_state, get_env_snapshot
+    _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot
 )
 
 
@@ -32,6 +33,7 @@ def parse_args():
     result = {
         'outdir': None,
         'manifest': os.path.join(os.getcwd(), 'regrets', 'manifest.json'),
+        'cluster': None,
     }
     i = 0
     while i < len(args):
@@ -40,6 +42,9 @@ def parse_args():
             i += 2
         elif args[i] == '--manifest' and i + 1 < len(args):
             result['manifest'] = args[i + 1]
+            i += 2
+        elif args[i] == '--cluster' and i + 1 < len(args):
+            result['cluster'] = args[i + 1]
             i += 2
         else:
             i += 1
@@ -133,6 +138,9 @@ def main():
         sys.exit(1)
 
     clusters = manifest.get('clusters', [])
+    if cli['cluster']:
+        clusters = [c for c in clusters if c['id'] == cli['cluster']]
+
     python_clusters = [c for c in clusters if c.get('stack') == 'python']
 
     if not python_clusters:
@@ -169,6 +177,11 @@ def main():
         inputs = cluster.get('inputs', [None])
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
+        norm_rules = cluster.get('normalize', [])
+        ign_fields = cluster.get('ignoreFields', [])
+        fp_level = cluster.get('fingerprintLevel', 'entry')
+        fp_mode = cluster.get('fingerprintMode', 'value')
+        value_paths = cluster.get('valuePaths', [])
 
         print(f'  📡 Capturing raw output: {cid}')
 
@@ -210,10 +223,14 @@ def main():
 
                 outputs.append({
                     'input': deep_clone(input_val),
-                    'output': output_for_record,
+                    'output': _numpy_to_native(output_for_record),
                 })
 
-            raw_outputs[cid] = outputs
+            raw_outputs[cid] = {
+                'entry': entry,
+                'module': module_path,
+                'outputs': outputs,
+            }
             print(f'  ✅ {cid}: {len(outputs)} output(s) captured')
 
         except Exception as err:
@@ -276,6 +293,8 @@ def main():
             fp_val = fp_match.group(1) if fp_match else 'no fingerprint'
             print(f'  ✅ {cid}: {fp_val}')
 
+    except FileNotFoundError:
+        print("  ⚠️  No .regret files found")
     except Exception as err:
         print(f'❌ Could not read .regret files: {err}')
 
@@ -313,6 +332,25 @@ def main():
         print('   Fix this before refactoring — it indicates a false negative.')
         sys.exit(1)
 
+    # ─── Cross-validate: ensure K1 raw output matches K2 golden output ───────
+    mismatches = []
+    for cid in k1_ids:
+        k1_output = raw_outputs[cid]['outputs'][0]['output'] if raw_outputs[cid]['outputs'] else None
+        k2_golden = fingerprints[cid].get('golden_output')
+        if k1_output is not None and k2_golden is not None:
+            k1_str = stable_dumps(k1_output)
+            k2_str = stable_dumps(k2_golden)
+            if k1_str != k2_str:
+                mismatches.append(cid)
+
+    if mismatches:
+        print('\n❌ MISMATCH between KEBENARAN 1 raw output and KEBENARAN 2 golden output:')
+        for cid in mismatches:
+            print(f'   {cid}')
+        print('   This means Regrets captured something incorrectly.')
+        print('   STOP. Fix Regrets before proceeding.')
+        sys.exit(1)
+
     # ─── Write Output Files ──────────────────────────────────────────────────
 
     project_name = manifest.get('projectName', os.getcwd().split(os.sep)[-1])
@@ -336,6 +374,10 @@ def main():
     print(f'   KEBENARAN 1: {k1_path} ({len(raw_outputs)} clusters)')
     print(f'   KEBENARAN 2: {k2_path} ({len(fingerprints)} fingerprints, {len(chains)} chains)')
     print(f'\n   Consistency: ✅ Both truths are aligned')
+    if mismatches:
+        print(f'   Cross-validation: ❌ {len(mismatches)} mismatch(es)')
+    else:
+        print('   Cross-validation: ✅ K1 output matches K2 golden output')
     print(f'\nYou are now safe to refactor. Run \'regret validate\' after each change.')
 
 
