@@ -155,6 +155,22 @@ def parse_regret(content):
             meta['trackMutation'] = val.lower() == 'true'
         elif key == 'mutationFingerprint':
             meta['mutationFingerprint'] = val.strip()
+        elif key == 'classMethod':
+            meta['classMethod'] = val.strip()
+        elif key == 'constructor':
+            meta['constructor'] = val.strip()
+        elif key == 'constructorArgs':
+            try:
+                meta['constructorArgs'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['constructorArgs'] = val
+        elif key == 'setup':
+            meta['setup'] = val.strip()
+        elif key == 'instanceMethods':
+            try:
+                meta['instanceMethods'] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                meta['instanceMethods'] = val
         else:
             meta[key] = val
 
@@ -219,6 +235,46 @@ def create_ghost(mod, watch_list, recorder):
         setattr(ghost, fn_name, make_ghost(original, fn_name))
 
     return ghost
+
+
+def create_instance_ghost(instance, watch_list, recorder):
+    """Wrap watched methods on a class instance with recording decorators."""
+    originals = {}
+    for fn_name in (watch_list or []):
+        original = getattr(instance, fn_name, None)
+        if original is None or not callable(original):
+            continue
+        originals[fn_name] = original
+
+        def make_ghost(orig, name):
+            @wraps(orig)
+            def wrapper(*args, **kwargs):
+                try:
+                    result = orig(*args, **kwargs)
+                    recorder.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'result': deep_clone(result),
+                    })
+                    return result
+                except Exception as err:
+                    recorder.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'error': str(err),
+                    })
+                    raise
+            return wrapper
+
+        setattr(instance, fn_name, make_ghost(original, fn_name))
+
+    return instance, originals
+
+
+def restore_instance(instance, originals):
+    """Restore original methods on an instance after ghost validation."""
+    for name, original in originals.items():
+        setattr(instance, name, original)
 
 
 # ─── Update .regret file ─────────────────────────────────────────────────────
@@ -391,6 +447,12 @@ def main():
                     if current_env.get(k) != v:
                         print(f"  ⚠️  {cluster_id}: environment changed: {k} was {v}, now {current_env.get(k)}")
 
+            # classMethod support
+            class_method = regret.get('classMethod') or cluster_def.get('classMethod', None)
+            constructor_name = regret.get('constructor') or cluster_def.get('constructor', None)
+            constructor_args = regret.get('constructorArgs') or cluster_def.get('constructorArgs', [])
+            setup_fn = regret.get('setup') or cluster_def.get('setup', None)
+
             mod = importlib.import_module(module_path)
 
             hashes = []           # flat list of all hashes (for backward compat)
@@ -406,11 +468,29 @@ def main():
 
             for _ in range(cli['runs']):
                 recorder = []
-                ghost = create_ghost(mod, regret.get('watches', cluster_def.get('watches', [])), recorder)
+                watch_list = regret.get('watches', cluster_def.get('watches', []))
 
-                entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
-                if entry_fn is None or not callable(entry_fn):
-                    raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
+                if class_method:
+                    # classMethod mode: instantiate class, wrap instance methods
+                    cls_name = constructor_name or entry_name
+                    cls = getattr(mod, cls_name, None)
+                    if cls is None:
+                        raise TypeError(f"Class \"{cls_name}\" not found in {module_path}")
+                    c_args = deep_clone(constructor_args) if constructor_args else []
+                    instance = cls(*c_args)
+                    if setup_fn:
+                        setup_method = getattr(instance, setup_fn, None)
+                        if setup_method and callable(setup_method):
+                            setup_method()
+                    instance, originals = create_instance_ghost(instance, watch_list, recorder)
+                    entry_fn = getattr(instance, class_method, None)
+                    if entry_fn is None or not callable(entry_fn):
+                        raise TypeError(f"Method \"{class_method}\" not found on instance of {cls_name}")
+                else:
+                    ghost = create_ghost(mod, watch_list, recorder)
+                    entry_fn = getattr(ghost, entry_name, None) or getattr(mod, entry_name, None)
+                    if entry_fn is None or not callable(entry_fn):
+                        raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
 
                 # Determine fingerprint mode: .regret file takes precedence over manifest
                 effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'

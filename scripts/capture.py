@@ -190,6 +190,65 @@ def create_ghost(module, watch_list, recorder):
     return ghost
 
 
+def create_instance_ghost(instance, watch_list, recorder):
+    """
+    Wrap watched methods on a class instance with recording decorators.
+    Returns the original instance with methods replaced by ghost wrappers.
+
+    Unlike create_ghost which wraps module-level functions, this wraps
+    bound methods on an instance. This is needed for class-based APIs
+    where the entry point is a method like mesh.area or mesh.is_watertight.
+
+    The instance is modified in-place — methods are swapped with wrappers.
+    After capture, the original methods are restored.
+    """
+    import types as _types
+
+    originals = {}  # name → original bound method
+
+    for fn_name in watch_list:
+        original = getattr(instance, fn_name, None)
+        if original is None:
+            print(f"  ⚠️  Watch target \"{fn_name}\" not found on instance — skipping")
+            continue
+        if not callable(original):
+            print(f"  ⚠️  Watch target \"{fn_name}\" is not callable (probably a property) — skipping")
+            continue
+
+        originals[fn_name] = original
+
+        def make_ghost(orig, name, rec):
+            @wraps(orig)
+            def wrapper(*args, **kwargs):
+                try:
+                    result = orig(*args, **kwargs)
+                    rec.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'result': deep_clone(result),
+                    })
+                    return result
+                except Exception as err:
+                    rec.append({
+                        'fn': name,
+                        'args': deep_clone(args),
+                        'error': str(err),
+                    })
+                    raise
+            return wrapper
+
+        # Replace the method on the instance with the ghost wrapper
+        setattr(instance, fn_name, make_ghost(original, fn_name, recorder))
+
+    return instance, originals
+
+
+def restore_instance(instance, originals):
+    """Restore original methods on an instance after ghost capture."""
+    for name, original in originals.items():
+        setattr(instance, name, original)
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -259,9 +318,19 @@ def main():
         materialize_output_flag = cluster.get('materializeOutput', False)
         track_mutation = cluster.get('trackMutation', False)
 
+        # classMethod support: instantiate a class and call methods on the instance
+        class_method = cluster.get('classMethod', None)
+        constructor_name = cluster.get('constructor', None)
+        constructor_args = cluster.get('constructorArgs', [])
+        setup_fn = cluster.get('setup', None)
+        instance_methods = cluster.get('instanceMethods', {})
+
         print(f"\n📡 Capturing: {cid}")
         print(f"   Module:  {module_path}")
-        print(f"   Entry:   {entry}")
+        if class_method:
+            print(f"   Class:   {constructor_name or entry} → {class_method}()")
+        else:
+            print(f"   Entry:   {entry}")
         print(f"   Watches: {', '.join(watches)}")
 
         try:
@@ -269,109 +338,249 @@ def main():
             # module uses dot notation: "src.invoice.processor"
             mod = importlib.import_module(module_path)
 
-            recorder_local = []
-            ghost = create_ghost(mod, watches, recorder_local)
+            # ─── classMethod mode ────────────────────────────────────────
+            #
+            # For class-based Python APIs where you need to:
+            #   1. Instantiate a class: instance = ClassName(*constructorArgs)
+            #   2. Call an instance method: instance.classMethod(input) → output
+            #
+            # Manifest format:
+            #   classMethod: "methodName"        — the method to fingerprint
+            #   constructor: "ClassName"         — class to instantiate (defaults to entry)
+            #   constructorArgs: [...]           — args for the constructor
+            #   setup: "methodName"              — method to call after construction
+            #   instanceMethods: {"WatchedClass": ["method1", "method2"]}
+            #
+            if class_method:
+                cls_name = constructor_name or entry
+                cls = getattr(mod, cls_name, None)
+                if cls is None:
+                    raise TypeError(f"Class \"{cls_name}\" not found in {module_path}")
 
-            # Get entry function from ghost module
-            entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
-            if entry_fn is None or not callable(entry_fn):
-                raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
+                # Instantiate
+                c_args = deep_clone(constructor_args) if constructor_args else []
+                instance = cls(*c_args)
 
-            # Run with provided inputs
-            results = []
-            for input_val in inputs:
+                # Call setup if specified
+                if setup_fn:
+                    setup_method = getattr(instance, setup_fn, None)
+                    if setup_method and callable(setup_method):
+                        setup_method()
+
+                # Create ghost on instance methods
+                recorder_local = []
+                instance, originals = create_instance_ghost(
+                    instance, watches, recorder_local
+                )
+
+                # Verify the classMethod exists on the instance
+                if not hasattr(instance, class_method):
+                    raise TypeError(f"Method \"{class_method}\" not found on instance of {cls_name}")
+                entry_method = getattr(instance, class_method)
+                if not callable(entry_method):
+                    raise TypeError(f"\"{class_method}\" on {cls_name} is not callable")
+
+                # Run with provided inputs
+                results = []
+                for input_val in inputs:
+                    recorder_local = []
+                    # Re-create instance for each input to avoid state leakage
+                    instance = cls(*deep_clone(c_args))
+                    if setup_fn:
+                        setup_method = getattr(instance, setup_fn, None)
+                        if setup_method and callable(setup_method):
+                            setup_method()
+                    instance, originals = create_instance_ghost(
+                        instance, watches, recorder_local
+                    )
+                    entry_method = getattr(instance, class_method)
+
+                    input_for_record = deep_clone(input_val)
+                    input_for_args = deep_clone(input_val)
+
+                    input_snapshot_before = None
+                    if track_mutation:
+                        input_snapshot_before = snapshot_state(input_for_args)
+
+                    if multi_args and isinstance(input_for_args, list):
+                        raw_output = entry_method(*input_for_args)
+                        fp_input = input_for_record
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        raw_output = entry_method(**input_for_args)
+                        fp_input = input_for_record
+                    else:
+                        raw_output = entry_method(input_for_args) if input_for_args is not None else entry_method()
+                        fp_input = input_for_record
+
+                    # Materialize generator/iterator output if configured
+                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                    if was_materialized:
+                        print(f"   🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)")
+
+                    if not materialize_output_flag:
+                        raw_type_name = type(output).__name__
+                        output = consume_generator(output)
+                        if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
+                            print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
+
+                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+                    input_snapshot_after = None
+                    input_mutation_fingerprint = None
+                    if track_mutation:
+                        input_snapshot_after = snapshot_state(input_for_args)
+                        input_mutation_fingerprint = fingerprint(
+                            input_snapshot_before, input_snapshot_after,
+                            normalize_rules, ignore_fields
+                        )
+                        if input_snapshot_before != input_snapshot_after:
+                            print(f"   ⚠️  Input mutation detected! Fingerprint: {input_mutation_fingerprint}")
+
+                    if fingerprint_mode == 'schema':
+                        schema = extract_schema(output_for_fp)
+                        fp = fingerprint(fp_input, schema, normalize_rules, ignore_fields)
+                    elif fingerprint_mode == 'mixed':
+                        schema = extract_schema(output_for_fp)
+                        selected_values = {}
+                        for path in value_paths:
+                            key = path.replace('$.', '')
+                            parts = key.split('.')
+                            val = output_for_fp
+                            for p in parts:
+                                val = val.get(p) if isinstance(val, dict) else None
+                                if val is None:
+                                    break
+                            if val is not None:
+                                selected_values[path] = val
+                        combined = {'schema': schema, 'values': selected_values}
+                        fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
+                    elif fingerprint_level == 'entry':
+                        fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
+                    else:
+                        fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
+
+                    results.append({
+                        'input': input_val,
+                        'output': output_for_fp,
+                        'fp': fp,
+                        'calls': list(recorder_local),
+                        'input_snapshot_before': input_snapshot_before,
+                        'input_snapshot_after': input_snapshot_after,
+                        'input_mutation_fingerprint': input_mutation_fingerprint,
+                        'was_materialized': was_materialized,
+                    })
+
+                    # Restore original methods to avoid side effects
+                    restore_instance(instance, originals)
+
+            else:
+            # ─── Regular function mode (existing logic) ────────────────
                 recorder_local = []
                 ghost = create_ghost(mod, watches, recorder_local)
 
-                # Deep-clone input BEFORE calling the function to prevent mutation from
-                # corrupting the stored fingerprint. Two clones: one for the .regret file
-                # (immutable record), one for the args (may be mutated by the function)
-                input_for_record = deep_clone(input_val)
-                input_for_args = deep_clone(input_val)
+                # Get entry function from ghost module
+                entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
+                if entry_fn is None or not callable(entry_fn):
+                    raise TypeError(f"Entry \"{entry}\" not found or not callable in {module_path}")
 
-                # Snapshot input state BEFORE call (for mutation tracking)
-                input_snapshot_before = None
-                if track_mutation:
-                    input_snapshot_before = snapshot_state(input_for_args)
+                # Run with provided inputs
+                results = []
+                for input_val in inputs:
+                    recorder_local = []
+                    ghost = create_ghost(mod, watches, recorder_local)
 
-                if multi_args and isinstance(input_for_args, list):
-                    raw_output = entry_fn(*input_for_args)
-                    fp_input = input_for_record
-                elif kwargs_mode and isinstance(input_for_args, dict):
-                    # kwargs mode: input dict is unpacked as keyword arguments
-                    # e.g., input {"tiles": [...], "win_tile": 36} → entry_fn(tiles=[...], win_tile=36)
-                    raw_output = entry_fn(**input_for_args)
-                    fp_input = input_for_record
-                elif kwargs_mode and not isinstance(input_for_args, dict):
-                    raise TypeError(
-                        f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
-                        f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
-                    )
-                else:
-                    raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
-                    fp_input = input_for_record
+                    # Re-get entry_fn from the new ghost
+                    entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
 
-                # Materialize generator/iterator output if configured
-                output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
-                if was_materialized:
-                    print(f"   🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)")
+                    # Deep-clone input BEFORE calling the function to prevent mutation from
+                    # corrupting the stored fingerprint. Two clones: one for the .regret file
+                    # (immutable record), one for the args (may be mutated by the function)
+                    input_for_record = deep_clone(input_val)
+                    input_for_args = deep_clone(input_val)
 
-                # Consume generators/iterators into lists for fingerprinting (always-on fallback)
-                if not materialize_output_flag:
-                    raw_type_name = type(output).__name__
-                    output = consume_generator(output)
-                    if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
-                        print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
+                    # Snapshot input state BEFORE call (for mutation tracking)
+                    input_snapshot_before = None
+                    if track_mutation:
+                        input_snapshot_before = snapshot_state(input_for_args)
 
-                # Apply output transform if specified (e.g., "str" for Statement objects)
-                output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+                    if multi_args and isinstance(input_for_args, list):
+                        raw_output = entry_fn(*input_for_args)
+                        fp_input = input_for_record
+                    elif kwargs_mode and isinstance(input_for_args, dict):
+                        # kwargs mode: input dict is unpacked as keyword arguments
+                        # e.g., input {"tiles": [...], "win_tile": 36} → entry_fn(tiles=[...], win_tile=36)
+                        raw_output = entry_fn(**input_for_args)
+                        fp_input = input_for_record
+                    elif kwargs_mode and not isinstance(input_for_args, dict):
+                        raise TypeError(
+                            f"kwargs=True but input is {type(input_for_args).__name__}, not dict. "
+                            f"When kwargs is enabled, each input must be a dict to unpack as **kwargs."
+                        )
+                    else:
+                        raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+                        fp_input = input_for_record
 
-                # Snapshot input state AFTER call (for mutation tracking)
-                input_snapshot_after = None
-                input_mutation_fingerprint = None
-                if track_mutation:
-                    input_snapshot_after = snapshot_state(input_for_args)
-                    # Compute mutation fingerprint — if input changed, this hash will differ
-                    input_mutation_fingerprint = fingerprint(
-                        input_snapshot_before, input_snapshot_after,
-                        normalize_rules, ignore_fields
-                    )
-                    if input_snapshot_before != input_snapshot_after:
-                        print(f"   ⚠️  Input mutation detected! Fingerprint: {input_mutation_fingerprint}")
+                    # Materialize generator/iterator output if configured
+                    output, was_materialized = materialize_output(raw_output) if materialize_output_flag else (raw_output, False)
+                    if was_materialized:
+                        print(f"   🔄 Output materialized: {type(raw_output).__name__} → list ({len(output)} items)")
 
-                if fingerprint_mode == 'schema':
-                    schema = extract_schema(output_for_fp)
-                    fp = fingerprint(fp_input, schema, normalize_rules, ignore_fields)
-                elif fingerprint_mode == 'mixed':
-                    schema = extract_schema(output_for_fp)
-                    selected_values = {}
-                    for path in value_paths:
-                        key = path.replace('$.', '')
-                        parts = key.split('.')
-                        val = output_for_fp
-                        for p in parts:
-                            val = val.get(p) if isinstance(val, dict) else None
-                            if val is None:
-                                break
-                        if val is not None:
-                            selected_values[path] = val
-                    combined = {'schema': schema, 'values': selected_values}
-                    fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
-                elif fingerprint_level == 'entry':
-                    fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
-                else:
-                    fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
+                    # Consume generators/iterators into lists for fingerprinting (always-on fallback)
+                    if not materialize_output_flag:
+                        raw_type_name = type(output).__name__
+                        output = consume_generator(output)
+                        if type(output).__name__ != raw_type_name and raw_type_name in ('generator', 'map', 'filter', 'range'):
+                            print(f"   🔄 Auto-materialized: {raw_type_name} → list ({len(output)} items)")
 
-                results.append({
-                    'input': input_val,
-                    'output': output_for_fp,
-                    'fp': fp,
-                    'calls': list(recorder_local),
-                    'input_snapshot_before': input_snapshot_before,
-                    'input_snapshot_after': input_snapshot_after,
-                    'input_mutation_fingerprint': input_mutation_fingerprint,
-                    'was_materialized': was_materialized,
-                })
+                    # Apply output transform if specified (e.g., "str" for Statement objects)
+                    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
+
+                    # Snapshot input state AFTER call (for mutation tracking)
+                    input_snapshot_after = None
+                    input_mutation_fingerprint = None
+                    if track_mutation:
+                        input_snapshot_after = snapshot_state(input_for_args)
+                        # Compute mutation fingerprint — if input changed, this hash will differ
+                        input_mutation_fingerprint = fingerprint(
+                            input_snapshot_before, input_snapshot_after,
+                            normalize_rules, ignore_fields
+                        )
+                        if input_snapshot_before != input_snapshot_after:
+                            print(f"   ⚠️  Input mutation detected! Fingerprint: {input_mutation_fingerprint}")
+
+                    if fingerprint_mode == 'schema':
+                        schema = extract_schema(output_for_fp)
+                        fp = fingerprint(fp_input, schema, normalize_rules, ignore_fields)
+                    elif fingerprint_mode == 'mixed':
+                        schema = extract_schema(output_for_fp)
+                        selected_values = {}
+                        for path in value_paths:
+                            key = path.replace('$.', '')
+                            parts = key.split('.')
+                            val = output_for_fp
+                            for p in parts:
+                                val = val.get(p) if isinstance(val, dict) else None
+                                if val is None:
+                                    break
+                            if val is not None:
+                                selected_values[path] = val
+                        combined = {'schema': schema, 'values': selected_values}
+                        fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
+                    elif fingerprint_level == 'entry':
+                        fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
+                    else:
+                        fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
+
+                    results.append({
+                        'input': input_val,
+                        'output': output_for_fp,
+                        'fp': fp,
+                        'calls': list(recorder_local),
+                        'input_snapshot_before': input_snapshot_before,
+                        'input_snapshot_after': input_snapshot_after,
+                        'input_mutation_fingerprint': input_mutation_fingerprint,
+                        'was_materialized': was_materialized,
+                    })
 
             # Warn about watched functions that were never called during capture
             called_fns = set()
@@ -416,6 +625,15 @@ def main():
                 lines.append(f"kwargs: {kwargs_mode}")
             if cluster.get('module'):
                 lines.append(f"module: {module_path}")
+            if class_method:
+                lines.append(f"classMethod: {class_method}")
+                lines.append(f"constructor: {constructor_name or entry}")
+                if constructor_args:
+                    lines.append(f"constructorArgs: {json_serialize(constructor_args)}")
+                if setup_fn:
+                    lines.append(f"setup: {setup_fn}")
+                if instance_methods:
+                    lines.append(f"instanceMethods: {json_serialize(instance_methods)}")
             if output_transform:
                 lines.append(f"outputTransform: {output_transform}")
             if materialize_output_flag:

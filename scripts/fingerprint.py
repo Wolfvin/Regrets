@@ -96,6 +96,37 @@ def normalize(obj, rules=None):
             return re.sub(r'^-?(\d+)\.0+$', r'\1', obj)
         return obj
 
+    # numpySummary: replace large numpy arrays with a statistical summary.
+    # For arrays with >16 elements, replace with {shape, dtype, min, max, mean, sum}.
+    # This prevents massive JSON blobs in .regret files while preserving enough
+    # information to detect behavioral changes in geometric/scientific code.
+    # Usage: "numpySummary" (default threshold 16) or "numpySummary:100" for custom threshold.
+    if 'numpySummary' in rules:
+        try:
+            import numpy as np
+            if isinstance(obj, np.ndarray):
+                ns_rule = next((r for r in rules if r.startswith('numpySummary')), 'numpySummary')
+                threshold = int(ns_rule.split(':')[1]) if ':' in ns_rule else 16
+                if obj.size > threshold:
+                    summary = {
+                        '__numpy_summary__': True,
+                        'shape': list(obj.shape),
+                        'dtype': str(obj.dtype),
+                    }
+                    if np.issubdtype(obj.dtype, np.number):
+                        summary['min'] = float(np.nanmin(obj))
+                        summary['max'] = float(np.nanmax(obj))
+                        summary['mean'] = float(np.nanmean(obj))
+                        summary['sum'] = float(np.nansum(obj))
+                    elif np.issubdtype(obj.dtype, np.bool_):
+                        summary['true_count'] = int(np.sum(obj))
+                        summary['false_count'] = int(obj.size - np.sum(obj))
+                    return summary
+                # Small arrays: convert to list for normal fingerprinting
+                return normalize(obj.tolist(), rules)
+        except ImportError:
+            pass
+
     if isinstance(obj, (int, float)):
         if 'epochs' in rules and 1_000_000_000 < obj < 9_999_999_999_999:
             return '<EPOCH>'
