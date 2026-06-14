@@ -1,6 +1,6 @@
 // ghost.js — shared Ghost Proxy utilities
 // Used by capture.js, validate.js, and capture_react.mjs.
-// Do NOT duplicate these functions. Import them: import { createGhost, deepClone, normalizeHtml } from './ghost.js'
+// Do NOT duplicate these functions. Import them: import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 
 /**
  * Deep clone a value via JSON round-trip.
@@ -268,4 +268,88 @@ export function normalizeVisualOutput(html) {
     // Normalize inline styles with dynamic values
     .replace(/style="[^"]*"/g, 'style="<STYLE>"')
     .trim()
+}
+
+/**
+ * Consume sync and async iterators/generators into arrays.
+ *
+ * Detects and consumes:
+ *   - Async iterators (Symbol.asyncIterator) — consumed with for-await loop
+ *   - Sync iterators/generators (Symbol.iterator + .next, not Array/Map/Set) — consumed with spread or loop
+ *   - Generic iterables (Symbol.iterator without .next, not Array) — only when materialize=true
+ *
+ * Fixes the bug where fallback blocks only checked Symbol.iterator but missed
+ * Symbol.asyncIterator — now both are always checked regardless of materialize mode.
+ *
+ * When maxYields is set, limits the number of yielded items and appends
+ * a {"__truncated__": true, "maxYields": N} sentinel if the limit is hit.
+ *
+ * @param {*} output - The value to check and potentially consume
+ * @param {number|null} [maxYields=null] - Max items to yield; null = unlimited
+ * @param {object} [options={}] - Additional options
+ * @param {boolean} [options.materialize=false] - Full materialization mode:
+ *   checks all iterables (including async and generic), deep-clones each item
+ * @returns {Promise<{consumed: boolean, result: *}>} - consumed=true if an iterator was detected and consumed
+ */
+export async function consumeIterator(output, maxYields = null, options = {}) {
+  const { materialize = false } = options
+
+  if (!output || typeof output !== 'object') {
+    return { consumed: false, result: output }
+  }
+
+  // 1. Check for async iterator — always, regardless of materialize flag
+  if (typeof output[Symbol.asyncIterator] === 'function') {
+    const items = []
+    let count = 0
+    for await (const item of output) {
+      if (maxYields !== null && count >= maxYields) {
+        items.push({ __truncated__: true, maxYields })
+        break
+      }
+      items.push(materialize ? deepClone(item) : item)
+      count++
+    }
+    return { consumed: true, result: items }
+  }
+
+  // 2. Check for sync iterator/generator (Symbol.iterator + .next, not Array/Map/Set)
+  if (typeof output[Symbol.iterator] === 'function' &&
+      typeof output.next === 'function' &&
+      !Array.isArray(output) &&
+      !(output instanceof Map) &&
+      !(output instanceof Set)) {
+    if (maxYields !== null || materialize) {
+      const items = []
+      let count = 0
+      for (const item of output) {
+        if (maxYields !== null && count >= maxYields) {
+          items.push({ __truncated__: true, maxYields })
+          break
+        }
+        items.push(materialize ? deepClone(item) : item)
+        count++
+      }
+      return { consumed: true, result: items }
+    }
+    // No maxYields, no materialize — use spread for backward compatibility
+    return { consumed: true, result: [...output] }
+  }
+
+  // 3. Check for generic iterable (Symbol.iterator without .next) when materialize=true
+  if (materialize && typeof output[Symbol.iterator] === 'function' && !Array.isArray(output)) {
+    const items = []
+    let count = 0
+    for (const item of output) {
+      if (maxYields !== null && count >= maxYields) {
+        items.push({ __truncated__: true, maxYields })
+        break
+      }
+      items.push(deepClone(item))
+      count++
+    }
+    return { consumed: true, result: items }
+  }
+
+  return { consumed: false, result: output }
 }

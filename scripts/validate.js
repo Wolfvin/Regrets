@@ -12,7 +12,7 @@ import { createHash } from 'crypto'
 import { resolve, join, basename } from 'path'
 import { pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from './fingerprint.js'
-import { createGhost, deepClone, normalizeHtml } from './ghost.js'
+import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransform } from './outputTransform.js'
 
@@ -344,12 +344,7 @@ async function runCluster(clusterDef, regret) {
         }
 
         const rawOutput = getStateFn()
-        let consumedOutput = rawOutput
-        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-          consumedOutput = [...rawOutput]
-        }
+        const { result: consumedOutput } = await consumeIterator(rawOutput)
 
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
         let transformedOutput = consumedOutput
@@ -401,35 +396,7 @@ async function runCluster(clusterDef, regret) {
         const rawOutput = await instance[classMethod](...args_)
 
         // Materialize generator/iterator output if configured
-        let consumedOutput
-        if (materializeOutputFlag && rawOutput && typeof rawOutput === 'object') {
-          const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
-                             typeof rawOutput[Symbol.iterator] === 'function'
-          if (isIterable && !Array.isArray(rawOutput)) {
-            consumedOutput = []
-            if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
-              for await (const item of rawOutput) consumedOutput.push(deepClone(item))
-            } else {
-              for (const item of rawOutput) consumedOutput.push(deepClone(item))
-            }
-          } else {
-            // Consume generators/iterators into arrays for fingerprinting
-            consumedOutput = rawOutput
-            if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-                typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-                !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-              consumedOutput = [...rawOutput]
-            }
-          }
-        } else {
-          // Consume generators/iterators into arrays for fingerprinting (always-on fallback)
-          consumedOutput = rawOutput
-          if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-              typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-              !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-            consumedOutput = [...rawOutput]
-          }
-        }
+        const { result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutputFlag })
 
         // Apply outputTransform if specified (from .regret or manifest)
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
@@ -474,12 +441,7 @@ async function runCluster(clusterDef, regret) {
         const rawOutput = await singleton[sMethod](...args_)
 
         // Consume generators/iterators
-        let consumedOutput = rawOutput
-        if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-            typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-            !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-          consumedOutput = [...rawOutput]
-        }
+        const { result: consumedOutput } = await consumeIterator(rawOutput)
 
         // Apply outputTransform
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
@@ -540,35 +502,7 @@ async function runCluster(clusterDef, regret) {
         if (seed != null) Math.random = origRandom
 
         // Materialize generator/iterator output if configured
-        let consumedOutput
-        if (materializeOutputFlag && rawOutput && typeof rawOutput === 'object') {
-          const isIterable = typeof rawOutput[Symbol.asyncIterator] === 'function' ||
-                             typeof rawOutput[Symbol.iterator] === 'function'
-          if (isIterable && !Array.isArray(rawOutput)) {
-            consumedOutput = []
-            if (typeof rawOutput[Symbol.asyncIterator] === 'function') {
-              for await (const item of rawOutput) consumedOutput.push(deepClone(item))
-            } else {
-              for (const item of rawOutput) consumedOutput.push(deepClone(item))
-            }
-          } else {
-            // Consume generators/iterators into arrays for fingerprinting
-            consumedOutput = rawOutput
-            if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-                typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-                !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-              consumedOutput = [...rawOutput]
-            }
-          }
-        } else {
-          // Consume generators/iterators into arrays for fingerprinting (always-on fallback)
-          consumedOutput = rawOutput
-          if (rawOutput && typeof rawOutput[Symbol.iterator] === 'function' &&
-              typeof rawOutput.next === 'function' && !Array.isArray(rawOutput) &&
-              !(rawOutput instanceof Map) && !(rawOutput instanceof Set)) {
-            consumedOutput = [...rawOutput]
-          }
-        }
+        const { result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutputFlag })
 
         // Apply outputTransform if specified (from .regret or manifest)
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
