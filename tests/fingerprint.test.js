@@ -172,16 +172,12 @@ describe('stripFields', () => {
     assert.deepEqual(result, [{ x: 1 }, { x: 2 }])
   })
 
-  it('uses ignorePaths with dot notation to recurse into nested objects', () => {
-    // Note: ignorePaths recurses into the path but the leaf key is only
-    // removed if it matches via ignoreFields. This test verifies the
-    // current behavior — ignorePaths narrows the scope for recursion.
+  it('uses ignorePaths with dot notation to strip leaf keys from nested objects', () => {
+    // ignorePaths with dot notation: 'request.socket' strips the 'socket' key
+    // from inside obj.request, without requiring ignoreFields.
     const obj = { request: { socket: 'hidden', data: 'visible' }, status: 200 }
     const result = stripFields(obj, [], ['request.socket'])
-    // Current behavior: ignorePaths recurses but doesn't strip leaf keys
-    // (leaf removal requires ignoreFields). The recursion ensures child
-    // ignorePaths are applied at deeper levels.
-    assert.deepEqual(result, { request: { socket: 'hidden', data: 'visible' }, status: 200 })
+    assert.deepEqual(result, { request: { data: 'visible' }, status: 200 })
   })
 
   it('ignorePaths combined with ignoreFields removes leaf keys at paths', () => {

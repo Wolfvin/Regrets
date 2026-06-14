@@ -238,7 +238,7 @@ export function stripFields(obj, ignoreFields = [], ignorePaths = []) {
   if (obj && typeof obj === 'object') {
     return Object.fromEntries(
       Object.entries(obj)
-        .filter(([k]) => !ignoreFields.includes(k))
+        .filter(([k]) => !ignoreFields.includes(k) && !ignorePaths.includes(k))
         .map(([k, v]) => {
           // Check if any ignorePath matches this key at the current path level
           // ignorePaths use dot notation: "request.socket" means obj.request.socket
