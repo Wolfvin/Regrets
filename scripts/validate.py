@@ -103,6 +103,11 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'dataclass_dict':
+            # Recursive dataclass-to-dict conversion.
+            # Uses deep_clone which handles dataclasses via dataclasses.asdict(),
+            # and class instances with __dict__ by stripping private underscores.
+            return deep_clone(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -110,7 +115,7 @@ def apply_output_transform(output, transform):
         else:
             raise ValueError(f"Unknown outputTransform: '{transform}'")
 
-    if isinstance(output, list) and transform not in ('len',):
+    if isinstance(output, list) and transform not in ('len', 'dataclass_dict'):
         return [transform_one(item) for item in output]
     return transform_one(output)
 
