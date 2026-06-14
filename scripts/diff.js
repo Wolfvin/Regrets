@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
+import { deepDiff, formatDiffs } from './diff-utils.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -60,101 +61,6 @@ function parseRegret(content) {
     parsedOutput = outputStr === 'undefined' ? undefined : JSON.parse(outputStr)
   }
   return { ...meta, input: parsedInput, output: parsedOutput }
-}
-
-// ─── Deep diff ────────────────────────────────────────────────────────────────
-
-function deepDiff(expected, actual, path = '') {
-  const diffs = []
-
-  if (expected === actual) return diffs
-
-  // Type mismatch
-  if (typeof expected !== typeof actual || expected === null || actual === null) {
-    if (expected !== actual) {
-      diffs.push({ path: path || '(root)', expected, actual, type: 'value_mismatch' })
-    }
-    return diffs
-  }
-
-  // Array comparison
-  if (Array.isArray(expected) && Array.isArray(actual)) {
-    if (expected.length !== actual.length) {
-      diffs.push({ path: path || '(root)', expected: `array[${expected.length}]`, actual: `array[${actual.length}]`, type: 'length_mismatch' })
-    }
-    const maxLen = Math.max(expected.length, actual.length)
-    for (let i = 0; i < maxLen; i++) {
-      const eVal = i < expected.length ? expected[i] : undefined
-      const aVal = i < actual.length ? actual[i] : undefined
-      const subPath = `${path}[${i}]`
-      diffs.push(...deepDiff(eVal, aVal, subPath))
-    }
-    return diffs
-  }
-
-  // Object comparison
-  if (typeof expected === 'object' && typeof actual === 'object') {
-    if (Array.isArray(expected) !== Array.isArray(actual)) {
-      diffs.push({ path: path || '(root)', expected, actual, type: 'type_mismatch' })
-      return diffs
-    }
-    const allKeys = new Set([...Object.keys(expected), ...Object.keys(actual)])
-    for (const key of allKeys) {
-      const subPath = path ? `${path}.${key}` : key
-      if (!(key in expected)) {
-        diffs.push({ path: subPath, expected: undefined, actual: actual[key], type: 'added_key' })
-      } else if (!(key in actual)) {
-        diffs.push({ path: subPath, expected: expected[key], actual: undefined, type: 'removed_key' })
-      } else {
-        diffs.push(...deepDiff(expected[key], actual[key], subPath))
-      }
-    }
-    return diffs
-  }
-
-  // Primitive comparison
-  if (expected !== actual) {
-    // Check if it's a float tolerance issue
-    if (typeof expected === 'number' && typeof actual === 'number') {
-      const diff = Math.abs(expected - actual)
-      const relDiff = expected !== 0 ? diff / Math.abs(expected) : diff
-      if (diff < 0.01 || relDiff < 1e-10) {
-        diffs.push({ path: path || '(root)', expected, actual, type: 'float_tolerance', diff })
-        return diffs
-      }
-    }
-    diffs.push({ path: path || '(root)', expected, actual, type: 'value_mismatch' })
-  }
-
-  return diffs
-}
-
-// ─── Format diff output ──────────────────────────────────────────────────────
-
-function formatValue(val, maxLen = 80) {
-  if (val === undefined) return 'undefined'
-  if (val === null) return 'null'
-  const str = typeof val === 'object' ? JSON.stringify(val) : String(val)
-  return str.length > maxLen ? str.slice(0, maxLen) + '...' : str
-}
-
-function formatDiffs(diffs) {
-  if (!diffs.length) return '  (no differences)'
-
-  const lines = []
-  for (const d of diffs) {
-    const icon = d.type === 'float_tolerance' ? '≈' : d.type === 'added_key' ? '+' : d.type === 'removed_key' ? '-' : '≠'
-    lines.push(`  ${icon} ${d.path}`)
-    lines.push(`      golden:  ${formatValue(d.expected)}`)
-    lines.push(`      live:    ${formatValue(d.actual)}`)
-    if (d.type === 'float_tolerance') {
-      lines.push(`      diff:    ${d.diff} (within float tolerance)`)
-    }
-    if (d.type === 'length_mismatch') {
-      lines.push(`      ⚠️  Array length changed — this likely means added/removed items`)
-    }
-  }
-  return lines.join('\n')
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
