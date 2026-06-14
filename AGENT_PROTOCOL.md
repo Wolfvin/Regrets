@@ -130,7 +130,8 @@ START: Agent plans to refactor code
 │
 ├─ GATE 5: regret health
 │   FRAGILE → split cluster or add inputs
-│   ALL SOLID → GATE 6
+│   LOW confidence → add more inputs or wait for capture maturity
+│   ALL SOLID + HIGH confidence → GATE 6
 │
 ├─ GATE 6: regret risk --json
 │   HIGH → entry function modified — cluster output WILL change, plan update
@@ -169,14 +170,73 @@ START: Agent plans to refactor code
 
 ---
 
-## 6. Checklist Before PR
+## 6. Confidence Score
+
+Every cluster gets a confidence label (HIGH / MEDIUM / LOW) computed from existing
+metadata — no new files or data required.
+
+### Formula
+
+```
+Factor 1 — Input count (from manifest inputs array):
+  1 input    → 0.1
+  2-3 inputs → 0.4
+  4-6 inputs → 0.7
+  7+ inputs  → 1.0
+
+Factor 2 — Age of golden capture (from "captured:" in .regret file):
+  < 1 day    → 0.5  (too new, unproven)
+  1-7 days   → 0.8
+  > 7 days   → 1.0
+
+Factor 3 — Drift history (from audit.log entries with type UPDATE or DRIFT):
+  Has drift/update → 0.6  (contract changed, less stable)
+  Never            → 1.0
+
+Final score = F1 × 0.5 + F2 × 0.2 + F3 × 0.3
+
+Label:
+  score >= 0.8  → HIGH
+  score >= 0.5  → MEDIUM
+  score <  0.5  → LOW
+```
+
+### Where confidence appears
+
+| Command | Output |
+|---------|--------|
+| `regret health` | New "conf" column (HIGH/MEDIUM/LOW) + detail line with input count and age |
+| `regret health --json` | `confidence` (label) + `confidenceScore` (0.0–1.0) per cluster |
+| `regret validate --json` | `confidence` (label) per cluster result |
+| `regret list --json` | `confidence` (label) + `confidenceScore` (0.0–1.0) per entry |
+
+### Interpretation
+
+- **HIGH**: Well-tested cluster — many inputs, mature capture, no drift history. Trust PASS results.
+- **MEDIUM**: Partially tested — some inputs, moderate age, or prior drift. Verify manually.
+- **LOW**: Insufficient testing — single input, very new capture, or repeated drift. Do not trust PASS alone.
+
+### Example health output
+
+```
+CLUSTER HEALTH REPORT
+──────────────────────────────────────────────────────────────────────────────────
+cluster                     updates  drifts  age       health         conf   detail
+──────────────────────────────────────────────────────────────────────────────────
+parse-config                       0       0  8d        ██████ SOLID  HIGH   3 inputs, 8 days old
+create-user                        1       0  today     ██░░░░ FRAGILE LOW    1 input, 0 days old
+```
+
+---
+
+## 7. Checklist Before PR
 
 ```
 [ ] regret check — all entries found in compiled output
 [ ] regret capture — all clusters captured, .regret files written
 [ ] regret validate — ALL PASS
 [ ] regret drift — ALL STABLE (5 runs, identical hashes)
-[ ] regret health — ALL SOLID (no FRAGILE/UNSTABLE)
+[ ] regret health — ALL SOLID + no LOW confidence clusters (or plan for LOW clusters)
 [ ] regret risk — no high-risk clusters, or plan for expected changes
 [ ] regret coverage — No cluster UNDER-COVERED
 [ ] regrets/ committed (manifest.json + .regret files + audit.log)
@@ -191,10 +251,12 @@ START: Agent plans to refactor code
 
 ```
 regret init --stack <stack>       regret capture          regret validate
-regret check                      regret drift (×5)       regret health
+regret check                      regret drift (×5)       regret health [--json]
 regret update <id> --reason ".."  regret coverage         regret diff
 regret scan [--dir src/]          regret chain            regret truth
-regret rollback <id>              regret guard            regret list
+regret rollback <id>              regret guard            regret list [--json]
 regret risk [--since HEAD~1] [--diff file] [--json]
 ```
 All auto-detect stack from manifest. Add `--skip-build` to skip preBuild.
+`regret health --json` and `regret list --json` include `confidence` + `confidenceScore` per cluster.
+`regret validate --json` includes `confidence` per cluster result.

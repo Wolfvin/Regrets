@@ -1,19 +1,38 @@
 #!/usr/bin/env node
-// health.js — cluster health score report
-// Reads audit.log + .regret files to score cluster stability
+// health.js — cluster health score report + confidence scoring
+// Reads audit.log + .regret files + manifest to score cluster stability
+// and compute confidence (HIGH/MEDIUM/LOW) per cluster.
 //
 // Usage:
 //   node scripts/health.js
 //   node scripts/health.js --sort fragile
+//   node scripts/health.js --json
 
 import { readFileSync, readdirSync, existsSync } from 'fs'
 import { resolve, join, basename } from 'path'
+import { computeConfidence, parseAuditForDrift } from './confidence.js'
 
 const args      = process.argv.slice(2)
 const sortBy    = args[args.indexOf('--sort') + 1] ?? 'health'
 const jsonOutput = args.includes('--json')
 const regretDir = resolve(process.cwd(), 'regrets')
 const auditLog  = join(regretDir, 'audit.log')
+
+// ─── Load manifest (for input counts) ──────────────────────────────────────────
+
+let manifest = { clusters: [] }
+const manifestPath = resolve(process.cwd(), 'regrets/manifest.json')
+try {
+  manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+} catch {
+  // No manifest — confidence will use inputCount = 0
+}
+
+// Build lookup: cluster-id -> input count
+const inputCountMap = {}
+for (const c of manifest.clusters || []) {
+  inputCountMap[c.id] = (c.inputs || []).length
+}
 
 // ─── Parse audit.log ──────────────────────────────────────────────────────────
 
@@ -91,6 +110,7 @@ if (!regretFiles.length) {
 }
 
 const auditData = parseAuditLog()
+const driftMap  = parseAuditForDrift(auditLog)
 const now = Date.now()
 
 const clusters = regretFiles.map(f => {
@@ -105,14 +125,20 @@ const clusters = regretFiles.map(f => {
   const score    = scoreCluster({ updates: audit.updates, drifts: audit.drifts, ageDays })
   const health   = healthLabel(score, { isNew })
 
-  return { id, ageDays, score, health, isNew, ...audit }
+  // Confidence score
+  const inputCount = inputCountMap[id] ?? 0
+  const hasDriftOrUpdate = !!driftMap[id]
+  const confidence = computeConfidence({ inputCount, ageDays, hasDriftOrUpdate })
+
+  return { id, ageDays, score, health, isNew, confidence, inputCount, ...audit }
 })
 
 // Sort
 const sorted = [...clusters].sort((a, b) => {
   if (sortBy === 'fragile') return a.score - b.score
   if (sortBy === 'age')     return b.ageDays - a.ageDays
-  return b.score - a.score  // default: healthiest first
+  if (sortBy === 'confidence') return a.confidence.score - b.confidence.score
+  return b.score - b.score  // default: healthiest first
 })
 
 // ─── Render ───────────────────────────────────────────────────────────────────
@@ -129,36 +155,45 @@ if (jsonOutput) {
       isNew: c.isNew,
       updates: c.updates,
       drifts: c.drifts,
+      confidence: c.confidence.label,
+      confidenceScore: c.confidence.score,
     }))
   }
   console.log(JSON.stringify(jsonResult, null, 0))
 } else {
-  const COL = { id: 30, updates: 8, drifts: 7, age: 9, bar: 8 }
+  const COL = { id: 24, updates: 8, drifts: 7, age: 9, health: 16, confidence: 8, detail: 30 }
 
   console.log(`\nCLUSTER HEALTH REPORT`)
-  console.log(`${'─'.repeat(72)}`)
+  console.log(`${'─'.repeat(90)}`)
   console.log(
     `${'cluster'.padEnd(COL.id)}` +
     `${'updates'.padEnd(COL.updates)}` +
     `${'drifts'.padEnd(COL.drifts)}` +
     `${'age'.padEnd(COL.age)}` +
-    `health`
+    `${'health'.padEnd(COL.health)}` +
+    `${'conf'.padEnd(COL.confidence)}` +
+    `detail`
   )
-  console.log(`${'─'.repeat(72)}`)
+  console.log(`${'─'.repeat(90)}`)
 
   for (const c of sorted) {
     const age = c.ageDays === 0 ? 'today' : `${c.ageDays}d`
-    const note = c.health.note ? `  ${c.health.note}` : ''
+    const healthStr = `${c.health.bar} ${c.health.label}`
+    const confStr = c.confidence.label
+    const inputStr = `${c.inputCount} input${c.inputCount !== 1 ? 's' : ''}`
+    const detail = `${inputStr}, ${age} old`
     console.log(
       `${c.id.padEnd(COL.id)}` +
       `${String(c.updates).padEnd(COL.updates)}` +
       `${String(c.drifts).padEnd(COL.drifts)}` +
       `${age.padEnd(COL.age)}` +
-      `${c.health.bar} ${c.health.label}${note}`
+      `${healthStr.padEnd(COL.health)}` +
+      `${confStr.padEnd(COL.confidence)}` +
+      `${detail}`
     )
   }
 
-  console.log(`${'─'.repeat(72)}`)
+  console.log(`${'─'.repeat(90)}`)
 
   // ─── Legend ─────────────────────────────────────────────────────────────────
 
@@ -168,11 +203,14 @@ if (jsonOutput) {
   console.log(`  🟢 GOOD     = minor changes, still healthy`)
   console.log(`  🟡 UNSTABLE = frequent changes, needs attention`)
   console.log(`  🔴 FRAGILE  = critical, high drift or update rate`)
+  console.log(`\nConfidence: HIGH (>=0.8) | MEDIUM (>=0.5) | LOW (<0.5)`)
+  console.log(`  Formula: F1(inputs)*0.5 + F2(age)*0.2 + F3(drift history)*0.3`)
 
   // ─── Recommendations ──────────────────────────────────────────────────────────
 
   const fragile  = sorted.filter(c => c.score < 50)
   const unstable = sorted.filter(c => c.score >= 50 && c.score < 70)
+  const lowConf  = sorted.filter(c => c.confidence.label === 'LOW')
 
   if (fragile.length || unstable.length) {
     console.log(`\nRecommendations:`)
@@ -185,6 +223,13 @@ if (jsonOutput) {
     }
   } else {
     console.log(`\n✅ All clusters are healthy. Safe to refactor.`)
+  }
+
+  if (lowConf.length) {
+    console.log(`\nLow confidence clusters (add more inputs or wait for maturity):`)
+    for (const c of lowConf) {
+      console.log(`  ${c.id.padEnd(COL.id)} ${c.confidence.score}  (${c.inputCount} input${c.inputCount !== 1 ? 's' : ''}, ${c.ageDays}d old)`)
+    }
   }
 
   const solid = sorted.filter(c => c.score >= 90 && !c.isNew)

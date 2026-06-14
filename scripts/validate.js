@@ -21,6 +21,7 @@ import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
 import { constants as _fsConstants } from 'fs'
 import { execSync as _execSync } from 'child_process'
+import { computeConfidence, parseAuditForDrift } from './confidence.js'
 
 // ─── Lightweight file locking (lockfile pattern) ────────────────────────────────
 // Uses O_EXCL atomic create for lock acquisition.  Retries with exponential
@@ -1319,6 +1320,24 @@ else                console.log(`\n🔍 Validating ${regretFiles.length} cluster
 
 const results = []
 
+// ─── Confidence pre-computation ──────────────────────────────────────────────────
+// Build input-count map from manifest, parse audit.log for drift history,
+// then compute confidence per cluster for inclusion in JSON output.
+const _inputCountMap = {}
+for (const c of manifest.clusters || []) {
+  _inputCountMap[c.id] = (c.inputs || []).length
+}
+const _driftMap = parseAuditForDrift(auditLog)
+const _now = Date.now()
+
+function _confidenceForCluster(id, regretMeta) {
+  const inputCount = _inputCountMap[id] ?? 0
+  const captured = regretMeta.captured ? new Date(regretMeta.captured).getTime() : _now
+  const ageDays = Math.floor((_now - captured) / (1000 * 60 * 60 * 24))
+  const hasDriftOrUpdate = !!_driftMap[id]
+  return computeConfidence({ inputCount, ageDays, hasDriftOrUpdate })
+}
+
 // Track start time for JUnit XML time field
 globalThis._validateStartTime = Date.now()
 
@@ -1332,6 +1351,9 @@ for (const file of regretFiles) {
     continue
   }
 
+  // Compute confidence for this cluster (used in JSON output)
+  const clusterConfidence = _confidenceForCluster(id, regret)
+
   try {
     const { hashes, hashesPerInput, lastOutput, lastErrorContract, skipped,
             mutationMatch: clusterMutationMatch,
@@ -1339,7 +1361,7 @@ for (const file of regretFiles) {
             liveMutationFingerprint: clusterLiveMutationFp,
             lastSideEffectRecording: clusterLastSERecording,
             goldenSideEffects: clusterGoldenSE } = await runCluster(def, regret)
-    if (skipped) { results.push({ id, pass: true, skipped: true }); continue }
+    if (skipped) { results.push({ id, pass: true, skipped: true, confidence: clusterConfidence.label }); continue }
 
     // ── trackMutation check: mutation mismatch takes priority over fingerprint match ──
     // If the .regret file has a mutationFingerprint and the live one differs, FAIL immediately.
@@ -1354,7 +1376,7 @@ for (const file of regretFiles) {
           console.log(`  ❌ ${id.padEnd(35)} MUTATION MISMATCH  golden=${goldenMutationFp} live=${clusterLiveMutationFp}`)
         }
       }
-      results.push({ id, pass: false, mutationMismatch: true, mutationDetected: clusterMutationDetected })
+      results.push({ id, pass: false, mutationMismatch: true, mutationDetected: clusterMutationDetected, confidence: clusterConfidence.label })
       if (failFast) {
         if (!jsonOutput) console.log(`\n  --fail-fast: stopping.`)
         break
@@ -1387,12 +1409,13 @@ for (const file of regretFiles) {
           expectedError: goldenErrorContract,
           actualError: lastErrorContract,
           expectThrowViolated: !lastErrorContract,
+          confidence: clusterConfidence.label,
         })
       } else {
         if (!jsonOutput && !quiet) {
           console.log(`  ✅ ${id.padEnd(35)} ${regret.goldenHash}  PASS`)
         }
-        results.push({ id, pass: true, expected: regret.goldenHash, actual: liveHash })
+        results.push({ id, pass: true, expected: regret.goldenHash, actual: liveHash, confidence: clusterConfidence.label })
       }
       if (!results.at(-1).pass && failFast) {
         if (!jsonOutput && !quiet) console.log(`\n  --fail-fast: stopping.`)
@@ -1420,11 +1443,11 @@ for (const file of regretFiles) {
     if (updateMode) {
       if (isMatch) {
         if (!jsonOutput && !quiet) console.log(`  ℹ️  ${id.padEnd(35)} unchanged — no update needed`)
-        results.push({ id, pass: true })
+        results.push({ id, pass: true, confidence: clusterConfidence.label })
       } else {
         const { oldHash, newHash } = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason, clusterLastSERecording)
         if (!jsonOutput && !quiet) console.log(`  ✅ ${id.padEnd(35)} ${oldHash} → ${newHash}  UPDATED`)
-        results.push({ id, pass: true, updated: true })
+        results.push({ id, pass: true, updated: true, confidence: clusterConfidence.label })
       }
     } else if (driftMode) {
       if (isDrift) {
@@ -1435,7 +1458,7 @@ for (const file of regretFiles) {
             if (diff) console.log(diff)
           }
         }
-        results.push({ id, pass: false, drift: true, goldenOutput: regret.output, liveOutput: lastOutput })
+        results.push({ id, pass: false, drift: true, goldenOutput: regret.output, liveOutput: lastOutput, confidence: clusterConfidence.label })
       } else {
         if (!jsonOutput && !quiet) {
           const icon = isMatch ? '✅' : '❌'
@@ -1449,7 +1472,7 @@ for (const file of regretFiles) {
             if (seDiff) console.log(seDiff)
           }
         }
-        results.push({ id, pass: isMatch, goldenOutput: regret.output, liveOutput: lastOutput })
+        results.push({ id, pass: isMatch, goldenOutput: regret.output, liveOutput: lastOutput, confidence: clusterConfidence.label })
       }
     } else {
       if (!jsonOutput && !quiet) {
@@ -1466,12 +1489,12 @@ for (const file of regretFiles) {
           if (seDiff) console.log(seDiff)
         }
       }
-      results.push({ id, pass: isMatch, expected: regret.goldenHash, actual: liveHash, goldenOutput: regret.output, liveOutput: lastOutput })
+      results.push({ id, pass: isMatch, expected: regret.goldenHash, actual: liveHash, goldenOutput: regret.output, liveOutput: lastOutput, confidence: clusterConfidence.label })
     }
 
   } catch (err) {
     if (!jsonOutput && !quiet) console.log(`  ❌ ${id.padEnd(35)} ERROR: ${err.message}`)
-    results.push({ id, pass: false, error: err.message })
+    results.push({ id, pass: false, error: err.message, confidence: clusterConfidence.label })
   }
 
   if (!results.at(-1).pass && failFast) {
@@ -1515,6 +1538,7 @@ if (reporter === 'junit') {
       .map(r => ({
         id: r.id,
         status: r.pass ? (r.drift ? 'drift' : 'pass') : (r.expectThrowViolated ? 'expect_throw_violated' : (r.mutationMismatch ? 'mutation_mismatch' : (r.error ? 'error' : 'fail'))),
+        confidence: r.confidence || 'LOW',
         ...(r.expected ? { expected: r.expected } : {}),
         ...(r.actual ? { actual: r.actual } : {}),
         ...(r.error ? { error: r.error } : {}),
