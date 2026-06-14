@@ -67,7 +67,8 @@ function scoreCluster({ updates, drifts, ageDays }) {
   return Math.max(0, Math.min(100, score))
 }
 
-function healthLabel(score) {
+function healthLabel(score, { isNew = false } = {}) {
+  if (isNew)       return { label: 'NEW',      bar: '░░░░░░', color: '🩵', note: '(newly captured — run drift to verify)' }
   if (score >= 90) return { label: 'SOLID',    bar: '██████', color: '✅' }
   if (score >= 70) return { label: 'GOOD',     bar: '█████░', color: '🟢' }
   if (score >= 50) return { label: 'UNSTABLE', bar: '███░░░', color: '🟡' }
@@ -98,11 +99,13 @@ const clusters = regretFiles.map(f => {
   const meta    = parseRegretMeta(content)
   const audit   = auditData[id] ?? { updates: 0, drifts: 0, history: [] }
   const captured = meta.captured ? new Date(meta.captured).getTime() : now
-  const ageDays  = Math.floor((now - captured) / (1000 * 60 * 60 * 24))
+  const ageHours = (now - captured) / (1000 * 60 * 60)
+  const ageDays  = Math.floor(ageHours / 24)
+  const isNew    = ageHours < 72 && audit.updates === 0 && audit.drifts === 0
   const score    = scoreCluster({ updates: audit.updates, drifts: audit.drifts, ageDays })
-  const health   = healthLabel(score)
+  const health   = healthLabel(score, { isNew })
 
-  return { id, ageDays, score, health, ...audit }
+  return { id, ageDays, score, health, isNew, ...audit }
 })
 
 // Sort
@@ -123,6 +126,7 @@ if (jsonOutput) {
       lastCapture: c.ageDays === 0 ? 'today' : `${c.ageDays}d ago`,
       score: c.score,
       label: c.health.label,
+      isNew: c.isNew,
       updates: c.updates,
       drifts: c.drifts,
     }))
@@ -144,16 +148,26 @@ if (jsonOutput) {
 
   for (const c of sorted) {
     const age = c.ageDays === 0 ? 'today' : `${c.ageDays}d`
+    const note = c.health.note ? `  ${c.health.note}` : ''
     console.log(
       `${c.id.padEnd(COL.id)}` +
       `${String(c.updates).padEnd(COL.updates)}` +
       `${String(c.drifts).padEnd(COL.drifts)}` +
       `${age.padEnd(COL.age)}` +
-      `${c.health.bar} ${c.health.label}`
+      `${c.health.bar} ${c.health.label}${note}`
     )
   }
 
   console.log(`${'─'.repeat(72)}`)
+
+  // ─── Legend ─────────────────────────────────────────────────────────────────
+
+  console.log(`\nLegend:`)
+  console.log(`  🩵 NEW      = recently captured, not yet verified`)
+  console.log(`  ✅ SOLID    = stable, no changes detected`)
+  console.log(`  🟢 GOOD     = minor changes, still healthy`)
+  console.log(`  🟡 UNSTABLE = frequent changes, needs attention`)
+  console.log(`  🔴 FRAGILE  = critical, high drift or update rate`)
 
   // ─── Recommendations ──────────────────────────────────────────────────────────
 
@@ -173,7 +187,7 @@ if (jsonOutput) {
     console.log(`\n✅ All clusters are healthy. Safe to refactor.`)
   }
 
-  const solid = sorted.filter(c => c.score >= 90)
+  const solid = sorted.filter(c => c.score >= 90 && !c.isNew)
   if (solid.length) {
     console.log(`\nDo not touch (SOLID contracts):`)
     solid.forEach(c => console.log(`  ${c.id}`))

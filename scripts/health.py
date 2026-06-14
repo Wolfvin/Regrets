@@ -104,7 +104,9 @@ def score_cluster(updates, drifts, age_days):
     return max(0, min(100, score))
 
 
-def health_label(score):
+def health_label(score, *, is_new=False):
+    if is_new:
+        return {'label': 'NEW',      'bar': '░░░░░░', 'color': '🩵', 'note': '(newly captured — run drift to verify)'}
     if score >= 90:
         return {'label': 'SOLID',    'bar': '██████', 'color': '✅'}
     if score >= 70:
@@ -152,15 +154,18 @@ def main():
         else:
             captured = now
 
-        age_days = int((now - captured) / (60 * 60 * 24))
+        age_hours = (now - captured) / 3600
+        age_days = int(age_hours / 24)
+        is_new = age_hours < 72 and audit['updates'] == 0 and audit['drifts'] == 0
         score = score_cluster(audit['updates'], audit['drifts'], age_days)
-        health = health_label(score)
+        health = health_label(score, is_new=is_new)
 
         clusters.append({
             'id': cluster_id,
             'ageDays': age_days,
             'score': score,
             'health': health,
+            'isNew': is_new,
             'updates': audit['updates'],
             'drifts': audit['drifts'],
         })
@@ -190,15 +195,25 @@ def main():
 
     for c in sorted_clusters:
         age = 'today' if c['ageDays'] == 0 else f"{c['ageDays']}d"
+        note = f"  {c['health']['note']}" if c['health'].get('note') else ''
         print(
             f"{c['id']:<{COL['id']}}"
             f"{c['updates']:<{COL['updates']}}"
             f"{c['drifts']:<{COL['drifts']}}"
             f"{age:<{COL['age']}}"
-            f"{c['health']['bar']} {c['health']['label']}"
+            f"{c['health']['bar']} {c['health']['label']}{note}"
         )
 
     print('─' * 72)
+
+    # ─── Legend ─────────────────────────────────────────────────────────────
+
+    print('\nLegend:')
+    print('  🩵 NEW      = recently captured, not yet verified')
+    print('  ✅ SOLID    = stable, no changes detected')
+    print('  🟢 GOOD     = minor changes, still healthy')
+    print('  🟡 UNSTABLE = frequent changes, needs attention')
+    print('  🔴 FRAGILE  = critical, high drift or update rate')
 
     # ─── Recommendations ──────────────────────────────────────────────────────
 
@@ -217,7 +232,7 @@ def main():
     else:
         print('\n✅ All clusters are healthy. Safe to refactor.')
 
-    solid = [c for c in sorted_clusters if c['score'] >= 90]
+    solid = [c for c in sorted_clusters if c['score'] >= 90 and not c.get('isNew')]
     if solid:
         print('\nDo not touch (SOLID contracts):')
         for c in solid:
