@@ -29,7 +29,8 @@ import { resolve, join, extname, relative, basename, dirname } from 'path'
 
 const args = process.argv.slice(2)
 const scanDir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : '.'
-const threshold = parseInt(args[args.indexOf('--threshold') + 1] ?? '300', 10)
+const thresholdIdx = args.indexOf('--threshold')
+const threshold = thresholdIdx !== -1 ? parseInt(args[thresholdIdx + 1] ?? '300', 10) : 300
 const formatArg = args.includes('--format') ? args[args.indexOf('--format') + 1] : null
 const stackFilter = args.includes('--stack') ? args[args.indexOf('--stack') + 1] : null
 const projectRoot = process.cwd()
@@ -290,6 +291,52 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// ─── Class method extraction ──────────────────────────────────────────────────
+
+function extractClassInfo(classBody) {
+  const staticMethods = []
+  const instanceMethods = []
+  const keywordNames = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'typeof', 'void', 'delete', 'throw', 'else', 'function', 'class', 'import', 'export', 'const', 'let', 'var', 'super', 'this', 'async', 'await', 'yield', 'break', 'continue', 'do', 'try', 'finally', 'with', 'console', 'assert'])
+
+  // Static method declarations: static [async] [#]name(
+  for (const m of classBody.matchAll(/\bstatic\s+(?:async\s+)?(?:get\s+|set\s+)?#?(\w+)\s*\(/g)) {
+    if (!keywordNames.has(m[1]) && m[1] !== 'constructor') staticMethods.push(m[1])
+  }
+  // Static computed properties: static [async] [Symbol.xxx](
+  for (const m of classBody.matchAll(/\bstatic\s+(?:async\s+)?\[(Symbol\.\w+)\]\s*\(/g)) {
+    staticMethods.push(`[${m[1]}]`)
+  }
+
+  // Instance methods — check line by line, skip lines containing 'static'
+  for (const line of classBody.split('\n')) {
+    if (/\bstatic\b/.test(line)) continue
+    // Skip nested function declarations (e.g., "function handleResult(...) {")
+    // These are inside method bodies, not class methods
+    if (/^\s*function\s+/.test(line)) continue
+    // Method declaration: [modifiers] [#]name(
+    // Skip lines that are clearly function calls (no type annotation after closing paren)
+    // e.g., "handleResult(..., constraints);" vs "handleResult(...): string {"
+    const m = line.match(/^\s*(?:(?:public|private|protected|readonly|abstract|override)\s+)*(?:async\s+)?(?:get\s+|set\s+)?#?(\w+)\s*\(/)
+    if (m && !keywordNames.has(m[1]) && m[1] !== 'constructor') {
+      // Heuristic: if the line contains ); or ); // it's likely a function call, not a method declaration
+      const afterParen = line.slice(line.indexOf('('))
+      if (/\);\s*$/.test(afterParen) || /\);\s*\/\//.test(afterParen)) continue
+      instanceMethods.push(m[1])
+      continue
+    }
+    // Computed property: [Symbol.xxx](
+    const cm = line.match(/^\s*(?:async\s+)?\[(Symbol\.\w+)\]\s*\(/)
+    if (cm) {
+      instanceMethods.push(`[${cm[1]}]`)
+    }
+  }
+
+  return {
+    staticMethods: [...new Set(staticMethods)],
+    instanceMethods: [...new Set(instanceMethods)],
+  }
+}
+
 // ─── Module-level purity analysis ─────────────────────────────────────────────
 
 function analyzeModulePurity(source, ext) {
@@ -353,6 +400,61 @@ function analyzeFile(filePath, projectRoot) {
   const isHighlyCoupled = imports.length >= 10
   const isExportHeavy = realFunctions.length >= 10
 
+  // ─── Class detection: static factories & stateful iterators ──────────────
+
+  const staticFactories = []
+  const statefulIterators = []
+
+  // Only scan JS/TS files for classes
+  if (ext === '.js' || ext === '.mjs' || ext === '.cjs' || ext === '.ts' || ext === '.tsx') {
+    // Line-based class detection to avoid false matches in comments/strings
+    const classDeclRegex = /^[ \t]*(?:export\s+(?:default\s+)?)?(?:abstract\s+)?class\s+(\w+)/gm
+    for (const classMatch of source.matchAll(classDeclRegex)) {
+      const className = classMatch[1]
+      // Skip if inside a comment (check text before 'class' on the same line)
+      const lineStart = source.lastIndexOf('\n', classMatch.index) + 1
+      const linePrefix = source.slice(lineStart, classMatch.index).trim()
+      if (linePrefix.startsWith('//') || linePrefix.startsWith('*') || linePrefix.startsWith('/*')) continue
+
+      // Find the opening brace for the class body
+      const openBraceIdx = source.indexOf('{', classMatch.index)
+      if (openBraceIdx === -1) continue
+      // Sanity check: brace should be within a few lines of the class keyword
+      const textBetween = source.slice(classMatch.index, openBraceIdx)
+      if (textBetween.split('\n').length > 5) continue
+
+      const classBody = extractBlock(source, openBraceIdx)
+      if (!classBody) continue
+
+      const classInfo = extractClassInfo(classBody)
+
+      // Static factory: all methods are static, no instance methods
+      if (classInfo.instanceMethods.length === 0 && classInfo.staticMethods.length > 0) {
+        staticFactories.push({
+          name: className,
+          isStaticFactory: true,
+          staticMethods: classInfo.staticMethods,
+        })
+      }
+
+      // Stateful iterator: has next() method + iterator protocol markers
+      const hasNext = /\bnext\s*\(/.test(classBody)
+      const iteratorMarkers = []
+      if (/\[Symbol\.iterator\]/.test(classBody)) iteratorMarkers.push('[Symbol.iterator]')
+      if (/\btake\s*\(/.test(classBody)) iteratorMarkers.push('take')
+      if (/\bhasNext\s*\(/.test(classBody)) iteratorMarkers.push('hasNext')
+      if (/\bhasPrev\s*\(/.test(classBody)) iteratorMarkers.push('hasPrev')
+
+      if (hasNext && iteratorMarkers.length > 0) {
+        statefulIterators.push({
+          name: className,
+          isStatefulIterator: true,
+          iteratorMethods: [...new Set(['next', ...iteratorMarkers])],
+        })
+      }
+    }
+  }
+
   return {
     file: relPath,
     stack,
@@ -371,7 +473,9 @@ function analyzeFile(filePath, projectRoot) {
     isGodObject,
     isHighlyCoupled,
     isExportHeavy,
-    refactorPriority: (isGodObject ? 3 : 0) + (isHighlyCoupled ? 2 : 0) + (isExportHeavy ? 1 : 0),
+    staticFactories,
+    statefulIterators,
+    refactorPriority: (isGodObject ? 3 : 0) + (isHighlyCoupled ? 2 : 0) + (isExportHeavy ? 1 : 0) + (isGodObject && statefulIterators.length > 0 ? 2 : 0),
   }
 }
 
@@ -406,6 +510,8 @@ if (formatArg === 'json') {
     pureModules: analyses.filter(a => a.modulePurity === 'pure').length,
     totalPureFunctions: analyses.reduce((sum, a) => sum + a.pureFunctionCount, 0),
     totalImpureFunctions: analyses.reduce((sum, a) => sum + a.impureFunctionCount, 0),
+    totalStaticFactories: analyses.reduce((sum, a) => sum + a.staticFactories.length, 0),
+    totalStatefulIterators: analyses.reduce((sum, a) => sum + a.statefulIterators.length, 0),
   }}, null, 2))
   process.exit(0)
 }
@@ -444,6 +550,8 @@ const pureModules = analyses.filter(a => a.modulePurity === 'pure')
 const impureModules = analyses.filter(a => a.modulePurity === 'impure')
 const totalPureFns = analyses.reduce((sum, a) => sum + a.pureFunctionCount, 0)
 const totalImpureFns = analyses.reduce((sum, a) => sum + a.impureFunctionCount, 0)
+const staticFactoryCount = analyses.reduce((sum, a) => sum + a.staticFactories.length, 0)
+const statefulIteratorCount = analyses.reduce((sum, a) => sum + a.statefulIterators.length, 0)
 
 console.log('SUMMARY')
 console.log('─'.repeat(70))
@@ -454,6 +562,8 @@ console.log(`  Pure modules:            ${pureModules.length}`)
 console.log(`  Impure modules:          ${impureModules.length}`)
 console.log(`  Total pure functions:    ${totalPureFns}`)
 console.log(`  Total impure functions:  ${totalImpureFns}`)
+console.log(`  Static factories:        ${staticFactoryCount}`)
+console.log(`  Stateful iterators:      ${statefulIteratorCount}`)
 
 // God Objects
 if (godObjects.length > 0) {
@@ -468,6 +578,34 @@ if (godObjects.length > 0) {
     }
     if (f.pureFunctions.length > 0) {
       console.log(`    Extractable pure fns: ${f.pureFunctions.join(', ')}`)
+    }
+  }
+}
+
+// Stateful iterators
+const allStatefulIterators = analyses.filter(a => a.statefulIterators.length > 0)
+if (allStatefulIterators.length > 0) {
+  console.log(`\n\n🔁 STATEFUL ITERATORS — Use adapter pattern for fingerprinting`)
+  console.log('─'.repeat(70))
+  for (const f of allStatefulIterators) {
+    for (const iter of f.statefulIterators) {
+      console.log(`  ${iter.name} in ${f.file}`)
+      console.log(`    Iterator methods: ${iter.iteratorMethods.join(', ')}`)
+      console.log(`    → Create adapter to materialize iteration sequences (see references/stateful-iterator.md)`)
+    }
+  }
+}
+
+// Static factories
+const allStaticFactories = analyses.filter(a => a.staticFactories.length > 0)
+if (allStaticFactories.length > 0) {
+  console.log(`\n\n⚙️ STATIC FACTORIES — Static-only classes (namespaces, not instances)`)
+  console.log('─'.repeat(70))
+  for (const f of allStaticFactories) {
+    for (const sf of f.staticFactories) {
+      console.log(`  ${sf.name} in ${f.file}`)
+      console.log(`    Static methods: ${sf.staticMethods.join(', ')}`)
+      console.log(`    → Use function-based entry in manifest (adapter needed for static method calls)`)
     }
   }
 }
@@ -510,13 +648,15 @@ if (partiallyPure.length > 0) {
 // Refactoring priority ranking
 const priorityFiles = analyses.filter(a => a.refactorPriority > 0)
 if (priorityFiles.length > 0) {
-  console.log(`\n\n📊 REFACTORING PRIORITY (God Object×3 + Coupled×2 + Export Heavy×1)`)
+  console.log(`\n\n📊 REFACTORING PRIORITY (God Object×3 + Coupled×2 + Export Heavy×1 + Iterator∈God×2)`)
   console.log('─'.repeat(70))
   for (const f of priorityFiles.slice(0, 15)) {
     const badges = []
     if (f.isGodObject) badges.push('GOD')
     if (f.isHighlyCoupled) badges.push('COUPLED')
     if (f.isExportHeavy) badges.push('EXPORT-HEAVY')
+    if (f.statefulIterators.length > 0) badges.push('ITERATOR')
+    if (f.staticFactories.length > 0) badges.push('STATIC-FAC')
     console.log(`  ${String(f.refactorPriority).padStart(2)} pts  ${f.file}  [${badges.join(', ')}]`)
   }
 }
@@ -524,15 +664,30 @@ if (priorityFiles.length > 0) {
 // Recommendation
 console.log(`\n\n💡 NEXT STEPS`)
 console.log('─'.repeat(70))
+let stepNum = 1
 if (godObjects.length > 0) {
-  console.log(`  1. Split God Objects first — they block clustering of contained functions`)
+  console.log(`  ${stepNum}. Split God Objects first — they block clustering of contained functions`)
   console.log(`     Start with: ${godObjects[0].file} (${godObjects[0].lines} lines)`)
   console.log(`     Extract these pure fns into new modules: ${godObjects[0].pureFunctions.slice(0, 5).join(', ')}${godObjects[0].pureFunctions.length > 5 ? '...' : ''}`)
+  stepNum++
 }
-console.log(`  2. Run 'regret scan --format manifest' to generate cluster definitions for pure functions`)
-console.log(`  3. Add representative inputs to each cluster in manifest.json`)
-console.log(`  4. Run 'regret capture' to capture fingerprints`)
-console.log(`  5. Run 'regret drift' to verify stability`)
+if (allStatefulIterators.length > 0) {
+  console.log(`  ${stepNum}. Wrap stateful iterators with adapters — they hide logic in mutable state`)
+  console.log(`     Create deterministic adapters that materialize iteration sequences`)
+  stepNum++
+}
+if (allStaticFactories.length > 0) {
+  console.log(`  ${stepNum}. Convert static factories to function exports — they are namespaces, not instances`)
+  console.log(`     Use function-based manifest entries with adapters for static method calls`)
+  stepNum++
+}
+console.log(`  ${stepNum}. Run 'regret scan --format manifest' to generate cluster definitions for pure functions`)
+stepNum++
+console.log(`  ${stepNum}. Add representative inputs to each cluster in manifest.json`)
+stepNum++
+console.log(`  ${stepNum}. Run 'regret capture' to capture fingerprints`)
+stepNum++
+console.log(`  ${stepNum}. Run 'regret drift' to verify stability`)
 console.log()
 
 // Export manifest snippet for pure functions if requested

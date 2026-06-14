@@ -504,6 +504,110 @@ function estimateZustandComplexity(body) {
   return complexity
 }
 
+// ─── Block extraction helper ──────────────────────────────────────────────────
+// Extracts a brace-delimited block from source starting at the given index.
+// Finds the first `{` at or after startIndex, then counts braces to find
+// the matching `}`. Returns the body between the braces, or null on failure.
+
+function extractBlock(source, startIndex) {
+  let i = startIndex
+  // Find the first opening brace
+  while (i < source.length && source[i] !== '{') i++
+  if (i >= source.length) return null
+
+  const braceStart = i
+  let depth = 0
+  for (; i < source.length; i++) {
+    if (source[i] === '{') depth++
+    else if (source[i] === '}') {
+      depth--
+      if (depth === 0) break
+    }
+  }
+
+  return source.slice(braceStart + 1, i)
+}
+
+// ─── Static class method detection ────────────────────────────────────────────
+// Detects exported classes with static methods. Static methods like
+// `CronExpressionParser.parse()` are functionally similar to exported functions
+// but require an adapter or the classMethod pattern to be invoked by Regrets.
+
+function extractStaticClassMethods(source, ext) {
+  const results = []
+
+  // Only scan JS/TS files
+  if (!['.js', '.mjs', '.cjs', '.ts', '.tsx'].includes(ext)) return results
+
+  // Find export class declarations
+  const classPattern = /export\s+(?:default\s+)?class\s+(\w+)\s*(?:extends\s+\w+\s*)?\{/g
+  let match
+  while ((match = classPattern.exec(source)) !== null) {
+    const className = match[1]
+    const classBody = extractBlock(source, match.index + match[0].length - 1)
+    if (!classBody) continue
+
+    // Find static method declarations within the class body
+    const staticPattern = /static\s+(?:async\s+)?(\w+)\s*\(/g
+    let staticMatch
+    while ((staticMatch = staticPattern.exec(classBody)) !== null) {
+      const methodName = staticMatch[1]
+      // Skip constructor-like names
+      if (methodName === 'constructor') continue
+      results.push({
+        className,
+        methodName,
+        fullName: `${className}.${methodName}`,
+      })
+    }
+  }
+
+  return results
+}
+
+// ─── Stateful iterator detection ──────────────────────────────────────────────
+// Detects classes that implement the iterator pattern — they have a next()
+// method AND either [Symbol.iterator], take(), hasNext(), or hasPrev().
+// These are stateful iterators that require an adapter to materialize the
+// sequence for Regrets fingerprinting (see references/stateful-iterator.md).
+
+function detectStatefulIterators(source, ext) {
+  const results = []
+
+  // Only scan JS/TS files
+  if (!['.js', '.mjs', '.cjs', '.ts', '.tsx'].includes(ext)) return results
+
+  // Find all class declarations (exported or not)
+  const classPattern = /(?:export\s+(?:default\s+)?)?class\s+(\w+)\s*(?:extends\s+\w+\s*)?\{/g
+  let match
+  while ((match = classPattern.exec(source)) !== null) {
+    const className = match[1]
+    const classBody = extractBlock(source, match.index + match[0].length - 1)
+    if (!classBody) continue
+
+    // Check for next() method
+    const hasNextMethod = /\bnext\s*\(/.test(classBody)
+    if (!hasNextMethod) continue
+
+    // Check for iterator marker methods
+    const detectedMethods = []
+    if (/\[Symbol\.iterator\]/.test(classBody)) detectedMethods.push('[Symbol.iterator]')
+    if (/\btake\s*\(/.test(classBody)) detectedMethods.push('take')
+    if (/\bhasNext\s*\(/.test(classBody)) detectedMethods.push('hasNext')
+    if (/\bhasPrev\s*\(/.test(classBody)) detectedMethods.push('hasPrev')
+
+    if (detectedMethods.length === 0) continue
+
+    results.push({
+      className,
+      methods: ['next', ...detectedMethods],
+      isIterator: true,
+    })
+  }
+
+  return results
+}
+
 // ─── Determine stack from file extension ──────────────────────────────────────
 
 function stackFromExt(ext) {
@@ -663,6 +767,8 @@ const suggestions = []
 const internalOnlyFiles = []  // Files with internal functions but no exports
 const barrelFiles = []
 const factoryFiles = []
+const staticClassMethods = []  // Exported classes with static methods
+const statefulIterators = []   // Classes implementing the iterator pattern
 
 for (const filePath of files) {
   const ext = extname(filePath)
@@ -696,6 +802,12 @@ for (const filePath of files) {
   // Also detect Zustand store actions (functions inside create() blocks)
   const zustandActions = extractZustandActions(source, ext)
 
+  // Detect exported classes with static methods
+  const staticMethods = extractStaticClassMethods(source, ext)
+
+  // Detect stateful iterator pattern
+  const iterators = detectStatefulIterators(source, ext)
+
   // Track files with only internal functions (no exports)
   if (fns.length === 0 && internalFns.length > 0) {
     const exportedNames = new Set(fns)
@@ -711,8 +823,8 @@ for (const filePath of files) {
     }
   }
 
-  // Only suggest files with exported functions or Zustand actions
-  if (fns.length === 0 && zustandActions.length === 0) continue
+  // Only suggest files with exported functions, Zustand actions, static methods, or iterators
+  if (fns.length === 0 && zustandActions.length === 0 && staticMethods.length === 0 && iterators.length === 0) continue
 
   // Filter out obvious non-pure functions (heuristic)
   const pureFns = fns.filter(fn => {
@@ -750,6 +862,35 @@ for (const filePath of files) {
       isFactory: false,
       note: 'Extract pure logic to *-logic.ts before fingerprinting (see references/zustand-store.md)',
     })
+  }
+
+  // Add static class method suggestions
+  for (const sm of staticMethods) {
+    const complexity = estimateComplexity(source, sm.methodName) || 1
+    suggestions.push({
+      function: sm.fullName,
+      file: relPath,
+      stack,
+      complexity,
+      fileSize: lines,
+      isStaticMethod: true,
+      note: 'Static method — use adapter or classMethod pattern to invoke (see references/static-class-method.md)',
+    })
+    staticClassMethods.push({ ...sm, file: relPath, stack })
+  }
+
+  // Add stateful iterator suggestions
+  for (const it of iterators) {
+    suggestions.push({
+      function: it.className,
+      file: relPath,
+      stack,
+      complexity: 1,
+      fileSize: lines,
+      isIterator: true,
+      note: 'Use adapter pattern to materialize iterator sequences (see references/stateful-iterator.md)',
+    })
+    statefulIterators.push({ ...it, file: relPath, stack })
   }
 }
 
@@ -841,6 +982,51 @@ if (formatManifest) {
     console.log(`   Example manifest entry:`)
     console.log(`     { "id": "arithmetic-add", "entry": "add", "file": "lib/esm/index.js", `)
     console.log(`       "watches": ["add", "addScalar"], "outputTransform": "pojo" }`)
+  }
+
+  // Report static class methods
+  if (staticClassMethods.length > 0) {
+    console.log(`\n⚙️  STATIC CLASS METHODS`)
+    console.log('─'.repeat(90))
+    console.log(
+    'class'.padEnd(25) +
+    'method'.padEnd(25) +
+    'full name'.padEnd(35) +
+    'file'
+    )
+    console.log('─'.repeat(90))
+    for (const sm of staticClassMethods) {
+    console.log(
+      sm.className.padEnd(25) +
+      sm.methodName.padEnd(25) +
+      sm.fullName.padEnd(35) +
+      sm.file
+    )
+    }
+    console.log('─'.repeat(90))
+    console.log(`  Found ${staticClassMethods.length} static method(s). These require an adapter or classMethod pattern.`)
+  }
+
+  // Report stateful iterators
+  if (statefulIterators.length > 0) {
+    console.log(`\n🔁 STATEFUL ITERATORS`)
+    console.log('─'.repeat(90))
+    console.log(
+    'class'.padEnd(25) +
+    'methods'.padEnd(40) +
+    'file'
+    )
+    console.log('─'.repeat(90))
+    for (const it of statefulIterators) {
+    console.log(
+      it.className.padEnd(25) +
+      it.methods.join(', ').padEnd(40) +
+      it.file
+    )
+    }
+    console.log('─'.repeat(90))
+    console.log(`  Found ${statefulIterators.length} iterator class(es). Use adapter pattern to materialize sequences.`)
+    console.log('  See references/stateful-iterator.md for the adapter pattern.')
   }
 
   console.log(`\n💡 Tip: Run with --format manifest to generate a manifest.json starting point.`)
