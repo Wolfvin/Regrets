@@ -315,7 +315,7 @@ Add these to the target project's `package.json`:
 - `regret:coverage` — branch coverage analysis (detects under-covered clusters)
 - `regret:scan` — scan project for cluster suggestions (useful for new projects)
 - `regret:list` — list all clusters with status, stack, and fingerprints
-- `regret:verify-kebenaran` — verify KEBENARAN 1 vs KEBENARAN 2 identity
+- `regret:verify-kebenaran` — verify KEBENARAN 1 vs KEBENARAN 2 identity (auto-detects Python vs JS stack)
 - The unified runner (`regret.js`) auto-detects stack from manifest and dispatches to the right handler. You can also call individual scripts directly (see Decision Tree below).
 - Install globally with `npm link` (from the skill directory) to use `regret capture` directly
 - Programmatic API: `import { fingerprint, createGhost } from 'regret-testing'`
@@ -934,6 +934,7 @@ regression-testing/
     ├── case-study-riimut.md    ← Case study: riimut (rune transliteration, dual-truth)
     ├── case-study-shakespearelang.md ← Case study: shakespearelang (esoteric language)
     ├── case-study-coretax.md       ← Case study: Coretax-Auto-Downloader (date-dependent output, discriminated unions, God Object)
+    ├── case-study-sdr.md      ← Case study: mhostetter/sdr (DSP/scientific computing, numpy arrays, complex numbers)
     ├── dual-truth-verification.md ← Dual-truth verification pattern
     └── mapping-transliteration.md ← Mapping/transliteration library guide
 ```

@@ -4,9 +4,15 @@
 #
 # Part of the Dual-Truth Verification pattern for Python stacks.
 #
+# This script addresses the gap discovered during the mhostetter/sdr refactoring:
+# The existing verify_kebenaran.js only works for JS clusters. Python clusters
+# with numpy arrays and complex numbers need their own verification.
+#
 # Usage:
 #   python scripts/verify_kebenaran.py
 #   python scripts/verify_kebenaran.py --manifest ./regrets/manifest.json
+#   python scripts/verify_kebenaran.py --cluster db-value
+#   python scripts/verify_kebenaran.py --proof-dir ./proof/my-project
 #
 # This script re-runs all Python entry functions, compares:
 #   1. Raw output vs KEBENARAN 1 (ground truth)
@@ -20,10 +26,16 @@ import re
 import importlib
 from pathlib import Path
 
+# Add scripts dir to path for fingerprint module
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
 # Import shared fingerprint module
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
-    deep_clone, fingerprint, _numpy_to_native, materialize_output
+    deep_clone, fingerprint, extract_schema,
+    _numpy_to_native, _complex_to_json, materialize_output
 )
 
 
@@ -32,6 +44,7 @@ def parse_args():
     result = {
         'manifest': os.path.join(os.getcwd(), 'regrets', 'manifest.json'),
         'proof_dir': None,
+        'cluster': None,
     }
     i = 0
     while i < len(args):
@@ -41,9 +54,18 @@ def parse_args():
         elif args[i] == '--proof-dir' and i + 1 < len(args):
             result['proof_dir'] = args[i + 1]
             i += 2
+        elif args[i] == '--cluster' and i + 1 < len(args):
+            result['cluster'] = args[i + 1]
+            i += 2
         else:
             i += 1
     return result
+
+
+def load_json(path):
+    """Load and parse a JSON file."""
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 
 def consume_generator(val):
@@ -89,6 +111,56 @@ def apply_output_transform(output, transform):
     if isinstance(output, list) and transform not in ('len',):
         return [transform_one(item) for item in output]
     return transform_one(output)
+
+
+def run_entry(cluster, manifest):
+    """Run an entry function and return results for all inputs."""
+    module_path = cluster.get('module', cluster.get('file', ''))
+    entry_name = cluster['entry']
+    inputs = cluster.get('inputs', [None])
+    multi_args = cluster.get('multiArgs', False)
+    kwargs_mode = cluster.get('kwargs', False)
+    normalize_rules = cluster.get('normalize', [])
+    ignore_fields = cluster.get('ignoreFields', [])
+
+    # Add pythonPath
+    raw_python_path = cluster.get('pythonPath', '')
+    if isinstance(raw_python_path, str):
+        python_paths = [raw_python_path] if raw_python_path else []
+    elif isinstance(raw_python_path, list):
+        python_paths = raw_python_path
+    else:
+        python_paths = []
+    for pp in python_paths:
+        abs_pp = os.path.join(os.getcwd(), pp)
+        if abs_pp not in sys.path:
+            sys.path.insert(0, abs_pp)
+
+    mod = importlib.import_module(module_path)
+    entry_fn = getattr(mod, entry_name, None)
+    if entry_fn is None or not callable(entry_fn):
+        raise TypeError(f'Entry "{entry_name}" not found in {module_path}')
+
+    results = []
+    for input_val in inputs:
+        input_for_args = deep_clone(input_val)
+        if multi_args and isinstance(input_for_args, list):
+            raw_output = entry_fn(*input_for_args)
+        elif kwargs_mode and isinstance(input_for_args, dict):
+            raw_output = entry_fn(**input_for_args)
+        else:
+            raw_output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+
+        # Serialize output for comparison
+        serialized = _complex_to_json(_numpy_to_native(raw_output))
+        fp = fingerprint(deep_clone(input_val), deep_clone(raw_output), normalize_rules, ignore_fields)
+        results.append({
+            'input': input_val,
+            'output': serialized,
+            'fingerprint': fp,
+        })
+
+    return results
 
 
 def find_proof_dir(cli):
@@ -172,6 +244,9 @@ def main():
                     if abs_path not in sys.path:
                         sys.path.insert(0, abs_path)
 
+    # Cluster filter
+    cluster_filter = cli.get('cluster')
+
     print('\n🔍 Verifying KEBENARAN 1 (raw output) vs KEBENARAN 2 (fingerprints)...\n')
 
     all_ok = True
@@ -191,6 +266,11 @@ def main():
             continue
 
         cid = cluster['id']
+
+        # Apply cluster filter
+        if cluster_filter and cid != cluster_filter:
+            continue
+
         entry = cluster['entry']
         module_path = cluster.get('module', cluster.get('file', ''))
         normalize_rules = cluster.get('normalize', [])
@@ -253,7 +333,11 @@ def main():
             live_fp = fingerprint(deep_clone(test_input), output_for_fp, normalize_rules, ignore_fields)
             k2_fp = k2_data.get('fingerprint')
 
-            k1_match = (output_for_fp == k1_first_output)
+            # Use _complex_to_json for robust serialization comparison
+            live_serialized = _complex_to_json(_numpy_to_native(output_for_fp))
+            k1_serialized = _complex_to_json(_numpy_to_native(k1_first_output))
+
+            k1_match = (live_serialized == k1_serialized) or (output_for_fp == k1_first_output)
             k2_match = (live_fp == k2_fp)
 
             if k1_match and k2_match:
