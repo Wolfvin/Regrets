@@ -121,6 +121,14 @@ def apply_output_transform(output, transform):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
             return dict(obj)
+        elif transform == 'dataclass_dict':
+            # Recursive dataclass-to-dict conversion.
+            # Uses deep_clone which handles dataclasses via dataclasses.asdict(),
+            # and class instances with __dict__ by stripping private underscores.
+            # This is essential for parser/pipeline libraries that return rich
+            # object hierarchies (e.g., Library → Entry → Field → NameParts).
+            from fingerprint import deep_clone
+            return deep_clone(obj)
         elif transform == 'len':
             return len(obj)
         elif transform == 'type':
@@ -129,8 +137,8 @@ def apply_output_transform(output, transform):
             raise ValueError(f"Unknown outputTransform: '{transform}'")
 
     # Apply to each element of lists, or to the single object
-    # Exception: "len" and "type" apply to the whole collection, not each element
-    if isinstance(output, list) and transform not in ('len',):
+    # Exception: "len", "type", and "dataclass_dict" apply to the whole collection, not each element
+    if isinstance(output, list) and transform not in ('len', 'dataclass_dict'):
         return [transform_one(item) for item in output]
     return transform_one(output)
 

@@ -186,7 +186,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `goTestPkg` | ❌ | Relative path for `go test` command in Go stack (e.g., `"./pkg/name"`) |
 | `goBuildTags` | ❌ | Build tags for `go test -tags` in Go stack |
 | `receiver` | ❌ | Constructor function name for struct method calls (Go stack) |
-| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `len`, `type`, or `"module.fn"` for custom (Python & JS) |
+| `outputTransform` | ❌ | Transform complex output to fingerprintable form: `str`, `repr`, `dict`, `dataclass_dict`, `len`, `type`, `hex`, `to_dict`, `to_json`, or `"module.fn"` for custom (Python & JS). Use `dataclass_dict` for parser/pipeline libraries returning rich object hierarchies. |
 | `materializeOutput` | ❌ | `true` → auto-consume generators/iterators into lists before fingerprinting |
 | `trackMutation` | ❌ | `true` → snapshot input state before/after call, detect mutations |
 

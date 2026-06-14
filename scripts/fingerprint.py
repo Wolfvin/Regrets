@@ -194,6 +194,29 @@ def deep_clone(val):
     # Handle dicts — recurse to catch nested bytes/tuples/instances
     if isinstance(val, dict):
         return {k: deep_clone(v) for k, v in val.items()}
+    # Handle dataclass instances — use dataclasses.asdict for recursive conversion
+    # This handles nested dataclasses properly (e.g. NameParts inside a list inside Entry)
+    import dataclasses as _dc
+    if _dc.is_dataclass(val) and not isinstance(val, type):
+        try:
+            return deep_clone(_dc.asdict(val))
+        except Exception:
+            pass
+    # Handle class instances with __dict__ — recurse into attributes
+    # This captures class state that to_dict() might miss, including
+    # properties with private backing fields like _key, _value, etc.
+    if hasattr(val, '__dict__') and not isinstance(val, type):
+        cls_name = type(val).__name__
+        try:
+            attrs = {}
+            for k, v in val.__dict__.items():
+                # Strip leading underscore for fingerprinting (e.g. _key -> key)
+                # This is essential for classes that use _name for properties
+                clean_k = k.lstrip('_') if k.startswith('_') and not k.startswith('__') else k
+                attrs[clean_k] = deep_clone(v)
+            return {'__class__': cls_name, **attrs}
+        except Exception:
+            pass
     # Handle class instances with get_val_d() (e.g. pycrate Envelope)
     if hasattr(val, 'get_val_d') and callable(val.get_val_d):
         try:
@@ -297,16 +320,30 @@ def snapshot_state(obj):
     if isinstance(obj, bytes):
         return obj.decode('utf-8', errors='replace')
 
+    # Handle dataclass instances — use dataclasses.asdict for recursive conversion
+    import dataclasses as _dc
+    if _dc.is_dataclass(obj) and not isinstance(obj, type):
+        try:
+            cls_name = type(obj).__name__
+            return {'__class__': cls_name, **{k: snapshot_state(v) for k, v in _dc.asdict(obj).items()}}
+        except Exception:
+            pass
+
     # Object with __dict__ (most class instances)
     if hasattr(obj, '__dict__'):
         cls_name = type(obj).__name__
         attrs = {}
         for k, v in obj.__dict__.items():
-            if not k.startswith('_'):  # skip private attrs by default
-                try:
-                    attrs[k] = snapshot_state(v)
-                except Exception:
-                    attrs[k] = f'<unrepresentable:{type(v).__name__}>'
+            if k.startswith('__'):
+                continue  # skip dunder attrs
+            # Strip leading underscore for fingerprinting (e.g. _key -> key)
+            # This is essential for classes that use private backing fields
+            # for properties (common in parser libraries like bibtexparser)
+            clean_k = k.lstrip('_') if k.startswith('_') else k
+            try:
+                attrs[clean_k] = snapshot_state(v)
+            except Exception:
+                attrs[clean_k] = f'<unrepresentable:{type(v).__name__}>'
         return {'__class__': cls_name, **attrs}
 
     # Object with __slots__
@@ -464,6 +501,15 @@ def snapshot_output(val, transform=None):
     elif transform == 'to_dict':
         if hasattr(val, 'to_dict') and callable(val.to_dict):
             return deep_clone(val.to_dict())
+        return deep_clone(val)
+    elif transform == 'dataclass_dict':
+        # Recursive dataclass-to-dict conversion using deep_clone.
+        # deep_clone already handles dataclasses via dataclasses.asdict(),
+        # and class instances with __dict__ by stripping private underscores.
+        # This transform is useful for parser/pipeline libraries that return
+        # rich object hierarchies (e.g., Library with Entry objects containing
+        # Field objects containing NameParts dataclasses).
+        # Using deep_clone here ensures full recursive serialization.
         return deep_clone(val)
     elif transform == 'to_bytes':
         if hasattr(val, 'to_bytes') and callable(val.to_bytes):
