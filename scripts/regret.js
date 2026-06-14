@@ -203,33 +203,13 @@ switch (command) {
   }
 
   case 'check': {
-    // Pre-flight manifest validation (Python only for now)
+    // Pre-flight manifest validation — verifies exports exist in compiled output
     const stacksForCheck = detectStacks()
     if (stacksForCheck.includes('python')) {
       success = run('python3', [`${SCRIPTS_DIR}/check.py`, ...passThroughArgs])
     } else {
-      // Basic JS manifest validation
-      try {
-        const manifest = JSON.parse(readFileSync(resolve(process.cwd(), 'regrets/manifest.json'), 'utf8'))
-        console.log('\n🔍 Checking manifest.json...\n')
-        let ok = true
-        for (const cluster of manifest.clusters) {
-          const hasId = !!cluster.id
-          const hasEntry = !!cluster.entry
-          const hasFile = !!cluster.file
-          const icon = (hasId && hasEntry && hasFile) ? '✅' : '❌'
-          const issues = []
-          if (!hasId) issues.push('missing id')
-          if (!hasEntry) issues.push('missing entry')
-          if (!hasFile) issues.push('missing file')
-          console.log(`  ${icon} ${cluster.id || '(unnamed)'}${issues.length ? ' — ' + issues.join(', ') : ''}`)
-          if (issues.length) ok = false
-        }
-        success = ok
-      } catch (e) {
-        console.error(`❌ manifest.json error: ${e.message}`)
-        success = false
-      }
+      // Full JS pre-flight: import module, verify entries exist
+      success = run('node', [`${SCRIPTS_DIR}/check.js`, ...passThroughArgs])
     }
     break
   }
