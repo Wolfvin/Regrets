@@ -447,6 +447,7 @@ def main():
     results = []
 
     for regret_file in regret_files:
+        saved_globals = None
         cluster_id = os.path.splitext(regret_file)[0]
         regret_path = os.path.join(regret_dir, regret_file)
 
