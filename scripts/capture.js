@@ -419,6 +419,31 @@ for (const cluster of clusters) {
       }
     }
 
+    // ─── Helper: reduce call sequence to { fn, count } pairs (sorted by fn) ──
+    // Used by fingerprintLevel: "calls" — tracks WHO was called and HOW MANY
+    // times, without recording args or results per call.
+    function reduceToCallCounts(recorder) {
+      const counts = {}
+      for (const call of recorder) {
+        counts[call.fn] = (counts[call.fn] || 0) + 1
+      }
+      return Object.entries(counts)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([fn, count]) => ({ fn, count }))
+    }
+
+    // ─── Fallback: "calls" with empty watches → "entry" ─────────────────────
+    // When there are no watched functions, call counts would always be empty,
+    // making the fingerprint meaningless. Fall back to entry-level fingerprinting.
+    let effectiveFingerprintLevel = fingerprintLevel
+    if (fingerprintLevel === 'calls' && (!watches || watches.length === 0)) {
+      if (!quiet) {
+        console.warn(`   ⚠️  fingerprintLevel: "calls" but watches is empty — falling back to "entry"`)
+        console.warn(`      Call counts require watched functions. Add watches or use fingerprintLevel: "entry".`)
+      }
+      effectiveFingerprintLevel = 'entry'
+    }
+
     // ─── Helper: compute fingerprint with full config ──────────────────────
     const fpConfig = { normalize, ignoreFields, ignorePaths }
 
@@ -437,6 +462,9 @@ for (const cluster of clusters) {
           if (val !== undefined) selectedValues[path] = val
         }
         return fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+      } else if (fingerprintLevel === 'calls') {
+        const callCounts = reduceToCallCounts(recorder)
+        return fingerprint(fpInput, callCounts, fpConfig)
       } else {
         return fingerprintLevel === 'entry'
           ? fingerprint(fpInput, output, fpConfig)
@@ -572,6 +600,9 @@ for (const cluster of clusters) {
             if (val !== undefined) selectedValues[path] = val
           }
           fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+        } else if (effectiveFingerprintLevel === 'calls') {
+          const callCounts = reduceToCallCounts(recorder)
+          fp = fingerprint(fpInput, callCounts, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
             ? fingerprint(fpInput, output, fpConfig)
@@ -678,6 +709,9 @@ for (const cluster of clusters) {
             if (val !== undefined) selectedValues[path] = val
           }
           fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
+        } else if (effectiveFingerprintLevel === 'calls') {
+          const callCounts = reduceToCallCounts(recorder)
+          fp = fingerprint(fpInput, callCounts, { normalize, ignoreFields })
         } else {
           fp = fingerprintLevel === 'entry'
             ? fingerprint(fpInput, output, { normalize, ignoreFields })
@@ -784,6 +818,9 @@ for (const cluster of clusters) {
             if (val !== undefined) selectedValues[path] = val
           }
           fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+        } else if (effectiveFingerprintLevel === 'calls') {
+          const callCounts = reduceToCallCounts(recorder)
+          fp = fingerprint(fpInput, callCounts, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
             ? fingerprint(fpInput, output, fpConfig)
@@ -915,6 +952,9 @@ for (const cluster of clusters) {
             if (val !== undefined) selectedValues[path] = val
           }
           fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+        } else if (effectiveFingerprintLevel === 'calls') {
+          const callCounts = reduceToCallCounts(recorder)
+          fp = fingerprint(fpInput, callCounts, fpConfig)
         } else {
           fp = fingerprintLevel === 'entry'
             ? fingerprint(fpInput, output, fpConfig)
@@ -950,7 +990,7 @@ for (const cluster of clusters) {
     }
     const uncalledWatches = watches.filter(fn => !calledFns.has(fn))
     if (uncalledWatches.length > 0) {
-      if (fingerprintLevel === 'entry') {
+      if (fingerprintLevel === 'entry' || effectiveFingerprintLevel === 'entry') {
         // When fingerprinting at entry level, uncalled watches are EXPECTED.
         // The Ghost Proxy only intercepts module-level exports, not internal calls.
         // The entry function calls watched functions internally, but the proxy
@@ -969,11 +1009,11 @@ for (const cluster of clusters) {
       }
     }
 
-    // Warn when fingerprintLevel is 'watched' or 'full' but no calls were recorded.
+    // Warn when fingerprintLevel is 'watched', 'full', or 'calls' but no calls were recorded.
     // This commonly happens with class-based APIs where constructors are called
     // with `new` but the Ghost Proxy lacks a `construct` trap, or where
     // instance methods are not proxied.
-    if (fingerprintLevel === 'watched' || fingerprintLevel === 'full') {
+    if (fingerprintLevel === 'watched' || fingerprintLevel === 'full' || fingerprintLevel === 'calls') {
       const totalCalls = results.reduce((sum, r) => sum + r.calls.length, 0)
       if (totalCalls === 0) {
         if (!quiet) {

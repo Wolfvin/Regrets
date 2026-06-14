@@ -494,6 +494,14 @@ Error path contracts (expectThrow):
   validate.js FAILs if the function stops throwing or the error type/message changes.
   Supports sync throw and async rejection (Promise.reject / async throw).
 
+Fingerprint levels (fingerprintLevel in manifest):
+  "entry"  — hash output only (default). Blind to internal call count bugs.
+  "calls"  — hash { fn, count } pairs: which functions called + how many times.
+             Middle ground: detects double-call bugs but survives internal refactors.
+             Falls back to "entry" with warning if watches is empty.
+  "full"   — hash entire call sequence including args and results per call.
+             Strictest: any internal change will FAIL.
+
 Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts/css → capture.js / validate.js
   python  → capture.py / validate.py / truth.py

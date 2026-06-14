@@ -33,6 +33,28 @@ Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
 Stack: `js` | `ts` | `css` | `python` | `rust` | `react` | `go` | `php` | `extension`.
 CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed. Rust supports capture + validate via `cargo test`.
 
+### Fingerprint levels
+
+| Level | What gets hashed | When to use | Fallback |
+|-------|-----------------|-------------|----------|
+| `"entry"` (default) | Final output only | Output is stable, internal calls don't matter | — |
+| `"calls"` | `{ fn, count }` pairs — which functions called + how many times | Detect double-call bugs (e.g., `calculateTax` called 2× instead of 1×) while surviving internal refactors that don't change call counts | Falls back to `"entry"` if `watches` is empty, with warning |
+| `"full"` | Entire call sequence with args and results per call | Strictest: any internal change detected. Use when every call detail matters | — |
+
+Example — `"calls"` catches a double-taxation bug that `"entry"` misses:
+
+```json
+{
+  "id": "compute-invoice",
+  "entry": "calculateTotal",
+  "watches": ["calculateTax", "applyDiscount"],
+  "fingerprintLevel": "calls",
+  "inputs": [{ "subtotal": 100, "tax": 0.1 }]
+}
+```
+
+If `calculateTax` is accidentally called twice after a refactor, `"calls"` will FAIL (count changed from 1 to 2) even if the final output happens to be the same. `"entry"` would PASS incorrectly. `"full"` would also detect this but would additionally FAIL for any change to the args/results of `calculateTax`, even legitimate refactors.
+
 ### Error path contracts (expectThrow)
 
 Use `__expectThrow` to declare that a specific input MUST cause the function to throw:
@@ -127,6 +149,7 @@ START: Agent plans to refactor code
 | Entry not found | Check compiled .js (not .ts); use `"entry": "default"` for default exports |
 | Watch not a function | Remove non-functions from watches; only function exports are wrappable |
 | Entry starts with `_` | Set `fingerprintLevel: "entry"` (Ghost can't wrap private functions) |
+| `calls` fallback to `entry` | Add functions to `watches` — `calls` level needs watched functions to count |
 | DRIFT | Add `normalize`: timestamps, uuids, epochs, floatTolerance, seed, dynamicDates |
 | `--update requires --reason` | Provide 4+ word reason describing WHAT changed + WHY |
 | Coverage UNDER-COVERED | Add inputs (use `--suggest-inputs`); aim for inputs >= branches |
