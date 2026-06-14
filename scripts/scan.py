@@ -38,6 +38,8 @@ class FunctionInfo(NamedTuple):
     mutates_args: bool  # whether function mutates its input arguments in-place
     mutation_details: list[str]  # which args are mutated and how
     non_serializable_return: bool  # returns numpy, cv2, openpyxl, etc.
+    docstring: str  # first line of docstring, if any
+    flow_annotations: dict  # @FLOW, @CALLS, @MUTATES, @BEHAVIOR from docstring
 
 
 class ScanResult(NamedTuple):
@@ -251,6 +253,10 @@ class FunctionCollector(ast.NodeVisitor):
         line_count = (node.end_lineno or node.lineno) - node.lineno + 1 if hasattr(node, 'end_lineno') and node.end_lineno else 0
         mutates, mutation_dets = self._detect_arg_mutations(node, args)
 
+        # Extract docstring annotations
+        docstring = ast.get_docstring(node) or ''
+        flow_annotations = _parse_flow_annotations(docstring)
+
         func_info = FunctionInfo(
             name=node.name,
             lineno=node.lineno,
@@ -266,6 +272,8 @@ class FunctionCollector(ast.NodeVisitor):
             mutates_args=mutates,
             mutation_details=mutation_dets,
             non_serializable_return=non_serializable,
+            docstring=docstring.split('\n')[0] if docstring else '',
+            flow_annotations=flow_annotations,
         )
 
         if self._current_class:
@@ -276,6 +284,87 @@ class FunctionCollector(ast.NodeVisitor):
         self._current_function = old_func
 
     visit_AsyncFunctionDef = visit_FunctionDef
+
+
+# ─── Flow Annotation Parsing ────────────────────────────────────────────────────
+
+def _parse_flow_annotations(docstring: str) -> dict:
+    """Parse @FLOW, @CALLS, @MUTATES, @BEHAVIOR, @ENTRY annotations from docstrings.
+
+    Many Python projects (especially OCR/data pipelines) use structured docstring
+    annotations to document function contracts:
+      @FLOW:     PIPELINE_MAIN > PARSE_AMOUNTS
+      @CALLS:    re (stdlib)
+      @MUTATES:  nothing (pure function)
+      @BEHAVIOR: Converts IDR-formatted string to float.
+      @ENTRY:    parse_idr()
+
+    These annotations are extremely valuable for Regrets because:
+    - @MUTATES: nothing → confirms purity
+    - @CALLS: → reveals internal call graph for watches
+    - @BEHAVIOR: → describes the contract being tested
+    - @ENTRY: → identifies the entry function for a module
+    """
+    annotations = {}
+    if not docstring:
+        return annotations
+
+    tag_patterns = {
+        'FLOW': r'@FLOW:\s*(.+)',
+        'CALLS': r'@CALLS:\s*(.+)',
+        'MUTATES': r'@MUTATES:\s*(.+)',
+        'BEHAVIOR': r'@BEHAVIOR:\s*(.+)',
+        'ENTRY': r'@ENTRY:\s*(.+)',
+    }
+    import re
+    for tag, pattern in tag_patterns.items():
+        match = re.search(pattern, docstring)
+        if match:
+            annotations[tag] = match.group(1).strip()
+    return annotations
+
+
+# ─── sys.path.insert Detection ────────────────────────────────────────────────
+
+def detect_sys_path_inserts(filepath: str) -> list[str]:
+    """Detect sys.path.insert(0, ...) calls in a Python file.
+
+    Many Python projects use sys.path.insert to make shared modules importable.
+    When Regrets runs capture/validate, it needs to set pythonPath in the manifest
+    to match these insertions.
+
+    Returns list of directory paths that the file adds to sys.path.
+    """
+    import re
+    with open(filepath, 'r', encoding='utf-8') as f:
+        source = f.read()
+
+    paths = []
+    # Match patterns like: sys.path.insert(0, str(Path(__file__).parent.parent))
+    # or: sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    # or: sys.path.insert(0, 'some/path')
+    for match in re.finditer(r'sys\.path\.insert\([^,]+,\s*(.+?)\)', source):
+        path_expr = match.group(1).strip()
+        paths.append(path_expr)
+
+    return paths
+
+
+def compute_python_path_suggestion(filepath: str, base_dir: str) -> str:
+    """Compute the pythonPath suggestion for a file based on its sys.path.insert calls.
+
+    Returns the most likely directory that should be used as pythonPath in manifest.
+    """
+    inserts = detect_sys_path_inserts(filepath)
+    if not inserts:
+        return ''
+
+    # The most common pattern is: sys.path.insert(0, str(Path(__file__).parent.parent))
+    # which means the pythonPath should be the parent of the file's directory
+    file_dir = os.path.dirname(os.path.abspath(filepath))
+    parent_dir = os.path.dirname(file_dir)
+    rel = os.path.relpath(parent_dir, base_dir) if base_dir else parent_dir
+    return rel
 
 
 # ─── Cluster Suggestion ────────────────────────────────────────────────────
@@ -328,6 +417,15 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
         if func.args:
             input_note = f"Inputs needed for args: {', '.join(func.args)}"
 
+        # Use @BEHAVIOR annotation as description if available
+        description = func.flow_annotations.get('BEHAVIOR', '')
+        # Use @MUTATES annotation to confirm/override purity
+        mutates_note = func.flow_annotations.get('MUTATES', '')
+        if mutates_note and 'nothing' in mutates_note.lower() and 'pure' in mutates_note.lower():
+            is_pure_confirmed = True
+        else:
+            is_pure_confirmed = func.is_pure
+
         suggestion = {
             'id': cluster_id,
             'entry': func.name,
@@ -338,10 +436,13 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
             'fingerprintLevel': 'entry',
             'branchCount': func.branch_count,
             'isPure': func.is_pure,
+            'isPureConfirmed': is_pure_confirmed,
             'multiArgs': multi_args,
             'args': func.args,
             'suggestedInputs': input_note,
             'coverageNote': branch_note if branch_note else 'All paths covered with single input',
+            'description': description,
+            'flowAnnotations': func.flow_annotations if func.flow_annotations else None,
         }
         if func.non_serializable_return:
             suggestion['nonSerializableReturn'] = True
@@ -362,6 +463,8 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
                 if called != method.name:
                     watches.append(called)
 
+            description = method.flow_annotations.get('BEHAVIOR', '')
+
             suggestion = {
                 'id': cluster_id,
                 'entry': method.name,
@@ -378,6 +481,8 @@ def suggest_clusters(result: ScanResult) -> list[dict]:
                 'args': method.args,
                 'suggestedInputs': f"Instance of {class_name} needed",
                 'coverageNote': f"Has {method.branch_count} branch(es)" if method.branch_count else 'All paths covered with single input',
+                'description': description,
+                'flowAnnotations': method.flow_annotations if method.flow_annotations else None,
             }
             suggestions.append(suggestion)
 
@@ -409,6 +514,13 @@ def scan_file(filepath: str, base_dir: str = '') -> ScanResult:
         suggested_clusters=[],
     )
     result.suggested_clusters.extend(suggest_clusters(result))
+
+    # Detect sys.path.insert calls and attach pythonPath suggestion
+    python_path_suggestion = compute_python_path_suggestion(filepath, base_dir)
+    if python_path_suggestion:
+        for s in result.suggested_clusters:
+            s['pythonPath'] = python_path_suggestion
+
     return result
 
 
@@ -433,7 +545,7 @@ def scan_directory(dirpath: str, recursive: bool = False) -> list[ScanResult]:
 
 # ─── Rendering ─────────────────────────────────────────────────────────────
 
-def render_result(result: ScanResult):
+def render_result(result: ScanResult, pure_only: bool = False):
     """Render a scan result to stdout."""
     print(f"\n{'─' * 60}")
     print(f"📁 {result.file}")
@@ -444,8 +556,9 @@ def render_result(result: ScanResult):
         return
 
     # Show all functions
-    print(f"\n   Functions ({len(result.functions)}):")
-    for func in result.functions:
+    displayed_funcs = [f for f in result.functions if not pure_only or f.is_pure]
+    print(f"\n   Functions ({len(displayed_funcs)}{' of ' + str(len(result.functions)) if pure_only else ''}):")
+    for func in displayed_funcs:
         purity = "✅ pure" if func.is_pure else "⚠️  impure"
         branches = f"{func.branch_count} branch(es)" if func.branch_count else "straight-line"
         args_str = ', '.join(func.args) if func.args else "no args"
@@ -453,7 +566,9 @@ def render_result(result: ScanResult):
         mutation = "" if not func.mutates_args else " 🔴mutates-args"
         size = f" {func.line_count}L" if func.line_count > 30 else ""
         calls_str = f" → calls: {', '.join(func.calls)}" if func.calls else ""
-        print(f"     {func.name}({args_str})  [{purity}]{serializable}{mutation}  [{branches}]{size}{calls_str}")
+        docstring_str = f"  📝 {func.docstring[:60]}" if func.docstring else ""
+        flow_str = f"  🏷️ @{','.join(func.flow_annotations.keys())}" if func.flow_annotations else ""
+        print(f"     {func.name}({args_str})  [{purity}]{serializable}{mutation}  [{branches}]{size}{calls_str}{docstring_str}{flow_str}")
         if func.mutation_details:
             for det in func.mutation_details[:3]:
                 print(f"       ⚠️  mutates: {det}")
@@ -465,7 +580,8 @@ def render_result(result: ScanResult):
             purity = "✅ pure" if method.is_pure else "⚠️  impure"
             branches = f"{method.branch_count} branch(es)" if method.branch_count else "straight-line"
             args_str = ', '.join(method.args) if method.args else "no args"
-            print(f"     {method.name}({args_str})  [{purity}]  [{branches}]")
+            docstring_str = f"  📝 {method.docstring[:60]}" if method.docstring else ""
+            print(f"     {method.name}({args_str})  [{purity}]  [{branches}]{docstring_str}")
 
     # Show suggested clusters
     if result.suggested_clusters:
@@ -482,15 +598,27 @@ def render_result(result: ScanResult):
                 print(f"     │  args: {s['args']}")
             if s.get('warning'):
                 print(f"     │  ⚠️  {s['warning']}")
+            if s.get('description'):
+                print(f"     │  description: {s['description']}")
+            if s.get('pythonPath'):
+                print(f"     │  pythonPath: {s['pythonPath']}")
+            if s.get('flowAnnotations'):
+                tags = ', '.join(f"@{k}" for k in s['flowAnnotations'].keys())
+                print(f"     │  flow: {tags}")
             print(f"     └─ input hint: {s['suggestedInputs']}")
 
 
-def render_manifest_json(results: list[ScanResult]) -> str:
-    """Generate a manifest.json snippet from scan results."""
+def render_manifest_json(results: list[ScanResult], pure_only: bool = True) -> str:
+    """Generate a manifest.json snippet from scan results.
+
+    When pure_only=True (default), only pure functions are included.
+    This is the recommended mode for OCR/data pipeline projects where
+    impure functions depend on external models or I/O.
+    """
     clusters = []
     for result in results:
         for s in result.suggested_clusters:
-            if not s['isPure']:
+            if pure_only and not s['isPure']:
                 continue  # only suggest pure functions as clusters
             cluster = {
                 'id': s['id'],
@@ -500,12 +628,14 @@ def render_manifest_json(results: list[ScanResult]) -> str:
                 'module': s['module'],
                 'stack': 'python',
                 'fingerprintLevel': 'entry',
-                'description': f"Auto-suggested cluster for {s['entry']}",
+                'description': s.get('description') or f"Auto-suggested cluster for {s['entry']}",
             }
             if s.get('multiArgs'):
                 cluster['multiArgs'] = True
             if s['branchCount'] > 0:
                 cluster['_coverageNote'] = s['coverageNote']
+            if s.get('pythonPath'):
+                cluster['pythonPath'] = s['pythonPath']
             clusters.append(cluster)
 
     return json.dumps({'clusters': clusters}, indent=2, ensure_ascii=False)
@@ -523,12 +653,16 @@ Usage:
   python scripts/scan.py <file_or_directory>     Scan a Python file or directory
   python scripts/scan.py <path> --recursive       Scan recursively
   python scripts/scan.py <path> --manifest        Output as manifest.json snippet
+  python scripts/scan.py <path> --pure            Only suggest pure functions (no I/O, no models)
+  python scripts/scan.py <path> --python-path     Detect sys.path.insert and suggest pythonPath
 
 Analyzes Python source files and suggests:
   - Which functions to cluster
   - Which functions to watch
   - How many branches need coverage
   - Whether functions are pure (ideal for fingerprinting)
+  - pythonPath from sys.path.insert() patterns
+  - @BEHAVIOR annotations as cluster descriptions
 
 This helps agents set up Regrets on new projects without guessing.
 """)
@@ -537,6 +671,8 @@ This helps agents set up Regrets on new projects without guessing.
     target = args[0]
     recursive = '--recursive' in args
     as_manifest = '--manifest' in args
+    pure_only = '--pure' in args
+    show_python_path = '--python-path' in args
 
     if not os.path.exists(target):
         print(f"❌ Path not found: {target}")
@@ -552,8 +688,17 @@ This helps agents set up Regrets on new projects without guessing.
         print(f"❌ Not a file or directory: {target}")
         sys.exit(1)
 
+    # Show pythonPath detection results
+    if show_python_path or pure_only:
+        for result in results:
+            for s in result.suggested_clusters:
+                pp = s.get('pythonPath', '')
+                if pp:
+                    print(f"\n  📂 pythonPath detected: {pp} (from sys.path.insert in {result.file})")
+                    break
+
     if as_manifest:
-        print(render_manifest_json(results))
+        print(render_manifest_json(results, pure_only=pure_only))
     else:
         total_funcs = sum(len(r.functions) for r in results)
         total_classes = sum(len(r.classes) for r in results)
@@ -568,11 +713,15 @@ This helps agents set up Regrets on new projects without guessing.
         print(f"   {total_suggestions} cluster suggestions ({pure_suggestions} pure, {impure_suggestions} impure)")
 
         for result in results:
-            render_result(result)
+            render_result(result, pure_only=pure_only)
 
         if pure_suggestions > 0:
             print(f"\n💡 To generate a manifest.json, run:")
-            print(f"   python scripts/scan.py {target} --manifest > regrets/manifest.json")
+            if pure_only:
+                print(f"   python scripts/scan.py {target} --pure --manifest > regrets/manifest.json")
+            else:
+                print(f"   python scripts/scan.py {target} --manifest > regrets/manifest.json")
+                print(f"   python scripts/scan.py {target} --pure --manifest > regrets/manifest.json  (pure functions only)")
 
 
 if __name__ == '__main__':

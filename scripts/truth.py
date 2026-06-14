@@ -17,14 +17,13 @@ import os
 import json
 import importlib
 import re
-from datetime import datetime, timezone
+import types
 from pathlib import Path
 
-# Import shared fingerprint module
 from fingerprint import (
     stable_dumps, normalize, strip_fields, to_base36,
     deep_clone, fingerprint, fingerprint_sequence, extract_schema,
-    _numpy_to_native, materialize_output, snapshot_state, get_env_snapshot
+    materialize_output, snapshot_state, get_env_snapshot
 )
 
 
@@ -44,12 +43,15 @@ def parse_args():
             i += 2
         else:
             i += 1
+
+    if result['outdir'] is None:
+        result['outdir'] = os.path.join(os.getcwd(), 'proof')
+
     return result
 
 
 def consume_generator(val):
     """If val is a generator or iterator, consume it into a list."""
-    import types
     if isinstance(val, (str, bytes, dict)):
         return val
     if isinstance(val, types.GeneratorType):
@@ -101,33 +103,56 @@ def apply_output_transform(output, transform):
     return transform_one(output)
 
 
+def parse_regret_file(content):
+    """Parse a .regret file and return its metadata and data sections."""
+    meta = {}
+    sections = content.split('\n---\n')
+    meta_section = sections[0]
+    for line in meta_section.split('\n'):
+        colon_idx = line.find(': ')
+        if colon_idx == -1:
+            continue
+        key = line[:colon_idx]
+        val = line[colon_idx + 2:].strip()
+        meta[key] = val
+    return meta
+
+
 def main():
     cli = parse_args()
+    manifest_path = cli['manifest']
+    out_dir = cli['outdir']
 
     # Load manifest
     try:
-        with open(cli['manifest'], 'r', encoding='utf-8') as f:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
             manifest = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"❌ Could not read manifest: {cli['manifest']}")
+        print(f"❌ Could not read manifest: {manifest_path}")
         print(f"   Error: {e}")
         sys.exit(1)
 
-    # Add pythonPath to sys.path for all Python clusters
-    for cluster in manifest.get('clusters', []):
-        if cluster.get('stack') == 'python':
-            raw_python_path = cluster.get('pythonPath', '')
-            if isinstance(raw_python_path, str):
-                python_paths = [raw_python_path] if raw_python_path else []
-            elif isinstance(raw_python_path, list):
-                python_paths = raw_python_path
-            else:
-                python_paths = []
-            for python_path in python_paths:
-                if python_path:
-                    abs_python_path = os.path.join(os.getcwd(), python_path)
-                    if abs_python_path not in sys.path:
-                        sys.path.insert(0, abs_python_path)
+    clusters = manifest.get('clusters', [])
+    python_clusters = [c for c in clusters if c.get('stack') == 'python']
+
+    if not python_clusters:
+        print("No Python clusters found in manifest.")
+        sys.exit(0)
+
+    # Setup pythonPath for all clusters
+    for cluster in python_clusters:
+        raw_python_path = cluster.get('pythonPath', '')
+        if isinstance(raw_python_path, str):
+            python_paths = [raw_python_path] if raw_python_path else []
+        elif isinstance(raw_python_path, list):
+            python_paths = raw_python_path
+        else:
+            python_paths = []
+        for python_path in python_paths:
+            if python_path:
+                abs_python_path = os.path.join(os.getcwd(), python_path)
+                if abs_python_path not in sys.path:
+                    sys.path.insert(0, abs_python_path)
 
     # ─── KEBENARAN 1: Raw Output ─────────────────────────────────────────────
 
@@ -135,25 +160,15 @@ def main():
 
     raw_outputs = {}
 
-    for cluster in manifest.get('clusters', []):
+    for cluster in python_clusters:
         cid = cluster['id']
         entry = cluster['entry']
         module_path = cluster.get('module', cluster.get('file', ''))
-        stack = cluster.get('stack', 'js')
-        normalize_rules = cluster.get('normalize', [])
-        ignore_fields = cluster.get('ignoreFields', [])
-        fingerprint_level = cluster.get('fingerprintLevel', 'entry')
-        fingerprint_mode = cluster.get('fingerprintMode', 'value')
-        value_paths = cluster.get('valuePaths', [])
         multi_args = cluster.get('multiArgs', False)
         kwargs_mode = cluster.get('kwargs', False)
         inputs = cluster.get('inputs', [None])
         output_transform = cluster.get('outputTransform', None)
         materialize_output_flag = cluster.get('materializeOutput', False)
-
-        if stack != 'python':
-            print(f'  ⏭️  {cid}: stack={stack} — skipping (use truth.js for JS/TS)')
-            continue
 
         print(f'  📡 Capturing raw output: {cid}')
 
@@ -215,63 +230,71 @@ def main():
 
     try:
         regret_files = [f for f in os.listdir(regret_dir) if f.endswith('.regret')]
-        for file in regret_files:
-            file_path = os.path.join(regret_dir, file)
-            with open(file_path, 'r', encoding='utf-8') as f:
+
+        for fname in regret_files:
+            fpath = os.path.join(regret_dir, fname)
+            with open(fpath, 'r', encoding='utf-8') as f:
                 content = f.read()
 
+            meta = parse_regret_file(content)
+            cid = meta.get('cluster', fname.replace('.regret', ''))
+
+            # Extract fingerprint from header
             fp_match = re.search(r'^fingerprint:\s+(\S+)', content, re.MULTILINE)
             hash_match = re.search(r'^HASH\s+(\S+)', content, re.MULTILINE)
-            cluster_match = re.search(r'^cluster:\s+(.+)$', content, re.MULTILINE)
             captured_match = re.search(r'^captured:\s+(.+)$', content, re.MULTILINE)
             entry_match = re.search(r'^entry:\s+(.+)$', content, re.MULTILINE)
 
-            cid = cluster_match.group(1).strip() if cluster_match else file.replace('.regret', '')
-
-            # Parse golden output from .regret data section
+            # Extract golden input/output from data section
             golden_output = None
             golden_input = None
-            parts = content.split('\n---\n', 1)
-            if len(parts) > 1:
-                for line in parts[1].split('\n'):
+            sections = content.split('\n---\n')
+            if len(sections) > 1:
+                data_section = sections[1]
+                for line in data_section.split('\n'):
                     if line.startswith('OUTPUT '):
+                        output_str = line[7:]
                         try:
-                            golden_output = json.loads(line[7:])
+                            golden_output = json.loads(output_str)
                         except json.JSONDecodeError:
-                            golden_output = line[7:]
+                            golden_output = output_str
                     elif line.startswith('INPUT '):
+                        input_str = line[6:]
                         try:
-                            golden_input = json.loads(line[6:])
+                            golden_input = json.loads(input_str)
                         except json.JSONDecodeError:
-                            golden_input = line[6:]
+                            golden_input = input_str
 
             fingerprints[cid] = {
                 'fingerprint': fp_match.group(1) if fp_match else None,
                 'golden_hash': hash_match.group(1) if hash_match else None,
-                'captured': captured_match.group(1) if captured_match else None,
+                'captured': captured_match.group(1).strip() if captured_match else None,
                 'entry': entry_match.group(1).strip() if entry_match else None,
                 'golden_input': golden_input,
                 'golden_output': golden_output,
             }
-            print(f'  ✅ {cid}: {fp_match.group(1) if fp_match else "no fingerprint"}')
-    except FileNotFoundError:
-        print('  ⚠️  No regrets/ directory found')
+            fp_val = fp_match.group(1) if fp_match else 'no fingerprint'
+            print(f'  ✅ {cid}: {fp_val}')
+
+    except Exception as err:
+        print(f'❌ Could not read .regret files: {err}')
 
     # Read chain hashes
     chains = {}
     chains_dir = os.path.join(regret_dir, 'chains')
     if os.path.isdir(chains_dir):
-        for file in os.listdir(chains_dir):
-            if file.endswith('.chain'):
-                file_path = os.path.join(chains_dir, file)
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                chain_hash_match = re.search(r'^chain_hash:\s+(\S+)', content, re.MULTILINE)
-                chain_id = file.replace('.chain', '')
-                chains[chain_id] = {
-                    'chain_hash': chain_hash_match.group(1) if chain_hash_match else None
-                }
-                print(f'  ✅ chain/{chain_id}: {chain_hash_match.group(1) if chain_hash_match else "no hash"}')
+        chain_files = [f for f in os.listdir(chains_dir) if f.endswith('.chain')]
+        for fname in chain_files:
+            fpath = os.path.join(chains_dir, fname)
+            with open(fpath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            chain_hash_match = re.search(r'^chain_hash:\s+(\S+)', content, re.MULTILINE)
+            chain_id = fname.replace('.chain', '')
+            chains[chain_id] = {
+                'chain_hash': chain_hash_match.group(1) if chain_hash_match else None
+            }
+            ch_val = chain_hash_match.group(1) if chain_hash_match else 'no hash'
+            print(f'  ✅ chain/{chain_id}: {ch_val}')
 
     # ─── Consistency Check ───────────────────────────────────────────────────
 
@@ -294,11 +317,7 @@ def main():
 
     project_name = manifest.get('projectName', os.getcwd().split(os.sep)[-1])
 
-    if cli['outdir']:
-        proof_dir = cli['outdir']
-    else:
-        proof_dir = os.path.join(os.getcwd(), 'proof', project_name)
-
+    proof_dir = os.path.join(out_dir, project_name)
     os.makedirs(proof_dir, exist_ok=True)
 
     k1_path = os.path.join(proof_dir, 'KEBENARAN_1_raw_output.json')
