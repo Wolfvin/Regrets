@@ -15,7 +15,7 @@ import { pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
-import { applyOutputTransform } from './outputTransform.js'
+import { applyOutputTransformAsync } from './outputTransform.js'
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 
@@ -467,16 +467,7 @@ async function runCluster(clusterDef, regret) {
         const { result: consumedOutput } = await consumeIterator(rawOutput)
 
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
-        let transformedOutput = consumedOutput
-        if (outputTransform) {
-          if (outputTransform === 'json') {
-            transformedOutput = JSON.parse(JSON.stringify(consumedOutput))
-          } else if (outputTransform === 'keys') {
-            if (consumedOutput && typeof consumedOutput === 'object') {
-              transformedOutput = Object.keys(consumedOutput)
-            }
-          }
-        }
+        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
         output = deepClone(transformedOutput)
         lastOutput = output
@@ -520,20 +511,7 @@ async function runCluster(clusterDef, regret) {
 
         // Apply outputTransform if specified (from .regret or manifest)
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
-        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
-
-        // Handle async custom outputTransform (module.function pattern)
-        if (outputTransform && outputTransform.includes('.')) {
-          const lastDot = outputTransform.lastIndexOf('.')
-          const modPath = outputTransform.slice(0, lastDot)
-          const fnName = outputTransform.slice(lastDot + 1)
-          try {
-            const customMod = await import(resolve(process.cwd(), modPath))
-            transformedOutput = customMod[fnName](consumedOutput)
-          } catch (e) {
-            throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-          }
-        }
+        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
         output = deepClone(transformedOutput)
         lastOutput = output
@@ -565,22 +543,7 @@ async function runCluster(clusterDef, regret) {
 
         // Apply outputTransform
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
-        let transformedOutput = consumedOutput
-        if (outputTransform) {
-          if (outputTransform === 'str') {
-            transformedOutput = Array.isArray(consumedOutput)
-              ? consumedOutput.map(item => String(item))
-              : String(consumedOutput)
-          } else if (outputTransform === 'json') {
-            transformedOutput = Array.isArray(consumedOutput)
-              ? consumedOutput.map(item => JSON.parse(JSON.stringify(item)))
-              : JSON.parse(JSON.stringify(consumedOutput))
-          } else if (outputTransform === 'keys') {
-            if (consumedOutput && typeof consumedOutput === 'object') {
-              transformedOutput = Object.keys(consumedOutput)
-            }
-          }
-        }
+        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
         output = deepClone(transformedOutput)
         lastOutput = output
@@ -626,20 +589,7 @@ async function runCluster(clusterDef, regret) {
 
         // Apply outputTransform if specified (from .regret or manifest)
         const outputTransform = regret.outputTransform || manifestOutputTransform || null
-        let transformedOutput = applyOutputTransform(consumedOutput, outputTransform)
-
-        // Handle async custom outputTransform (module.function pattern)
-        if (outputTransform && outputTransform.includes('.')) {
-          const lastDot = outputTransform.lastIndexOf('.')
-          const modPath = outputTransform.slice(0, lastDot)
-          const fnName = outputTransform.slice(lastDot + 1)
-          try {
-            const customMod = await import(resolve(process.cwd(), modPath))
-            transformedOutput = customMod[fnName](consumedOutput)
-          } catch (e) {
-            throw new Error(`Cannot resolve outputTransform '${outputTransform}': ${e.message}`)
-          }
-        }
+        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
         output = deepClone(transformedOutput)
         lastOutput = output
