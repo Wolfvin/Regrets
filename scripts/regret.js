@@ -205,6 +205,9 @@ switch (command) {
   }
 
   case 'ci': {
+    console.warn('⚠️  DEPRECATED: `regret ci` is replaced by `regret validate --fail-fast`')
+    console.warn('   `regret validate --fail-fast` is functionally identical and is the')
+    console.warn('   standard CI/CD gate. Falling back to ci...\n')
     if (passThroughArgs.includes('--init')) {
       // Generate GitHub Actions workflow file
       const ciArgs = passThroughArgs.filter(a => a !== '--init')
@@ -328,6 +331,9 @@ switch (command) {
   }
 
   case 'scan': {
+    console.warn('⚠️  DEPRECATED: `regret scan` is replaced by `regret install --dry-run`')
+    console.warn('   `regret install --dry-run` discovers all exported functions and previews')
+    console.warn('   the manifest without writing or capturing. Falling back to scan...\n')
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
@@ -351,6 +357,9 @@ switch (command) {
   }
 
   case 'structure': {
+    console.warn('⚠️  DEPRECATED: `regret structure` is replaced by `regret analyze`')
+    console.warn('   `regret analyze` provides deep structural analysis including god functions,')
+    console.warn('   duplicates, and cross-module dependencies. Falling back to structure...\n')
     success = run('node', [`${SCRIPTS_DIR}/structure.js`, ...passThroughArgs])
     break
   }
@@ -371,11 +380,17 @@ switch (command) {
   }
 
   case 'branch-map': {
+    console.warn('⚠️  DEPRECATED: `regret branch-map` is replaced by `regret coverage --suggest-inputs`')
+    console.warn('   `regret coverage --suggest-inputs` provides branch coverage analysis with')
+    console.warn('   input suggestions and is more flexible. Falling back to branch-map...\n')
     success = run('node', [`${SCRIPTS_DIR}/branch-map.js`, ...passThroughArgs])
     break
   }
 
   case 'audit': {
+    console.warn('⚠️  DEPRECATED: `regret audit` is replaced by `regret status`')
+    console.warn('   `regret status` provides a comprehensive snapshot of whether it is safe')
+    console.warn('   to refactor. Falling back to audit...\n')
     const stacksForAudit = detectStacks()
     if (stacksForAudit.includes('python')) {
       success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
@@ -391,6 +406,9 @@ switch (command) {
   }
 
   case 'diagnose': {
+    console.warn('⚠️  DEPRECATED: `regret diagnose` is replaced by `regret discover --entry <fn> --file <path>`')
+    console.warn('   `regret discover` uses runtime tracing for more accurate discovery.')
+    console.warn('   Falling back to diagnose...\n')
     success = run('node', [`${SCRIPTS_DIR}/diagnose.js`, ...passThroughArgs])
     break
   }
@@ -406,6 +424,9 @@ switch (command) {
   }
 
   case 'guard': {
+    console.warn('⚠️  DEPRECATED: `regret guard` is replaced by `regret validate --fail-fast`')
+    console.warn('   `regret validate --fail-fast` is functionally identical and is the')
+    console.warn('   standard CI/CD gate. Falling back to guard...\n')
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
@@ -436,6 +457,9 @@ switch (command) {
   }
 
   case 'branches': {
+    console.warn('⚠️  DEPRECATED: `regret branches` is replaced by `regret coverage`')
+    console.warn('   `regret coverage` provides more comprehensive branch coverage analysis')
+    console.warn('   with --suggest-inputs and --verbose options. Falling back to branches...\n')
     success = run('node', [`${SCRIPTS_DIR}/branches.js`, ...passThroughArgs])
     break
   }
@@ -470,47 +494,58 @@ switch (command) {
     console.log(`
 regret.js — Unified Regret Runner
 
-Usage:
-  node scripts/regret.js init [--stack js|python|php|go|css]  Initialize regrets/ directory
-  node scripts/regret.js capture [--cluster <id>]     Capture fingerprints
-                                 [--only-new]          Only capture clusters without .regret files
-                                 [--stale [hours]]     Re-capture clusters older than N hours (default: 24)
-  node scripts/regret.js validate [--cluster <id>]    Validate against golden
-  node scripts/regret.js health [--sort fragile]      Health report
-  node scripts/regret.js update <id> --reason "..."   Safe update with audit trail
-  node scripts/regret.js drift [--cluster <id>]       Drift detection (5 runs)
-  node scripts/regret.js ci                            CI mode (fail-fast)
-  node scripts/regret.js ci --init [--force]           Generate GitHub Actions workflow
-  node scripts/regret.js rollback <id>                  Rollback cluster (re-capture + validate)
-  node scripts/regret.js diff [--cluster <id>]     Show output diff (what changed)
-  node scripts/regret.js list                       List all clusters with status
-  node scripts/regret.js verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
-  node scripts/regret.js chain [--capture|--validate]  Chain testing (multi-step flows, JS+Python+PHP)
-  node scripts/regret.js truth [--outdir <dir>]        Save dual truth baselines (JS+Python)
-  node scripts/regret.js scan [--dir src/] [--stack] [--decompose] [--manifest]   Scan project for cluster suggestions
-  node scripts/regret.js scan --decompose <path>                    Detect god modules and suggest decomposition
-  node scripts/regret.js coverage [--cluster <id>] [--suggest-inputs]  Branch coverage analysis
-  node scripts/regret.js branch-map [--ts]             Generate branch-map.md with input suggestions
-  node scripts/regret.js analyze [dir] [--json]        Deep structural analysis (god functions, duplicates, cross-module deps)
-  node scripts/regret.js diagnose <file>                Diagnose module exports & recommend mode
-  node scripts/regret.js compare --pre <dir> --post <dir>  Compare pre vs post truth baselines
-  node scripts/regret.js audit [--strict]              Pre-refactor readiness audit
-  node scripts/regret.js mutate-audit <path>            Detect functions that mutate input args
-  node scripts/regret.js guard                         Pre-build gate
-  node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
-  node scripts/regret.js setup [--stack js|python|ts]  One-command onboarding (scan→check→capture→validate)
-                                 [--dry-run]            Preview steps without executing
-                                 [--skip-build]         Skip preBuild step
-  node scripts/regret.js watch [--dir src/] [--stack]  Watch files & auto-validate on change
-  node scripts/regret.js branches [--cluster <id>] [--json]  Static branch coverage analysis
-  node scripts/regret.js discover --static --entry <fn> --file <path>  Zero-execution static analysis
-                                   [--out regrets/manifest.json]        Save draft manifest
-  node scripts/regret.js risk [--since HEAD~1] [--diff patch.txt] [--json]  Pre-refactor risk signal
-  node scripts/regret.js discover --entry <fn> --file <path>              Discover call graph & draft manifest
-                                 [--inputs '[null, {}]']                   Custom inputs (JSON array)
-                                 [--out regrets/manifest.json]             Write to file (default: stdout)
-  node scripts/regret.js uninstall [--keep-manifest] [--force]  Remove regrets/ directory
-  node scripts/regret.js status [--json]                  Quick coverage + health snapshot
+INSTALL WORKFLOW:
+  regret install [--dir src/] [--dry-run]            Auto-discover + capture entire project
+  regret validate [--cluster <id>]                   Verify all GREEN
+  regret status [--json]                             Snapshot: safe to refactor?
+  regret uninstall [--keep-manifest]                 Clean up safety net
+
+MANUAL WORKFLOW:
+  regret init --stack <js|python|php|go|css>         Initialize regrets/ directory
+  regret capture [--cluster <id>]                    Capture fingerprints
+                    [--only-new]                     Only capture clusters without .regret files
+                    [--stale [hours]]                Re-capture clusters older than N hours (default: 24)
+  regret check [--cluster <id>]                      Pre-flight manifest validation
+  regret drift [--cluster <id>]                      Drift detection (5 runs)
+  regret update <id> --reason "..."                  Safe update with audit trail
+  regret validate --fail-fast                        CI/CD gate (replaces regret ci + regret guard)
+
+ANALYSIS:
+  regret coverage [--cluster <id>] [--suggest-inputs] [--verbose] [--json]   Branch coverage
+  regret health [--sort fragile] [--json]            Cluster health + confidence
+  regret risk [--since HEAD~1] [--diff patch.txt] [--json]   Pre-refactor risk signal
+  regret discover --entry <fn> --file <path>         Single-function discovery
+                    [--inputs '[null, {}]']           Custom inputs (JSON array)
+                    [--out regrets/manifest.json]     Write to file (default: stdout)
+  regret discover --static --entry <fn> --file <path>  Zero-execution static analysis
+  regret diff [--cluster <id>]                       Show diff on FAIL
+  regret list [--json]                               List all clusters
+  regret analyze [dir] [--json]                      Deep structural analysis
+
+UTILITIES:
+  regret rollback <id>                               Rollback cluster (re-capture + validate)
+  regret setup [--stack js|python|ts]                One-command onboarding (scan→check→capture→validate)
+                    [--dry-run]                       Preview steps without executing
+                    [--skip-build]                    Skip preBuild step
+  regret watch [--dir src/] [--stack]                Watch files & auto-validate on change
+  regret compare --pre <dir> --post <dir>            Compare pre vs post truth baselines
+  regret mutate-audit <path>                         Detect functions that mutate input args
+  regret ci --init [--force]                         Generate GitHub Actions workflow
+
+ADVANCED:
+  regret truth [--outdir <dir>]                      Save dual truth baselines (JS+Python)
+  regret verify-kebenaran                            Verify KEBENARAN 1 vs KEBENARAN 2
+  regret chain [--capture|--validate]                Chain testing (multi-step flows, JS+Python+PHP)
+
+DEPRECATED (still work, but use the replacement instead):
+  regret scan          → regret install --dry-run
+  regret branches      → regret coverage
+  regret audit         → regret status
+  regret ci            → regret validate --fail-fast
+  regret guard         → regret validate --fail-fast
+  regret branch-map    → regret coverage --suggest-inputs
+  regret diagnose      → regret discover --entry <fn> --file <path>
+  regret structure     → regret analyze
 
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
