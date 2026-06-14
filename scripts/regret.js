@@ -11,6 +11,7 @@
 //   node scripts/regret.js ci
 //   node scripts/regret.js guard
 //   node scripts/regret.js coverage [--cluster <id>] [--verbose]
+//   node scripts/regret.js setup [--stack js|python|ts]
 //   node scripts/regret.js scan [--dir src/] [--stack js] [--format manifest]
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
@@ -92,6 +93,7 @@ function runPreBuild() {
 }
 
 const needsPreBuild = ['capture', 'validate', 'truth', 'drift', 'ci', 'guard', 'chain']
+// Note: 'setup' handles preBuild internally inside setup.js
 const skipBuild = passThroughArgs.includes('--skip-build')
 if (skipBuild) {
   // Remove --skip-build from args so it doesn't get passed to sub-commands
@@ -297,6 +299,11 @@ switch (command) {
     break
   }
 
+  case 'setup': {
+    success = run('node', [`${SCRIPTS_DIR}/setup.js`, ...passThroughArgs])
+    break
+  }
+
   case 'scan': {
     const stacks = detectStacks()
     for (const stack of stacks) {
@@ -431,6 +438,7 @@ Usage:
   node scripts/regret.js mutate-audit <path>            Detect functions that mutate input args
   node scripts/regret.js guard                         Pre-build gate
   node scripts/regret.js check [--cluster <id>]        Pre-flight manifest validation
+  node scripts/regret.js setup [--stack js|python|ts]  One-command onboarding (scan→check→capture→validate)
 
 Global flags:
   --skip-build        Skip preBuild step (use when project is already built)
