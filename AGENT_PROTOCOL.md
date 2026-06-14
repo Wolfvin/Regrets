@@ -214,6 +214,18 @@ Parse: `✅` = green, `❌` = red. Format: `{icon} {cluster-id} {hash-info} {sta
 
 ## 4. Decision Tree
 
+### QUICK PATH (recommended for most cases)
+
+```
+regret install          → discover + capture entire project
+[do your work]
+regret validate         → verify all GREEN
+regret status           → confirm safe to ship
+regret uninstall        → clean up
+```
+
+### MANUAL PATH (when you need fine-grained control)
+
 ```
 START: Agent plans to refactor code
 │
@@ -248,7 +260,7 @@ START: Agent plans to refactor code
 │   LOW confidence → add more inputs or wait for capture maturity
 │   ALL SOLID + HIGH confidence → GATE 5b
 │
-├─ GATE 5b: regret branches
+├─ GATE 5b: regret coverage [--suggest-inputs]
 │   UNDER-COVERED → add inputs for uncovered branches (see suggested inputs)
 │   WELL-COVERED → GATE 6
 │
@@ -281,7 +293,7 @@ START: Agent plans to refactor code
 | `calls` fallback to `entry` | Add functions to `watches` — `calls` level needs watched functions to count |
 | DRIFT | Add `normalize`: timestamps, uuids, epochs, floatTolerance, seed, dynamicDates |
 | `--update requires --reason` | Provide 4+ word reason describing WHAT changed + WHY |
-| Coverage UNDER-COVERED | Add inputs (use `--suggest-inputs`); aim for inputs >= branches; use `regret branches` to see uncovered paths |
+| Coverage UNDER-COVERED | Add inputs (use `--suggest-inputs`); aim for inputs >= branches; use `regret coverage` to see uncovered paths |
 | preBuild failed | Run build manually, fix compilation errors |
 | Python module import error | Verify `module` dot-notation path, add `pythonPath` |
 | expectThrow violated | Function stopped throwing — refactoring removed error path; restore or update with reason |
@@ -356,9 +368,8 @@ create-user                        1       0  today     ██░░░░ FRAGI
 [ ] regret validate — ALL PASS
 [ ] regret drift — ALL STABLE (5 runs, identical hashes)
 [ ] regret health — ALL SOLID + no LOW confidence clusters (or plan for LOW clusters)
-[ ] regret branches — all clusters WELL-COVERED (no UNDER-COVERED)
+[ ] regret coverage — all clusters WELL-COVERED (no UNDER-COVERED)
 [ ] regret risk — no high-risk clusters, or plan for expected changes
-[ ] regret coverage — No cluster UNDER-COVERED
 [ ] regrets/ committed (manifest.json + .regret files + audit.log)
 [ ] No manual edits to .regret files after first green pass
 [ ] Post-refactor: regret validate — ALL PASS again
@@ -369,16 +380,46 @@ create-user                        1       0  today     ██░░░░ FRAGI
 
 ## Quick Command Reference
 
+### ACTIVE COMMANDS
+
 ```
-regret init --stack <stack>       regret capture          regret validate
-regret check                      regret drift (×5)       regret health [--json]
-regret update <id> --reason ".."  regret coverage         regret diff
-regret scan [--dir src/]          regret chain            regret truth
-regret rollback <id>              regret guard            regret list [--json]
-regret branches [--cluster <id>] [--json]  Static branch coverage
-regret risk [--since HEAD~1] [--diff file] [--json]
-regret discover --entry <fn> --file <path> [--inputs '[...]'] [--out <path>]
+INSTALL WORKFLOW:
+  regret install [--dir src/] [--dry-run]    Auto-discover + capture entire project
+  regret validate                             Verify all GREEN
+  regret status [--json]                      Snapshot: safe to refactor?
+  regret uninstall [--keep-manifest]          Clean up safety net
+
+MANUAL WORKFLOW:
+  regret init --stack <stack>                 Scaffold regrets/
+  regret capture [--cluster <id>]             Capture fingerprints
+  regret check                                Verify exports exist
+  regret drift [--runs N]                     Stability check
+  regret update <id> --reason "..."           Update contract intentionally
+  regret validate --fail-fast                 CI/CD gate (replaces regret ci + regret guard)
+
+ANALYSIS:
+  regret coverage [--suggest-inputs] [--verbose] [--json]   Branch coverage
+  regret health [--json]                      Cluster health + confidence
+  regret risk [--since HEAD~1] [--json]       Pre-refactor risk signal
+  regret discover --entry <fn> --file <path>  Single-function discovery
+  regret diff                                 Show diff on FAIL
+  regret list [--json]                        List all clusters
+  regret analyze [dir] [--json]               Deep structural analysis
 ```
+
+### DEPRECATED COMMANDS (still work, but use replacement instead)
+
+```
+  regret scan          → regret install --dry-run
+  regret branches      → regret coverage
+  regret audit         → regret status
+  regret ci            → regret validate --fail-fast
+  regret guard         → regret validate --fail-fast
+  regret branch-map    → regret coverage --suggest-inputs
+  regret diagnose      → regret discover --entry <fn> --file <path>
+  regret structure     → regret analyze
+```
+
 All auto-detect stack from manifest. Add `--skip-build` to skip preBuild.
 `regret health --json` and `regret list --json` include `confidence` + `confidenceScore` per cluster.
 `regret validate --json` includes `confidence` per cluster result.
