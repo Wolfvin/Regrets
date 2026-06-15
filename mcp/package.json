@@ -1,0 +1,28 @@
+{
+  "name": "@regrets/mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing Regrets regression testing capabilities as tools for AI agents",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "regrets-mcp": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "regret-testing": "file:..",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.0"
+  },
+  "license": "MIT"
+}

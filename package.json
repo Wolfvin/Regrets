@@ -34,6 +34,9 @@
   "engines": {
     "node": ">=16.0.0"
   },
+  "workspaces": [
+    "mcp"
+  ],
   "dependencies": {
     "chokidar": "^5.0.0"
   }
