@@ -12,35 +12,46 @@
  *   - Set → array of values
  *   - RegExp → string pattern (e.g. "/^abc$/i")
  *   - Date → ISO string
+ *   - Circular references → "__circular__" placeholder (prevents stack overflow)
+ *   - Functions → returned as-is (cannot be meaningfully cloned)
  * Unknown types that can't be serialized fall through to JSON round-trip,
  * which silently drops non-serializable values (backward-compatible behavior).
  */
-export function deepClone(val) {
+export function deepClone(val, _seen = null) {
   // Handle BigInt → string with "n" suffix for round-trip fidelity
   // BigInt cannot be JSON.stringify'd, so we convert to a tagged string
   if (typeof val === 'bigint') {
     return val.toString() + 'n'
   }
+  // Handle functions — return as-is (cannot be meaningfully cloned)
+  if (typeof val === 'function') {
+    return val
+  }
   // Handle TypedArrays — convert to regular array before cloning
   // Without this, JSON.stringify(Uint8Array) produces {"0":1,"1":2,...} instead of [1,2,...]
   if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
-    return Array.from(val).map(v => deepClone(v))
+    return Array.from(val).map(v => deepClone(v, _seen))
   }
   // Handle arrays — recurse to catch nested BigInt/TypedArray values
   if (Array.isArray(val)) {
-    return val.map(v => deepClone(v))
+    if (!_seen) _seen = new Set()
+    if (_seen.has(val)) return '__circular__'
+    _seen.add(val)
+    const result = val.map(v => deepClone(v, _seen))
+    _seen.delete(val)
+    return result
   }
   // Handle Map → plain object with entries as key-value pairs
   if (val instanceof Map) {
     const obj = {}
     for (const [k, v] of val) {
-      obj[k] = deepClone(v)
+      obj[k] = deepClone(v, _seen)
     }
     return obj
   }
   // Handle Set → array of values
   if (val instanceof Set) {
-    return Array.from(val).map(v => deepClone(v))
+    return Array.from(val).map(v => deepClone(v, _seen))
   }
   // Handle RegExp → string representation (e.g. "/^abc$/i")
   if (val instanceof RegExp) {
@@ -53,18 +64,31 @@ export function deepClone(val) {
   // Handle plain objects — recurse to catch nested BigInt values
   // JSON round-trip silently drops BigInt, so we must walk manually
   if (val !== null && typeof val === 'object') {
+    if (!_seen) _seen = new Set()
+    if (_seen.has(val)) return '__circular__'
+    _seen.add(val)
     try {
-      // Fast path: if JSON.stringify succeeds, no BigInt inside
+      // Fast path: if JSON.stringify succeeds AND preserves all keys,
+      // no BigInt/function/undefined values inside
       const serialized = JSON.stringify(val)
-      return JSON.parse(serialized)
+      const parsed = JSON.parse(serialized)
+      // Verify no keys were silently dropped (functions, undefined, symbols)
+      const originalKeys = Object.keys(val)
+      if (originalKeys.length === Object.keys(parsed).length) {
+        _seen.delete(val)
+        return parsed
+      }
+      // Keys were dropped (e.g., function values) — fall through to slow path
     } catch {
       // Slow path: BigInt or other non-serializable values detected
-      const obj = {}
-      for (const k of Object.keys(val)) {
-        obj[k] = deepClone(val[k])
-      }
-      return obj
     }
+    // Slow path: walk each key recursively
+    const obj = {}
+    for (const k of Object.keys(val)) {
+      obj[k] = deepClone(val[k], _seen)
+    }
+    _seen.delete(val)
+    return obj
   }
   // Primitives: return as-is
   return val

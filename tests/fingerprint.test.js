@@ -336,3 +336,162 @@ describe('snapshotOutput', () => {
     assert.equal(result, 3)
   })
 })
+
+// ─── Edge case regression tests ──────────────────────────────────────────────
+
+describe('stableStringify edge cases', () => {
+  it('handles circular references without stack overflow', () => {
+    const obj = {}
+    obj.self = obj
+    const result = stableStringify(obj)
+    assert.ok(typeof result === 'string')
+    assert.ok(result.includes('__circular__'))
+  })
+
+  it('handles nested circular references', () => {
+    const a = { name: 'a' }
+    const b = { name: 'b', ref: a }
+    a.ref = b
+    const result = stableStringify(a)
+    assert.ok(typeof result === 'string')
+    assert.ok(result.includes('__circular__'))
+  })
+
+  it('handles circular arrays without stack overflow', () => {
+    const arr = [1, 2]
+    arr.push(arr)
+    const result = stableStringify(arr)
+    assert.ok(typeof result === 'string')
+    assert.ok(result.includes('__circular__'))
+  })
+
+  it('handles function values', () => {
+    const result = stableStringify(() => {})
+    assert.equal(result, '"__function__"')
+  })
+
+  it('handles objects with function properties', () => {
+    const result = stableStringify({ name: 'test', fn: () => 42 })
+    assert.ok(typeof result === 'string')
+    assert.ok(result.includes('__function__'))
+    assert.ok(result.includes('test'))
+  })
+
+  it('handles Date objects as ISO strings', () => {
+    const d = new Date('2024-01-15T10:00:00Z')
+    const result = stableStringify(d)
+    assert.ok(result.includes('2024-01-15'))
+  })
+
+  it('different Date objects produce different stringify output', () => {
+    const d1 = new Date('2024-01-15T10:00:00Z')
+    const d2 = new Date('2025-06-20T12:00:00Z')
+    assert.notEqual(stableStringify(d1), stableStringify(d2))
+  })
+
+  it('handles Symbol values', () => {
+    const result = stableStringify(Symbol('test'))
+    assert.equal(result, '"__symbol__"')
+  })
+})
+
+describe('normalize edge cases', () => {
+  it('handles circular references without stack overflow', () => {
+    const obj = { name: 'circular' }
+    obj.self = obj
+    const result = normalize(obj, [])
+    assert.ok(typeof result === 'object')
+    assert.equal(result.name, 'circular')
+    assert.equal(result.self, '__circular__')
+  })
+
+  it('normalizes Date objects to ISO strings', () => {
+    const d = new Date('2024-01-15T10:00:00Z')
+    const result = normalize(d, [])
+    assert.equal(result, '2024-01-15T10:00:00.000Z')
+  })
+
+  it('different Date objects produce different normalized values', () => {
+    const d1 = new Date('2024-01-15T10:00:00Z')
+    const d2 = new Date('2025-06-20T12:00:00Z')
+    assert.notEqual(normalize(d1, []), normalize(d2, []))
+  })
+})
+
+describe('stripFields edge cases', () => {
+  it('handles circular references without stack overflow', () => {
+    const obj = { name: 'circular', secret: 'hidden' }
+    obj.self = obj
+    const result = stripFields(obj, ['secret'])
+    assert.ok(typeof result === 'object')
+    assert.equal(result.name, 'circular')
+    assert.ok(!result.secret)
+  })
+})
+
+describe('fingerprint edge cases', () => {
+  it('handles circular reference output without crash', () => {
+    const obj = {}
+    obj.self = obj
+    const fp = fingerprint('input', obj)
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles very large array output (10k items)', () => {
+    const arr = Array.from({ length: 10000 }, (_, i) => i)
+    const fp = fingerprint('input', arr)
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles undefined output', () => {
+    const fp = fingerprint('input', undefined)
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles null output', () => {
+    const fp = fingerprint('input', null)
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles function output', () => {
+    const fp = fingerprint('input', () => {})
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles BigInt output', () => {
+    const fp = fingerprint('input', BigInt(42))
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles object with BigInt value', () => {
+    const fp = fingerprint('input', { n: BigInt(100) })
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles Date output with consistent hash', () => {
+    const h1 = fingerprint('input', new Date('2024-01-15T10:00:00Z'))
+    const h2 = fingerprint('input', new Date('2024-01-15T10:00:00Z'))
+    assert.equal(h1, h2)
+  })
+
+  it('handles Date output with different hash for different dates', () => {
+    const h1 = fingerprint('input', new Date('2024-01-15T10:00:00Z'))
+    const h2 = fingerprint('input', new Date('2025-06-20T12:00:00Z'))
+    assert.notEqual(h1, h2)
+  })
+
+  it('handles emoji in input', () => {
+    const fp = fingerprint('🎉🎊💧', { result: 42 })
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles zero-width characters in input', () => {
+    const fp = fingerprint('hello\u200B\u200C\u200Dworld', { result: 42 })
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+
+  it('handles RTL text in input', () => {
+    const fp = fingerprint('\u202Ehello\u202C', { result: 42 })
+    assert.ok(typeof fp === 'string' && fp.length === 7)
+  })
+})
