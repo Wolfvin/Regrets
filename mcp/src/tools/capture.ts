@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { capture } from "regret-testing";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { structuredError } from "./structuredError.js";
 
 /** Zod schema for the regrets_capture tool input. */
 export const captureToolSchema = {
@@ -36,12 +37,13 @@ export const captureToolSchema = {
 export async function handleCapture(
   args: Record<string, unknown>
 ): Promise<CallToolResult> {
+  const { manifestPath, cluster, cwd } = args as {
+    manifestPath?: string;
+    cluster?: string;
+    cwd?: string;
+  };
+
   try {
-    const { manifestPath, cluster, cwd } = args as {
-      manifestPath?: string;
-      cluster?: string;
-      cwd?: string;
-    };
 
     const result = await capture({
       manifestPath: manifestPath ?? "regrets/manifest.json",
@@ -59,11 +61,10 @@ export async function handleCapture(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        { type: "text", text: `Error capturing fingerprints: ${message}` },
-      ],
-      isError: true,
-    };
+    return structuredError({
+      type: "CAPTURE_ERROR",
+      message: `Failed to capture fingerprints: ${message}`,
+      cluster,
+    });
   }
 }

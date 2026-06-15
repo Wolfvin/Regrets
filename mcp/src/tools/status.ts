@@ -10,6 +10,7 @@ import { z } from "zod";
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { resolve, join } from "path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { structuredError } from "./structuredError.js";
 
 // ─── Zod schema ──────────────────────────────────────────────────────────────
 
@@ -203,27 +204,10 @@ export async function handleStatus(
     try {
       manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     } catch {
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                installed: false,
-                clusters: 0,
-                captured: 0,
-                lastCapture: null,
-                health: {},
-                confidence: {},
-                safeToRefactor: "NO",
-                note: "manifest corrupt",
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return structuredError({
+        type: "MANIFEST_CORRUPT",
+        message: "manifest.json is corrupt or invalid JSON",
+      });
     }
 
     const clusters = manifest.clusters || [];
@@ -392,11 +376,9 @@ export async function handleStatus(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        { type: "text", text: `Error computing status: ${message}` },
-      ],
-      isError: true,
-    };
+    return structuredError({
+      type: "STATUS_ERROR",
+      message: `Failed to compute status: ${message}`,
+    });
   }
 }

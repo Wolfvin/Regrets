@@ -13,6 +13,7 @@ import { z } from "zod";
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { resolve, join, basename } from "path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { structuredError } from "./structuredError.js";
 
 // ─── Zod schema ──────────────────────────────────────────────────────────────
 
@@ -226,18 +227,10 @@ export async function handleHealth(
         f.endsWith(".regret")
       );
     } catch {
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              { error: "regrets/ directory not found. Run capture first." },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return structuredError({
+        type: "DIRECTORY_NOT_FOUND",
+        message: "regrets/ directory not found. Run capture first.",
+      });
     }
 
     if (!regretFiles.length) {
@@ -321,11 +314,9 @@ export async function handleHealth(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        { type: "text", text: `Error computing health report: ${message}` },
-      ],
-      isError: true,
-    };
+    return structuredError({
+      type: "HEALTH_ERROR",
+      message: `Failed to compute health report: ${message}`,
+    });
   }
 }
