@@ -220,6 +220,8 @@ Parse: `✅` = green, `❌` = red. Format: `{icon} {cluster-id} {hash-info} {sta
 regret install [--dir src/] [--dry-run]   →  discover + capture entire project
 [do your work]
 regret validate                           →  verify all GREEN
+  If project has multi-step flows:
+    buat regrets/chains.json → regret chain --capture → regret chain --validate
 regret status                             →  confirm safe to ship
 regret uninstall [--keep-manifest]        →  clean up
 ```
@@ -278,6 +280,12 @@ START: Agent plans to refactor code
 ├─ GATE 5b: regret coverage [--suggest-inputs]
 │   UNDER-COVERED → add inputs for uncovered branches (see suggested inputs)
 │   WELL-COVERED → GATE 6
+│
+├─ CHAIN: regret chain --validate (if chains.json exists)
+│   No chains.json → skip, proceed to GATE 6
+│   Ada multi-step flow yang perlu di-test? → buat chains.json, chain --capture first
+│   FAIL → Fix failing step's cluster, re-validate chain
+│   PASS → GATE 6
 │
 ├─ GATE 6: regret risk --json
 │   HIGH → entry function modified — cluster output WILL change, plan update
@@ -375,7 +383,45 @@ create-user                        1       0  today     ██░░░░ FRAGI
 
 ---
 
-## 7. Checklist Before PR
+## 7. Chain Testing (Integration Contracts)
+
+When your project has **multi-step flows** (e.g., login → session → token),
+individual cluster tests won't catch cross-function regressions.
+Chain testing fingerprints an entire sequence end to end.
+
+**When to use:** Multiple clusters form a pipeline or workflow where the
+output of one step feeds into the next.
+
+### Minimal chains.json
+
+```json
+{
+  "chains": [{
+    "id": "login-flow",
+    "steps": [
+      {"cluster": "validate-credentials", "input": {"user": "test", "pass": "123"}},
+      {"cluster": "build-session", "input": {"userId": 1}},
+      {"cluster": "generate-token", "input": {"sessionId": "abc"}}
+    ]
+  }]
+}
+```
+
+Each `step` references an existing cluster `id` from `manifest.json` and
+provides the input for that step. See `references/contest.md` for full details.
+
+### .regret vs .chain
+
+| Aspect | Cluster (.regret) | Chain (.chain) |
+|--------|-------------------|----------------|
+| Scope | Single function | Multi-step flow |
+| Golden file | `regrets/<id>.regret` | `regrets/chains/<id>.chain` |
+| Fingerprint | Per cluster | Combined across steps |
+| Purpose | Unit regression | Integration regression |
+
+---
+
+## 8. Checklist Before PR
 
 ```
 [ ] regret check — all entries found in compiled output
@@ -385,7 +431,8 @@ create-user                        1       0  today     ██░░░░ FRAGI
 [ ] regret health — ALL SOLID + no LOW confidence clusters (or plan for LOW clusters)
 [ ] regret coverage — all clusters WELL-COVERED (no UNDER-COVERED)
 [ ] regret risk — no high-risk clusters, or plan for expected changes
-[ ] regrets/ committed (manifest.json + .regret files + audit.log)
+[ ] If chains.json exists: regret chain --validate — ALL PASS
+[ ] regrets/ committed (manifest.json + .regret files + audit.log + chains/)
 [ ] No manual edits to .regret files after first green pass
 [ ] Post-refactor: regret validate — ALL PASS again
 [ ] Code changes are structural only — no behavioral contract change
@@ -413,6 +460,10 @@ MANUAL WORKFLOW:
   regret drift [--runs N]                     Stability check
   regret update <id> --reason "..."           Update contract intentionally
   regret validate --fail-fast                 CI/CD gate (replaces regret ci + regret guard)
+
+CHAIN TESTING:
+  regret chain --capture [--chain <id>]       Capture chain fingerprints
+  regret chain --validate [--chain <id>]      Validate chains against golden
 
 ANALYSIS:
   regret coverage [--suggest-inputs] [--verbose] [--json]   Branch coverage
