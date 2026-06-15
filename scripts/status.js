@@ -9,8 +9,8 @@
 // confidence, and safeToRefactor — without running any captures/validates.
 //
 // safeToRefactor logic:
-//   YES:    all clusters SOLID + HIGH confidence
-//   PARTIAL: has GOOD/MEDIUM clusters (or NEW)
+//   YES:    all clusters SOLID + HIGH confidence + all chains captured
+//   PARTIAL: has GOOD/MEDIUM clusters, or chains not captured (or NEW)
 //   NO:     has FRAGILE/UNSTABLE or LOW confidence clusters
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs'
@@ -22,6 +22,8 @@ const jsonOutput = args.includes('--json')
 const regretDir = resolve(process.cwd(), 'regrets')
 const manifestPath = resolve(process.cwd(), 'regrets/manifest.json')
 const auditLogPath = join(regretDir, 'audit.log')
+const chainsJsonPath = join(regretDir, 'chains.json')
+const chainsDir = join(regretDir, 'chains')
 
 // ─── Check if installed ─────────────────────────────────────────────────────────
 
@@ -181,6 +183,32 @@ const coveragePct = clusterCount > 0 ? Math.round((capturedCount / clusterCount)
 const lastCaptureISO = latestCaptureTime > 0 ? new Date(latestCaptureTime).toISOString() : null
 const lastCaptureAgo = latestCaptureTime > 0 ? formatTimeAgo(now - latestCaptureTime) : 'never'
 
+// ─── Chain awareness ────────────────────────────────────────────────────────
+
+let chainsDefined = 0
+let chainsCaptured = 0
+const chainsUncaptured = []
+let chainsSection = false
+
+if (existsSync(chainsJsonPath)) {
+  chainsSection = true
+  try {
+    const chainsJson = JSON.parse(readFileSync(chainsJsonPath, 'utf8'))
+    const chainList = chainsJson.chains || []
+    chainsDefined = chainList.length
+    for (const chain of chainList) {
+      const chainFile = join(chainsDir, `${chain.id}.chain`)
+      if (existsSync(chainFile)) {
+        chainsCaptured++
+      } else {
+        chainsUncaptured.push(chain.id)
+      }
+    }
+  } catch { /* chains.json corrupt — treat as no chains */ chainsSection = false }
+}
+
+const hasUncapturedChains = chainsSection && chainsUncaptured.length > 0
+
 // safeToRefactor
 const hasFragile = healthCounts.FRAGILE > 0 || healthCounts.UNSTABLE > 0
 const hasLow = confidenceCounts.LOW > 0
@@ -190,12 +218,17 @@ const hasMedium = confidenceCounts.MEDIUM > 0
 let safeToRefactor
 if (hasFragile || hasLow) {
   safeToRefactor = 'NO'
-} else if (hasGood || hasMedium) {
+} else if (hasGood || hasMedium || hasUncapturedChains) {
   safeToRefactor = 'PARTIAL'
 } else if (clusterCount > 0 && capturedCount === clusterCount) {
   safeToRefactor = 'YES'
 } else {
   safeToRefactor = 'NO'
+}
+
+// If uncaptured chains exist, max PARTIAL
+if (hasUncapturedChains && safeToRefactor === 'YES') {
+  safeToRefactor = 'PARTIAL'
 }
 
 // ─── Output ─────────────────────────────────────────────────────────────────────
@@ -211,6 +244,9 @@ if (jsonOutput) {
     health: healthCounts,
     confidence: confidenceCounts,
     safeToRefactor,
+  }
+  if (chainsSection) {
+    jsonResult.chains = { defined: chainsDefined, captured: chainsCaptured }
   }
   console.log(JSON.stringify(jsonResult, null, 0))
 } else {
@@ -235,6 +271,15 @@ if (jsonOutput) {
   if (confidenceCounts.LOW) confParts.push(`${confidenceCounts.LOW} LOW`)
   console.log(`Confidence: ${confParts.join(', ')}`)
 
+  // Chain summary
+  if (chainsSection) {
+    if (chainsUncaptured.length > 0) {
+      console.log(`Chains: ${chainsUncaptured.length} uncaptured (of ${chainsDefined} defined)`)
+    } else {
+      console.log(`Chains: ${chainsCaptured} captured (of ${chainsDefined} defined)`)
+    }
+  }
+
   // Action needed
   const actions = []
   if (fragileList.length > 0) {
@@ -245,6 +290,9 @@ if (jsonOutput) {
   }
   if (skippedClusters.length > 0) {
     actions.push(`${skippedClusters.length} cluster${skippedClusters.length !== 1 ? 's' : ''} not captured — run 'regret capture'`)
+  }
+  if (hasUncapturedChains) {
+    actions.push(`${chainsUncaptured.length} chain${chainsUncaptured.length !== 1 ? 's' : ''} not captured — run 'regret chain --capture'`)
   }
 
   if (actions.length > 0) {

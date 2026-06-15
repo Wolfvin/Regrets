@@ -296,6 +296,9 @@ def main():
             else:
                 success = run(f'node {SCRIPTS_DIR}/diff.js {extra_args}') and success
 
+    elif command == 'status':
+        success = run(f'python3 {SCRIPTS_DIR}/status.py {extra_args}')
+
     # ─── Commands delegated to regret.js ─────────────────────────────
     # These commands either only have JS implementations, or regret.js
     # handles the full multi-stack dispatch logic internally.
@@ -350,6 +353,7 @@ Usage:
   python scripts/regret.py check [--cluster <id>]       Pre-flight manifest validation
   python scripts/regret.py truth [--outdir ./proof]      Save dual-truth baselines
   python scripts/regret.py diff [--cluster <id>]         Deep-compare live vs golden output
+  python scripts/regret.py status [--json]              Snapshot: safe to refactor?
   python scripts/regret.py list                       List all clusters with status
   python scripts/regret.py verify-kebenaran            Verify KEBENARAN 1 vs KEBENARAN 2
   python scripts/regret.py structure                  Structural analysis of regrets
