@@ -1,0 +1,17 @@
+chain: normalize-then-katakana
+chain_hash: zymp91y
+captured: 2026-06-15T02:03:12.868901+00:00
+steps:
+  1. cluster: normalize
+     fingerprint: t98ohy1
+  2. cluster: hira2kata
+     fingerprint: 1ro2gtr
+---
+STEP 1  normalize
+  INPUT  "ﾃｨﾛ･フィナ〜レ"
+  OUTPUT "ティロ・フィナーレ"
+  HASH   t98ohy1
+STEP 2  hira2kata
+  INPUT  "ティロ・フィナーレ"
+  OUTPUT "ティロ・フィナーレ"
+  HASH   1ro2gtr

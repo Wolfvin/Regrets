@@ -1,0 +1,46 @@
+{
+  "chains": [
+    {
+      "id": "normalize-then-katakana",
+      "description": "Normalize half-width/mixed Japanese text, then convert to full-width Katakana",
+      "steps": [
+        {
+          "cluster": "normalize",
+          "input": "ﾃｨﾛ･フィナ〜レ"
+        },
+        {
+          "cluster": "hira2kata",
+          "input": "ティロ・フィナーレ"
+        }
+      ]
+    },
+    {
+      "id": "hiragana-to-katakana-via-alphabet",
+      "description": "Convert Hiragana to Roman alphabet, then reconstruct as Katakana",
+      "steps": [
+        {
+          "cluster": "kana2alphabet",
+          "input": "まみさん"
+        },
+        {
+          "cluster": "alphabet2kata",
+          "input": "mamisan"
+        }
+      ]
+    },
+    {
+      "id": "half-width-normalize-to-hiragana",
+      "description": "Normalize half-width kana, then convert full-width Katakana to Hiragana",
+      "steps": [
+        {
+          "cluster": "h2z-default",
+          "input": "ｶｷｸｹｺ"
+        },
+        {
+          "cluster": "kata2hira",
+          "input": "カキクケコ"
+        }
+      ]
+    }
+  ]
+}
