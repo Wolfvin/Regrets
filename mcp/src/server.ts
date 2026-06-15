@@ -38,6 +38,10 @@ import {
   scanToolSchema,
   handleScan,
 } from "./tools/scan.js";
+import {
+  chainToolSchema,
+  handleChain,
+} from "./tools/chain.js";
 
 /**
  * Create and configure the MCP server with all Regrets tools registered.
@@ -113,6 +117,21 @@ export function createServer(): McpServer {
     scanToolSchema,
     async (args) => {
       return handleScan(args as Record<string, unknown>);
+    }
+  );
+
+  // ─── Tool 6: regrets_chain ─────────────────────────────────────────────────
+  server.tool(
+    "regrets_chain",
+    "Run chain testing in capture or validate mode. " +
+      "Capture mode: execute multi-step chains and save chain fingerprints as baselines. " +
+      "Validate mode: execute chains and compare output against captured baselines, " +
+      "returning PASS/FAIL per chain. " +
+      "Use this to test multi-step flows that span multiple clusters — " +
+      "a FAIL means the chain's combined output has drifted from the baseline.",
+    chainToolSchema,
+    async (args) => {
+      return handleChain(args as Record<string, unknown>);
     }
   );
 

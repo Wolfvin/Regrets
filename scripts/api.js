@@ -7,8 +7,9 @@
 // without spawning child processes.
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'fs'
-import { resolve, join, basename, relative } from 'path'
+import { resolve, join, basename, relative, dirname } from 'path'
 import { pathToFileURL } from 'url'
+import { execFile } from 'child_process'
 import { parseRegret, runCluster, runReactCluster, formatDiffOutput, formatSideEffectDiff, jsonDiff, generateJUnitXml } from './validate.js'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone, consumeIterator } from './ghost.js'
@@ -800,4 +801,135 @@ export async function check(options = {}) {
     warnings,
     checked: clusters.length,
   }
+}
+
+// ─── chain() ───────────────────────────────────────────────────────────────
+
+/**
+ * Run chain testing (capture or validate mode) by spawning contest.mjs.
+ * Returns a structured result object instead of raw stdout.
+ *
+ * @param {object} options
+ * @param {'capture'|'validate'} [options.mode='validate'] - Chain mode
+ * @param {string} [options.chain] - Run only this chain ID (optional filter)
+ * @param {string} [options.cwd] - Working directory containing regrets/ folder
+ * @returns {Promise<{passed: number, failed: number, chains: Array<{id: string, status: 'passed'|'failed', chainHash?: string, reason?: string, error?: string}>}>}
+ */
+export async function chain(options = {}) {
+  const { mode = 'validate', chain, cwd } = options
+
+  const workDir = resolve(cwd || process.cwd())
+  const scriptDir = dirname(fileURLToPath(import.meta.url))
+  const contestScript = join(scriptDir, 'contest.mjs')
+
+  const modeFlag = mode === 'capture' ? '--capture' : '--validate'
+  const args = [contestScript, modeFlag]
+  if (chain) {
+    args.push('--chain', chain)
+  }
+
+  const stdout = await new Promise((resolve, reject) => {
+    execFile('node', args, {
+      cwd: workDir,
+      maxBuffer: 10 * 1024 * 1024,
+      encoding: 'utf8',
+    }, (err, stdout, stderr) => {
+      if (err && err.code !== 1) {
+        // Exit code 1 means some chains failed — that's a valid result.
+        // Other errors (ENOENT, etc.) are real failures.
+        reject(new Error(`chain() failed: ${err.message}\n${stderr}`))
+        return
+      }
+      resolve(stdout || '')
+    })
+  })
+
+  // Parse stdout into structured result
+  // contest.mjs outputs lines like:
+  //   ⛓  Chain: <id> (<n> steps)
+  //   Step <n>: <cluster> → <fingerprint>
+  //   Chain hash: <hash>
+  //   ✅ Captured → <path>        (capture mode, passed)
+  //   ✅ Match                     (validate mode, passed)
+  //   ❌ Mismatch — <reason>       (validate mode, failed)
+  //   ❌ Chain failed: <error>     (error)
+  //   ──────────────────────────────────────────────────
+  //   Chain capture|validate: <n> passed, <n> failed
+
+  const chains = []
+  let currentChainId = null
+  let currentChainHash = null
+
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim()
+
+    // Detect chain start: "⛓  Chain: <id> (<n> steps)"
+    const chainMatch = trimmed.match(/^⛓\s+Chain:\s+(\S+)/)
+    if (chainMatch) {
+      currentChainId = chainMatch[1]
+      currentChainHash = null
+      continue
+    }
+
+    // Detect chain hash: "Chain hash: <hash>"
+    const hashMatch = trimmed.match(/^Chain hash:\s+(\S+)/)
+    if (hashMatch && currentChainId) {
+      currentChainHash = hashMatch[1]
+      continue
+    }
+
+    // Detect pass: "✅ Captured → <path>" or "✅ Match"
+    if (trimmed.includes('✅') && currentChainId) {
+      chains.push({
+        id: currentChainId,
+        status: 'passed',
+        ...(currentChainHash ? { chainHash: currentChainHash } : {}),
+      })
+      currentChainId = null
+      currentChainHash = null
+      continue
+    }
+
+    // Detect fail: "❌ Mismatch — <reason>"
+    const mismatchMatch = trimmed.match(/^❌\s+Mismatch\s+—\s+(.+)$/)
+    if (mismatchMatch && currentChainId) {
+      chains.push({
+        id: currentChainId,
+        status: 'failed',
+        reason: mismatchMatch[1],
+        ...(currentChainHash ? { chainHash: currentChainHash } : {}),
+      })
+      currentChainId = null
+      currentChainHash = null
+      continue
+    }
+
+    // Detect error: "❌ Chain failed: <error>"
+    const errorMatch = trimmed.match(/^❌\s+Chain failed:\s+(.+)$/)
+    if (errorMatch && currentChainId) {
+      chains.push({
+        id: currentChainId,
+        status: 'failed',
+        error: errorMatch[1],
+      })
+      currentChainId = null
+      currentChainHash = null
+      continue
+    }
+  }
+
+  // If a chain was started but never concluded (edge case), mark it failed
+  if (currentChainId) {
+    chains.push({
+      id: currentChainId,
+      status: 'failed',
+      reason: 'no result line found in output',
+      ...(currentChainHash ? { chainHash: currentChainHash } : {}),
+    })
+  }
+
+  const passed = chains.filter(c => c.status === 'passed').length
+  const failed = chains.filter(c => c.status === 'failed').length
+
+  return { passed, failed, chains }
 }

@@ -8,7 +8,7 @@ export { stableStringify, normalize, stripFields, fingerprint, fingerprintSequen
 export { createGhost, deepClone, normalizeHtml } from './scripts/ghost.js'
 
 // ─── High-level programmatic API ──────────────────────────────────────────────
-export { capture, validate, scan, check } from './scripts/api.js'
+export { capture, validate, scan, check, chain } from './scripts/api.js'
 
 // ─── Re-exported from validate.js (for advanced use) ──────────────────────────
 export { parseRegret, runCluster, runReactCluster, formatDiffOutput, jsonDiff, generateJUnitXml } from './scripts/validate.js'

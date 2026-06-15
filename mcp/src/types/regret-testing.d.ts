@@ -70,4 +70,24 @@ declare module "regret-testing" {
   export function capture(options?: CaptureOptions): Promise<CaptureResult>;
   export function validate(options?: ValidateOptions): Promise<ValidateResult>;
   export function scan(options?: ScanOptions): Promise<ScanResult>;
+
+  export interface ChainOptions {
+    mode?: "capture" | "validate";
+    chain?: string;
+    cwd?: string;
+  }
+
+  export interface ChainResult {
+    passed: number;
+    failed: number;
+    chains: Array<{
+      id: string;
+      status: "passed" | "failed";
+      chainHash?: string;
+      reason?: string;
+      error?: string;
+    }>;
+  }
+
+  export function chain(options?: ChainOptions): Promise<ChainResult>;
 }
