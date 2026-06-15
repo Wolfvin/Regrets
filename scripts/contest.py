@@ -51,11 +51,22 @@ class ContestRunner:
     def load_chains(self, chain_file):
         with open(chain_file, 'r', encoding='utf-8') as f:
             self.chains = json.load(f).get('chains', [])
+        # ── Validate: detect duplicate chain IDs ──
+        seen = {}
+        for chain in self.chains:
+            cid = chain.get('id', '')
+            if cid in seen:
+                print(f'⚠️  Duplicate chain id "{cid}" — second occurrence will shadow the first')
+            seen[cid] = chain
         return self
 
     def load_manifest(self, manifest_path):
         with open(manifest_path, 'r', encoding='utf-8') as f:
             self.manifest = json.load(f)
+        # ── Validate: ensure manifest has clusters ──
+        if 'clusters' not in self.manifest or not isinstance(self.manifest['clusters'], list):
+            print('❌ regrets/manifest.json has no "clusters" array (or it is empty). Add clusters before running chains.')
+            self.manifest['clusters'] = []
         # Add manifest-level pythonPath to sys.path
         manifest_python_path = self.manifest.get('pythonPath', '')
         if isinstance(manifest_python_path, str):
@@ -88,12 +99,21 @@ class ContestRunner:
         return self
 
     def find_cluster(self, cluster_id):
-        return next((c for c in self.manifest['clusters'] if c['id'] == cluster_id), None)
+        clusters = self.manifest.get('clusters', [])
+        return next((c for c in clusters if c['id'] == cluster_id), None)
 
-    def run_step(self, step):
-        cluster = self.find_cluster(step['cluster'])
+    def run_step(self, step, step_index=0, chain_id=''):
+        cluster_id = step.get('cluster', '')
+        if not cluster_id:
+            raise ValueError(f'Step {step_index + 1} in chain "{chain_id}" is missing a "cluster" field')
+
+        cluster = self.find_cluster(cluster_id)
         if not cluster:
-            raise ValueError(f'Cluster "{step["cluster"]}" not found in manifest')
+            available = [c['id'] for c in self.manifest.get('clusters', [])]
+            raise ValueError(
+                f'Step {step_index + 1} in chain "{chain_id}" references cluster "{cluster_id}" '
+                f'which does not exist in manifest. Available: [{", ".join(available)}]'
+            )
 
         module_path = cluster.get('module', cluster.get('file', ''))
         entry_name = cluster['entry']
@@ -182,9 +202,19 @@ class ContestRunner:
         chain = next((c for c in self.chains if c['id'] == chain_id), None)
         if not chain:
             raise ValueError(f'Chain "{chain_id}" not found in chains.json')
+        # ── Validate: reject chains with empty steps ──
+        steps = chain.get('steps', [])
+        if not isinstance(steps, list) or len(steps) == 0:
+            raise ValueError(f'Chain "{chain_id}" has no steps (empty or missing "steps" array). A chain must have at least one step.')
         step_results = []
-        for step in chain['steps']:
-            step_results.append(self.run_step(step))
+        for i, step in enumerate(steps):
+            try:
+                step_results.append(self.run_step(step, step_index=i, chain_id=chain_id))
+            except Exception as err:
+                # ── Mid-chain failure: do NOT produce a chain hash — re-raise with context ──
+                raise RuntimeError(
+                    f'Chain "{chain_id}" failed at step {i + 1}/{len(steps)}: {err}'
+                ) from err
         return {
             'id': chain_id,
             'steps': step_results,
@@ -258,6 +288,10 @@ def main():
     runner = ContestRunner()
     runner.load_manifest(manifest_path).load_chains(chain_file)
 
+    # ── Validate: warn if manifest has no clusters ──
+    if not runner.manifest.get('clusters'):
+        print('⚠️  regrets/manifest.json has no clusters defined. No chain steps can run.')
+
     chains_to_run = [c for c in runner.chains if not chain_filter or c['id'] == chain_filter]
     if not chains_to_run:
         print('No chains to run.')
@@ -269,7 +303,8 @@ def main():
     failed = 0
 
     for chain_def in chains_to_run:
-        print(f'\n⛓  Chain: {chain_def["id"]} ({len(chain_def["steps"])} steps)')
+        steps = chain_def.get('steps', [])
+        print(f'\n⛓  Chain: {chain_def["id"]} ({len(steps) if isinstance(steps, list) else 0} steps)')
         try:
             result = runner.run_chain(chain_def['id'])
             for i, s in enumerate(result['steps']):

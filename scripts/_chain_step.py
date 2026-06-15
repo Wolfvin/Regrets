@@ -3,7 +3,8 @@
 _chain_step.py — Helper script for running a single Python chain step.
 Called by contest.mjs when a chain contains Python clusters.
 Receives a JSON payload as argument, runs the entry function, returns JSON result.
-Supports classMethod for instance-method-based clusters.
+Supports classMethod, kwargs, outputTransform, and generator materialization
+for cross-stack fingerprint consistency with contest.py.
 """
 import sys
 import os
@@ -33,12 +34,25 @@ def main():
     constructor_name = payload.get('constructor', entry_name)
     constructor_args = payload.get('constructor_args', [])
     setup_steps = payload.get('setup', [])
+    # kwargs support (for cross-stack fingerprint consistency)
+    kwargs_mode = payload.get('kwargs', False)
+    # outputTransform support (for cross-stack fingerprint consistency)
+    output_transform = payload.get('output_transform', None)
 
     # Add pythonPath to sys.path
     if python_path:
-        abs_path = os.path.join(os.getcwd(), python_path)
-        if abs_path not in sys.path:
-            sys.path.insert(0, abs_path)
+        # Support both string and list forms
+        if isinstance(python_path, str):
+            python_paths = [python_path] if python_path else []
+        elif isinstance(python_path, list):
+            python_paths = python_path
+        else:
+            python_paths = []
+        for pp in python_paths:
+            if pp:
+                abs_path = os.path.join(os.getcwd(), pp) if not os.path.isabs(pp) else pp
+                if abs_path not in sys.path:
+                    sys.path.insert(0, abs_path)
 
     # Dynamic import
     mod = importlib.import_module(module_path)
@@ -51,10 +65,10 @@ def main():
             sys.exit(1)
 
         c_args = deep_clone(constructor_args) if constructor_args else []
-        if isinstance(c_args, list):
-            instance = Cls(*c_args)
-        elif isinstance(c_args, dict):
+        if isinstance(c_args, dict):
             instance = Cls(**c_args)
+        elif isinstance(c_args, list):
+            instance = Cls(*c_args)
         else:
             instance = Cls(c_args)
 
@@ -76,6 +90,8 @@ def main():
         input_for_args = deep_clone(input_data)
         if multi_args and isinstance(input_for_args, list):
             output = target_method(*input_for_args)
+        elif kwargs_mode and isinstance(input_for_args, dict):
+            output = target_method(**input_for_args)
         elif input_for_args is not None:
             output = target_method(input_for_args)
         else:
@@ -91,14 +107,20 @@ def main():
         input_for_args = deep_clone(input_data)
         if multi_args and isinstance(input_for_args, list):
             output = entry_fn(*input_for_args)
+        elif kwargs_mode and isinstance(input_for_args, dict):
+            output = entry_fn(**input_for_args)
+        elif input_for_args is not None:
+            output = entry_fn(input_for_args)
         else:
-            output = entry_fn(input_for_args) if input_for_args is not None else entry_fn()
+            output = entry_fn()
 
-    # Deep-clone output to serialize datetime objects and other non-JSON types
-    output_for_fp = deep_clone(output)
+    # Consume generators/iterators (for cross-stack fingerprint consistency)
+    from capture import consume_generator
+    output = consume_generator(output)
 
-    # Deep-clone output to serialize datetime objects and other non-JSON types
-    output_for_fp = deep_clone(output)
+    # Apply output transform (for cross-stack fingerprint consistency)
+    from capture import apply_output_transform
+    output_for_fp = apply_output_transform(deep_clone(output), output_transform)
 
     # Compute fingerprint
     fp = fingerprint(input_data, output_for_fp, norm_rules, ign_fields)
