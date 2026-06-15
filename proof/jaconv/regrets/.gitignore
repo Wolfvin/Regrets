@@ -1,0 +1,3 @@
+# Working copies of manifest and regret files — originals are in parent directory
+*.regret
+manifest.json

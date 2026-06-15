@@ -1,0 +1,17 @@
+chain: hiragana-to-katakana-via-alphabet
+chain_hash: 1e18ore
+captured: 2026-06-15T02:03:12.869200+00:00
+steps:
+  1. cluster: kana2alphabet
+     fingerprint: 49den39
+  2. cluster: alphabet2kata
+     fingerprint: 2iiyfbt
+---
+STEP 1  kana2alphabet
+  INPUT  "まみさん"
+  OUTPUT "mamisan"
+  HASH   49den39
+STEP 2  alphabet2kata
+  INPUT  "mamisan"
+  OUTPUT "マミサン"
+  HASH   2iiyfbt

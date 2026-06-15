@@ -1,0 +1,17 @@
+chain: half-width-normalize-to-hiragana
+chain_hash: 5mj2o2j
+captured: 2026-06-15T02:03:12.869330+00:00
+steps:
+  1. cluster: h2z-default
+     fingerprint: 1vcqsgj
+  2. cluster: kata2hira
+     fingerprint: 2olb2ur
+---
+STEP 1  h2z-default
+  INPUT  "ｶｷｸｹｺ"
+  OUTPUT "カキクケコ"
+  HASH   1vcqsgj
+STEP 2  kata2hira
+  INPUT  "カキクケコ"
+  OUTPUT "かきくけこ"
+  HASH   2olb2ur
