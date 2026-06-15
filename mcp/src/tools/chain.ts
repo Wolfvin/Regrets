@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { chain } from "regret-testing";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { structuredError } from "./structuredError.js";
 
 /** Zod schema for the regrets_chain tool input. */
 export const chainToolSchema = {
@@ -36,12 +37,13 @@ export const chainToolSchema = {
 export async function handleChain(
   args: Record<string, unknown>
 ): Promise<CallToolResult> {
+  const { mode, chain: chainId, cwd } = args as {
+    mode: "capture" | "validate";
+    chain?: string;
+    cwd?: string;
+  };
+
   try {
-    const { mode, chain: chainId, cwd } = args as {
-      mode: "capture" | "validate";
-      chain?: string;
-      cwd?: string;
-    };
 
     const result = await chain({
       mode,
@@ -59,11 +61,10 @@ export async function handleChain(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        { type: "text", text: `Error running chain testing: ${message}` },
-      ],
-      isError: true,
-    };
+    return structuredError({
+      type: "CHAIN_ERROR",
+      message: `Failed to run chain testing: ${message}`,
+      chain: chainId,
+    });
   }
 }

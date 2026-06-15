@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { scan } from "regret-testing";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { structuredError } from "./structuredError.js";
 
 /** Zod schema for the regrets_scan tool input. */
 export const scanToolSchema = {
@@ -59,11 +60,9 @@ export async function handleScan(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        { type: "text", text: `Error scanning project: ${message}` },
-      ],
-      isError: true,
-    };
+    return structuredError({
+      type: "SCAN_ERROR",
+      message: `Failed to scan project: ${message}`,
+    });
   }
 }

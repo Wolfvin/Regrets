@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { validate } from "regret-testing";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { structuredError } from "./structuredError.js";
 
 /** Zod schema for the regrets_validate tool input. */
 export const validateToolSchema = {
@@ -55,22 +56,23 @@ export const validateToolSchema = {
 export async function handleValidate(
   args: Record<string, unknown>
 ): Promise<CallToolResult> {
+  const {
+    manifestPath,
+    cluster,
+    failFast,
+    runs,
+    includeDiff,
+    cwd,
+  } = args as {
+    manifestPath?: string;
+    cluster?: string;
+    failFast?: boolean;
+    runs?: number;
+    includeDiff?: boolean;
+    cwd?: string;
+  };
+
   try {
-    const {
-      manifestPath,
-      cluster,
-      failFast,
-      runs,
-      includeDiff,
-      cwd,
-    } = args as {
-      manifestPath?: string;
-      cluster?: string;
-      failFast?: boolean;
-      runs?: number;
-      includeDiff?: boolean;
-      cwd?: string;
-    };
 
     const result = await validate({
       manifestPath: manifestPath ?? "regrets/manifest.json",
@@ -106,11 +108,10 @@ export async function handleValidate(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        { type: "text", text: `Error validating clusters: ${message}` },
-      ],
-      isError: true,
-    };
+    return structuredError({
+      type: "VALIDATE_ERROR",
+      message: `Failed to validate clusters: ${message}`,
+      cluster,
+    });
   }
 }
