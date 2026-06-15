@@ -386,7 +386,15 @@ for (const cluster of clusters) {
       // Add cache-busting query param to force a fresh module parse
       moduleUrl += `?_t=${Date.now()}`
     }
-    let rawModule = await import(moduleUrl)
+    let rawModule
+    try {
+      rawModule = await import(moduleUrl)
+    } catch (err) {
+      if (err.code === 'ERR_MODULE_NOT_FOUND' || err.code === 'ENOENT') {
+        throw new Error(`Cluster file not found at ${file} (resolved: ${absPath}). Compile the project or fix the 'file' field in manifest.json.`)
+      }
+      throw new Error(`Failed to import ${file}: ${err.message}`)
+    }
 
     // Handle CJS modules — merge default exports for consistent access
     rawModule = mergeCjsModule(rawModule)

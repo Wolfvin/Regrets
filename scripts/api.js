@@ -20,7 +20,18 @@ import { applyOutputTransformAsync } from './outputTransform.js'
 
 function loadManifest(manifestPath) {
   const abs = resolve(manifestPath)
-  return JSON.parse(readFileSync(abs, 'utf8'))
+  let raw
+  try {
+    raw = readFileSync(abs, 'utf8')
+  } catch (e) {
+    if (e.code === 'ENOENT') throw new Error(`manifest.json not found at ${abs}. Run 'regret init' first.`)
+    throw new Error(`Cannot read manifest at ${abs}: ${e.message}`)
+  }
+  try {
+    return JSON.parse(raw)
+  } catch (e) {
+    throw new Error(`Invalid JSON in ${abs}: ${e.message}. Fix the syntax and retry.`)
+  }
 }
 
 function findRegretFiles(regretDir, filterId) {
