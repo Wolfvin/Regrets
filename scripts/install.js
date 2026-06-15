@@ -120,6 +120,125 @@ function isGitignored(relPath, patterns) {
   return false
 }
 
+// ─── CJS object export helpers ─────────────────────────────────────────────────
+// Handles: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
+
+function splitObjectProperties(body) {
+  const parts = []
+  let depth = 0
+  let current = ''
+  let inString = false
+  let stringChar = ''
+
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]
+
+    if (inString) {
+      current += ch
+      if (ch === '\\') {
+        i++
+        if (i < body.length) current += body[i]
+        continue
+      }
+      if (ch === stringChar) inString = false
+      continue
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = true
+      stringChar = ch
+      current += ch
+    } else if (ch === '(' || ch === '[' || ch === '{') {
+      depth++
+      current += ch
+    } else if (ch === ')' || ch === ']' || ch === '}') {
+      depth--
+      current += ch
+    } else if (ch === ',' && depth === 0) {
+      parts.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+
+  if (current.trim()) parts.push(current)
+  return parts
+}
+
+function extractCjsObjectExports(source) {
+  const names = []
+  const re = /module\.exports\s*=\s*\{/g
+  let match
+
+  while ((match = re.exec(source)) !== null) {
+    const start = match.index + match[0].length
+    let depth = 1
+    let i = start
+
+    // Find matching closing brace (handle nested braces & string literals)
+    while (i < source.length && depth > 0) {
+      const ch = source[i]
+      if (ch === '{') depth++
+      else if (ch === '}') depth--
+      else if (ch === '"' || ch === "'" || ch === '`') {
+        const quote = ch
+        i++
+        while (i < source.length) {
+          if (source[i] === '\\') { i += 2; continue }
+          if (source[i] === quote) break
+          i++
+        }
+      }
+      i++
+    }
+
+    if (depth !== 0) continue
+    const body = source.slice(start, i - 1)
+
+    // Remove comments before parsing
+    const cleaned = body
+      .replace(/\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+
+    const properties = splitObjectProperties(cleaned)
+
+    for (const prop of properties) {
+      const trimmed = prop.trim()
+      if (!trimmed) continue
+
+      // Skip spread: ...expr
+      if (trimmed.startsWith('...')) continue
+
+      // Explicit property: key: value
+      const explicitMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)\s*:/)
+      if (explicitMatch) {
+        // Filter out JS keywords that appear before colons in other contexts
+        const JS_KEYWORDS = new Set([
+          'function', 'async', 'get', 'set', 'static', 'if', 'else', 'for',
+          'while', 'return', 'new', 'class', 'const', 'let', 'var',
+          'true', 'false', 'null', 'undefined',
+        ])
+        if (!JS_KEYWORDS.has(explicitMatch[1])) {
+          names.push(explicitMatch[1])
+        }
+        continue
+      }
+
+      // Shorthand property: just an identifier
+      const shorthandMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)$/)
+      if (shorthandMatch) {
+        names.push(shorthandMatch[1])
+        continue
+      }
+
+      // Computed property or other expression: skip
+    }
+  }
+
+  return names
+}
+
 // ─── Static function extraction (from scan.js) ────────────────────────────────
 
 function extractExportedFunctions(source, ext) {
@@ -156,6 +275,10 @@ function extractExportedFunctions(source, ext) {
   // CJS: module.exports = function Name(...)
   const cjsNamedFn = source.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
   for (const m of cjsNamedFn) fns.push(m[1])
+
+  // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
+  const cjsObjExports = extractCjsObjectExports(source)
+  for (const name of cjsObjExports) fns.push(name)
 
   return [...new Set(fns)]
 }
