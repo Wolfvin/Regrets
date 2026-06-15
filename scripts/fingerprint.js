@@ -10,8 +10,14 @@ import { deepClone } from './ghost.js'
  *
  * Handles Map objects by converting them to sorted entry arrays,
  * since JSON.stringify(new Map()) produces "{}" which loses all data.
+ *
+ * Edge cases handled:
+ *   - Circular references → "__circular__" placeholder (prevents stack overflow)
+ *   - Functions → "__function__" placeholder (JSON.stringify returns undefined)
+ *   - Date → ISO string (JSON.stringify drops it to "{}" via .toJSON)
+ *   - Symbol → "__symbol__" placeholder (not JSON-serializable)
  */
-export function stableStringify(obj) {
+export function stableStringify(obj, _seen = null) {
   if (obj === null || obj === undefined) return String(obj)
   // Handle BigInt — serialize as tagged string for deterministic representation
   // e.g., 18n → "__bigint__:18" — collision-resistant tag prevents confusion with
@@ -19,23 +25,52 @@ export function stableStringify(obj) {
   if (typeof obj === 'bigint') {
     return '__bigint__:' + obj.toString()
   }
+  // Handle functions — JSON.stringify returns undefined, which breaks string concat
+  if (typeof obj === 'function') {
+    return '"__function__"'
+  }
+  // Handle Symbol — not JSON-serializable
+  if (typeof obj === 'symbol') {
+    return '"__symbol__"'
+  }
+  // Handle Date — JSON.stringify(Date) calls .toJSON() which returns ISO string,
+  // but when Date is inside an object it serializes correctly. When passed directly
+  // to stableStringify it would fall through to the object branch and produce "{}"
+  // because Object.keys(new Date()) is []. Explicitly call toISOString().
+  if (obj instanceof Date) {
+    return JSON.stringify(obj.toISOString())
+  }
   // Handle Map — convert to sorted array of entries for deterministic serialization
   if (obj instanceof Map) {
     const entries = [...obj.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-    return 'Map:' + stableStringify(entries)
+    return 'Map:' + stableStringify(entries, _seen)
   }
   // Handle TypedArrays (Uint8Array, Int32Array, etc.) — convert to regular arrays
   // so that Uint8Array [1,2,3] serializes as [1,2,3], not {"0":1,"1":2,"2":3}
   if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
-    return '[' + Array.from(obj).map(stableStringify).join(',') + ']'
+    return '[' + Array.from(obj).map(v => stableStringify(v, _seen)).join(',') + ']'
   }
-  if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']'
+  if (Array.isArray(obj)) {
+    // Circular reference detection for arrays
+    if (!_seen) _seen = new Set()
+    if (_seen.has(obj)) return '"__circular__"'
+    _seen.add(obj)
+    const result = '[' + obj.map(v => stableStringify(v, _seen)).join(',') + ']'
+    _seen.delete(obj)
+    return result
+  }
   if (obj instanceof DataView) {
     return '<DataView:' + Array.from(new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength)).map(b => b.toString(16).padStart(2, '0')).join('') + '>'
   }
   if (typeof obj === 'object') {
+    // Circular reference detection for objects
+    if (!_seen) _seen = new Set()
+    if (_seen.has(obj)) return '"__circular__"'
+    _seen.add(obj)
     const keys = Object.keys(obj).sort()
-    return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}'
+    const result = '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k], _seen)).join(',') + '}'
+    _seen.delete(obj)
+    return result
   }
   return JSON.stringify(obj)
 }
@@ -43,8 +78,9 @@ export function stableStringify(obj) {
 /**
  * Normalize non-deterministic values before hashing.
  * Pass normalize array from cluster manifest.
+ * Internal _seen parameter tracks circular references to prevent stack overflow.
  */
-export function normalize(obj, rules = []) {
+export function normalize(obj, rules = [], _seen = null) {
   if (typeof obj === 'string') {
     if (rules.includes('timestamps') && /^\d{4}-\d{2}-\d{2}T[\d:.Z+-]+$/.test(obj)) {
       return '<TIMESTAMP>'
@@ -187,27 +223,45 @@ export function normalize(obj, rules = []) {
     // incrementingIds: also normalize numeric array indices that act as keys
     // When used in React lists, array indices map to incrementing IDs.
     // We don't normalize the array elements themselves, only string values within them.
-    return obj.map(v => normalize(v, rules))
+    if (!_seen) _seen = new Set()
+    if (_seen.has(obj)) return '__circular__'
+    _seen.add(obj)
+    const result = obj.map(v => normalize(v, rules, _seen))
+    _seen.delete(obj)
+    return result
   }
   // Handle TypedArrays — convert to regular arrays before recursing
   if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
-    return Array.from(obj).map(v => normalize(v, rules))
+    return Array.from(obj).map(v => normalize(v, rules, _seen))
+  }
+  // Handle Date — normalize to ISO string so different Date objects with the same
+  // time produce the same normalized value. Without this, Date objects fall through
+  // to the object branch where Object.entries(new Date()) returns [] → {}.
+  if (obj instanceof Date) {
+    return obj.toISOString()
   }
   if (obj && typeof obj === 'object') {
+    // Circular reference detection
+    if (!_seen) _seen = new Set()
+    if (_seen.has(obj)) return '__circular__'
+    _seen.add(obj)
+
     // autoIncrement:fields — only normalize auto-increment values in specific field names
     // e.g., "autoIncrement:fields:id,nodeId,uid" → only normalize values in "id", "nodeId", "uid" fields
     const fieldRule = rules.find(r => r.startsWith('autoIncrement:fields:'))
     const idFields = fieldRule ? fieldRule.split(':')[2]?.split(',') : null
 
     if (idFields) {
-      return Object.fromEntries(Object.entries(obj).map(([k, v]) => {
+      const result = Object.fromEntries(Object.entries(obj).map(([k, v]) => {
         if (idFields.includes(k)) {
           // Normalize string IDs like "b1" → "b<ID>" and small integers → "<ID>"
           if (typeof v === 'string') return [k, v.replace(/([a-zA-Z_]+)\d+/g, '$1<ID>')]
           if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 9999) return [k, '<ID>']
         }
-        return [k, normalize(v, rules)]
+        return [k, normalize(v, rules, _seen)]
       }))
+      _seen.delete(obj)
+      return result
     }
 
     // datetimeNow: replace serialized datetime dicts (from Python _serialize_datetime)
@@ -216,10 +270,13 @@ export function normalize(obj, rules = []) {
     if (rules.includes('datetimeNow') && obj.__datetime__) {
       const todayISO = new Date().toISOString().slice(0, 10)
       if (typeof obj.__datetime__ === 'string' && obj.__datetime__.startsWith(todayISO)) {
+        _seen.delete(obj)
         return { __datetime__: '<DATETIME_NOW>', fold: obj.fold || 0 }
       }
     }
-    return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, normalize(v, rules)]))
+    const result = Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, normalize(v, rules, _seen)]))
+    _seen.delete(obj)
+    return result
   }
   return obj
 }
@@ -227,16 +284,27 @@ export function normalize(obj, rules = []) {
 /**
  * Strip ignored fields from output before hashing.
  * Supports both flat key names (existing behavior) and dot-path selectors.
+ * Internal _seen parameter tracks circular references to prevent stack overflow.
  */
-export function stripFields(obj, ignoreFields = [], ignorePaths = []) {
+export function stripFields(obj, ignoreFields = [], ignorePaths = [], _seen = null) {
   if (!ignoreFields.length && !ignorePaths.length) return obj
-  if (Array.isArray(obj)) return obj.map(v => stripFields(v, ignoreFields, ignorePaths))
+  if (Array.isArray(obj)) {
+    if (!_seen) _seen = new Set()
+    if (_seen.has(obj)) return obj
+    _seen.add(obj)
+    const result = obj.map(v => stripFields(v, ignoreFields, ignorePaths, _seen))
+    _seen.delete(obj)
+    return result
+  }
   // Handle TypedArrays — convert to regular arrays before stripping
   if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
-    return Array.from(obj).map(v => stripFields(v, ignoreFields, ignorePaths))
+    return Array.from(obj).map(v => stripFields(v, ignoreFields, ignorePaths, _seen))
   }
   if (obj && typeof obj === 'object') {
-    return Object.fromEntries(
+    if (!_seen) _seen = new Set()
+    if (_seen.has(obj)) return obj
+    _seen.add(obj)
+    const result = Object.fromEntries(
       Object.entries(obj)
         .filter(([k]) => !ignoreFields.includes(k) && !ignorePaths.includes(k))
         .map(([k, v]) => {
@@ -249,11 +317,13 @@ export function stripFields(obj, ignoreFields = [], ignorePaths = []) {
           // If the key itself is in ignorePaths, skip it (already filtered above)
           // If there are child paths, recurse with those child paths
           if (childPaths.length > 0) {
-            return [k, stripFields(v, ignoreFields, childPaths)]
+            return [k, stripFields(v, ignoreFields, childPaths, _seen)]
           }
-          return [k, stripFields(v, ignoreFields, ignorePaths.filter(p => !p.startsWith(k + '.') && p !== k))]
+          return [k, stripFields(v, ignoreFields, ignorePaths.filter(p => !p.startsWith(k + '.') && p !== k), _seen)]
         })
     )
+    _seen.delete(obj)
+    return result
   }
   return obj
 }

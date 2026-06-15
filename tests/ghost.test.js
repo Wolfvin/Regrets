@@ -229,3 +229,90 @@ describe('consumeIterator', () => {
     assert.equal(consumed, false)
   })
 })
+
+// ─── Edge case regression tests ──────────────────────────────────────────────
+
+describe('deepClone edge cases', () => {
+  it('handles circular references without stack overflow', () => {
+    const obj = {}
+    obj.self = obj
+    const clone = deepClone(obj)
+    assert.ok(typeof clone === 'object')
+    assert.equal(clone.self, '__circular__')
+  })
+
+  it('handles nested circular references', () => {
+    const a = { name: 'a' }
+    const b = { name: 'b', ref: a }
+    a.ref = b
+    const clone = deepClone(a)
+    assert.ok(typeof clone === 'object')
+    assert.equal(clone.name, 'a')
+    // At some point the circular chain is broken with '__circular__'
+  })
+
+  it('handles circular arrays without stack overflow', () => {
+    const arr = [1, 2]
+    arr.push(arr)
+    const clone = deepClone(arr)
+    assert.ok(Array.isArray(clone))
+    assert.equal(clone[0], 1)
+    assert.equal(clone[1], 2)
+    assert.equal(clone[2], '__circular__')
+  })
+
+  it('returns functions as-is', () => {
+    const fn = () => 42
+    const clone = deepClone(fn)
+    assert.equal(typeof clone, 'function')
+    assert.equal(clone(), 42)
+  })
+
+  it('handles objects with function values (returned as-is)', () => {
+    const obj = { name: 'test', fn: () => 42 }
+    const clone = deepClone(obj)
+    assert.equal(clone.name, 'test')
+    assert.equal(typeof clone.fn, 'function')
+  })
+})
+
+describe('consumeIterator edge cases', () => {
+  it('handles infinite async generator with maxYields', async () => {
+    let i = 0
+    async function* infiniteGen() { while (true) { yield i++ } }
+    const { consumed, result } = await consumeIterator(infiniteGen(), 5)
+    assert.equal(consumed, true)
+    assert.equal(result.length, 6) // 5 items + truncation sentinel
+    assert.ok(result.some(r => r.__truncated__))
+  })
+
+  it('handles infinite sync generator with maxYields', async () => {
+    let i = 0
+    function* infiniteGen() { while (true) { yield i++ } }
+    const { consumed, result } = await consumeIterator(infiniteGen(), 3)
+    assert.equal(consumed, true)
+    assert.ok(result.some(r => r.__truncated__))
+  })
+})
+
+describe('createGhost edge cases', () => {
+  it('skips non-existent watch targets gracefully', () => {
+    const mod = { foo: () => 42 }
+    const recorder = []
+    const ghost = createGhost(mod, ['foo', 'doesNotExist', 'alsoMissing'], recorder)
+    // foo should still be proxied
+    const result = ghost.foo(1)
+    assert.equal(result, 42)
+    assert.equal(recorder.length, 1)
+  })
+
+  it('skips non-function watch targets', () => {
+    const mod = { foo: () => 42, bar: 'not a function' }
+    const recorder = []
+    const ghost = createGhost(mod, ['foo', 'bar'], recorder)
+    // foo should be proxied, bar should be skipped
+    ghost.foo(1)
+    assert.equal(recorder.length, 1)
+    assert.equal(recorder[0].fn, 'foo')
+  })
+})
