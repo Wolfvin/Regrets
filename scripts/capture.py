@@ -292,6 +292,19 @@ def json_serialize(val):
     return json.dumps(_complex_to_json(_numpy_to_native(val)), ensure_ascii=False)
 
 
+def _reduce_to_call_counts(recorder):
+    """Reduce recorded calls to {fn, count} pairs, sorted by fn name.
+
+    Mirrors the JS reduceToCallCounts() for cross-stack fingerprintLevel: "calls" consistency.
+    """
+    from collections import Counter
+    counts = Counter()
+    for call in recorder:
+        fn_name = call.get('fn', call.get('name', 'unknown'))
+        counts[fn_name] += 1
+    return [{'fn': fn, 'count': count} for fn, count in sorted(counts.items())]
+
+
 def consume_generator(val):
     """If val is a generator or iterator, consume it into a list.
 
@@ -1135,6 +1148,14 @@ def main():
                         fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
                     elif fingerprint_level == 'entry':
                         fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
+                    elif fingerprint_level == 'calls':
+                        watches = cluster.get('watches', [])
+                        if not watches:
+                            print(f"      ⚠️  fingerprintLevel='calls' but no watches defined — falling back to 'entry'")
+                            fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
+                        else:
+                            call_counts = _reduce_to_call_counts(recorder_local)
+                            fp = fingerprint(fp_input, call_counts, normalize_rules, ignore_fields)
                     else:
                         fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
 
@@ -1330,6 +1351,14 @@ def main():
                         fp = fingerprint(fp_input, combined, normalize_rules, ignore_fields)
                     elif fingerprint_level == 'entry':
                         fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
+                    elif fingerprint_level == 'calls':
+                        watches = cluster.get('watches', [])
+                        if not watches:
+                            print(f"      ⚠️  fingerprintLevel='calls' but no watches defined — falling back to 'entry'")
+                            fp = fingerprint(fp_input, output_for_fp, normalize_rules, ignore_fields)
+                        else:
+                            call_counts = _reduce_to_call_counts(recorder_local)
+                            fp = fingerprint(fp_input, call_counts, normalize_rules, ignore_fields)
                     else:
                         fp = fingerprint_sequence(recorder_local, normalize_rules, ignore_fields)
 

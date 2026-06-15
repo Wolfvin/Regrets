@@ -54,6 +54,14 @@ class ContestRunner {
     } catch (e) {
       throw new Error(`Invalid JSON in ${chainFile}: ${e.message}. Fix the syntax and retry.`)
     }
+    // ── Validate: detect duplicate chain IDs ──
+    const seen = new Map()
+    for (const chain of this.chains) {
+      if (seen.has(chain.id)) {
+        console.warn(`⚠️  Duplicate chain id "${chain.id}" — second occurrence at index ${this.chains.indexOf(chain)} will shadow the first`)
+      }
+      seen.set(chain.id, chain)
+    }
     return this
   }
 
@@ -70,20 +78,31 @@ class ContestRunner {
     } catch (e) {
       throw new Error(`Invalid JSON in ${manifestPath}: ${e.message}. Fix the syntax and retry.`)
     }
+    // ── Validate: ensure manifest has clusters array ──
+    if (!this.manifest.clusters || !Array.isArray(this.manifest.clusters)) {
+      console.error('❌ regrets/manifest.json has no "clusters" array (or it is empty). Add clusters before running chains.')
+      this.manifest.clusters = []
+    }
     return this
   }
 
   findCluster(clusterId) {
-    return this.manifest.clusters.find(c => c.id === clusterId)
+    const cluster = (this.manifest.clusters || []).find(c => c.id === clusterId)
+    return cluster || null
   }
 
-  async runStep(step) {
+  async runStep(step, stepIndex, chainId) {
+    if (!step.cluster) {
+      throw new Error(`Step ${stepIndex + 1} in chain "${chainId}" is missing a "cluster" field`)
+    }
     const cluster = this.findCluster(step.cluster)
-    if (!cluster) throw new Error(`Cluster "${step.cluster}" not found in manifest`)
+    if (!cluster) {
+      throw new Error(`Step ${stepIndex + 1} in chain "${chainId}" references cluster "${step.cluster}" which does not exist in manifest. Available: [${(this.manifest.clusters || []).map(c => c.id).join(', ')}]`)
+    }
 
     // Python stack: delegate to a Python subprocess for chain step execution
     if (cluster.stack === 'python') {
-      return await this.runPythonStep(step, cluster)
+      return await this.runPythonStep(step, cluster, stepIndex, chainId)
     }
 
     // JS/TS stack: use dynamic import + Ghost Proxy
@@ -158,7 +177,7 @@ class ContestRunner {
     return { cluster: step.cluster, input, output, fingerprint: fp, calls: [...recorder] }
   }
 
-  async runPythonStep(step, cluster) {
+  async runPythonStep(step, cluster, stepIndex, chainId) {
     /** Run a single chain step for a Python cluster by invoking a Python subprocess. */
     const scriptPath = join(__dirname, '_chain_step.py')
     const payload = JSON.stringify({
@@ -174,6 +193,8 @@ class ContestRunner {
       constructor: cluster.constructor || cluster.entry,
       constructor_args: cluster.constructorArgs || [],
       setup: cluster.setup || [],
+      kwargs: cluster.kwargs || false,
+      output_transform: cluster.outputTransform || null,
     })
     try {
       const result = execFileSync('python3', [scriptPath, payload], {
@@ -196,24 +217,29 @@ class ContestRunner {
           `Install Python 3 or remove the Python cluster from manifest.json.`
         )
       }
-      throw new Error(`Python chain step failed for "${step.cluster}": ${err.message}`)
+      throw new Error(`Python chain step ${stepIndex + 1} ("${step.cluster}") in chain "${chainId}" failed: ${err.message}`)
     }
   }
 
   async runChain(chainId) {
     const chain = this.chains.find(c => c.id === chainId)
     if (!chain) throw new Error(`Chain "${chainId}" not found in chains.json`)
+    // ── Validate: reject chains with empty steps ──
+    if (!chain.steps || !Array.isArray(chain.steps) || chain.steps.length === 0) {
+      throw new Error(`Chain "${chainId}" has no steps (empty or missing "steps" array). A chain must have at least one step.`)
+    }
     const stepResults = []
     for (let i = 0; i < chain.steps.length; i++) {
       const step = chain.steps[i]
       try {
-        stepResults.push(await this.runStep(step))
+        stepResults.push(await this.runStep(step, i, chainId))
       } catch (err) {
+        // ── Mid-chain failure: do NOT produce a chain hash — re-throw with context ──
         throw new Error(
-          `Step ${i + 1}/${chain.steps.length} (cluster "${step.cluster}") failed: ${err.message}` +
-          (i > 0 ? `. ${i} preceding step(s) completed OK.` : '')
+          `Chain "${chainId}" failed at step ${i + 1}/${chain.steps.length} (cluster "${step.cluster}"): ${err.message}` +
+          (i > 0 ? ` — ${i} preceding step(s) completed OK.` : '')
         )
-      }
+      }      }
     }
     return { id: chainId, steps: stepResults, chainHash: this.computeChainHash(stepResults) }
   }
@@ -268,6 +294,11 @@ async function main() {
     process.exit(1)
   }
 
+  // ── Validate: warn if manifest has no clusters ──
+  if (!runner.manifest.clusters || runner.manifest.clusters.length === 0) {
+    console.warn('⚠️  regrets/manifest.json has no clusters defined. No chain steps can run.')
+  }
+
   const chainsToRun = chainFilter
     ? runner.chains.filter(c => c.id === chainFilter)
     : runner.chains
@@ -283,7 +314,7 @@ async function main() {
   let failed = 0
 
   for (const chainDef of chainsToRun) {
-    console.log(`\n⛓  Chain: ${chainDef.id} (${chainDef.steps.length} steps)`)
+    console.log(`\n⛓  Chain: ${chainDef.id} (${chainDef.steps ? chainDef.steps.length : 0} steps)`)
 
     try {
       const result = await runner.runChain(chainDef.id)

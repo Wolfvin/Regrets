@@ -669,6 +669,10 @@ def parse_regret(content):
                 meta['instanceMethods'] = json.loads(val)
             except (json.JSONDecodeError, ValueError):
                 meta['instanceMethods'] = val
+        elif key == 'expectThrow':
+            meta['expectThrow'] = val.lower() == 'true'
+        elif key == 'fingerprintLevel':
+            meta['fingerprintLevel'] = val
         else:
             meta[key] = val
 
@@ -680,6 +684,8 @@ def parse_regret(content):
             meta['output'] = json.loads(line[7:])
         elif line.startswith('HASH '):
             meta['goldenHash'] = line[5:].strip()
+        elif line.startswith('ERROR_CONTRACT '):
+            meta['errorContract'] = json.loads(line[15:])
         elif line.startswith('MUTATION_BEFORE '):
             meta['mutationBefore'] = json.loads(line[16:])
         elif line.startswith('MUTATION_AFTER '):
@@ -708,6 +714,114 @@ def parse_regret(content):
 
     meta['raw'] = content
     return meta
+
+
+# ─── Helpers for expectThrow and fingerprintLevel: "calls" ────────────────────
+
+def is_expect_throw(input_val):
+    """Check if an input is wrapped with {__expectThrow: true, value: ...}."""
+    return isinstance(input_val, dict) and input_val.get('__expectThrow') is True
+
+
+def extract_input_value(input_val):
+    """Extract the actual input value from an expectThrow wrapper."""
+    if is_expect_throw(input_val):
+        return input_val.get('value')
+    return input_val
+
+
+def normalize_error_message(msg, norm_rules=None):
+    """Normalize an error message for fingerprinting — strips volatile parts."""
+    if not isinstance(msg, str):
+        msg = str(msg)
+    import re as _re
+    # Strip stack traces (common patterns)
+    msg = _re.sub(r'\s*File ".*?", line \d+.*', '', msg)
+    msg = _re.sub(r'\s*at\s+\S+\s+\(.*?\)', '', msg)
+    # Apply normalization rules (same as fingerprint normalize)
+    if norm_rules:
+        if 'timestamps' in norm_rules:
+            msg = _re.sub(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?', '<TIMESTAMP>', msg)
+        if 'uuids' in norm_rules:
+            msg = _re.sub(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>', msg, flags=_re.IGNORECASE)
+        if 'epochs' in norm_rules:
+            msg = _re.sub(r'\b\d{10,13}\b', '<EPOCH>', msg)
+    # Strip file paths
+    msg = _re.sub(r'/[/\w._-]+', '<PATH>', msg)
+    return msg.strip()
+
+
+def build_error_contract(err, norm_rules=None):
+    """Build an error contract dict from a caught exception."""
+    return {
+        'type': type(err).__name__,
+        'message': normalize_error_message(str(err), norm_rules),
+    }
+
+
+def reduce_to_call_counts(recorder):
+    """Reduce recorded calls to {fn, count} pairs, sorted by fn name.
+
+    This mirrors the JS reduceToCallCounts() in validate.js for
+    cross-stack fingerprintLevel: "calls" consistency.
+    """
+    from collections import Counter
+    counts = Counter()
+    for call in recorder:
+        fn_name = call.get('fn', call.get('name', 'unknown'))
+        counts[fn_name] += 1
+    return [{'fn': fn, 'count': count} for fn, count in sorted(counts.items())]
+
+
+def json_diff(expected, actual, path=''):
+    """Compute a structured diff between expected and actual values.
+
+    Returns a list of diff entries with types: 'changed', 'added', 'removed', 'type_changed'.
+    This mirrors the jsonDiff() function in validate.js for parity.
+    """
+    diffs = []
+    if type(expected) != type(actual):
+        diffs.append({'path': path or '$', 'type': 'type_changed',
+                       'expected_type': type(expected).__name__, 'actual_type': type(actual).__name__,
+                       'expected': _truncate_val(expected), 'actual': _truncate_val(actual)})
+        return diffs
+
+    if isinstance(expected, dict):
+        all_keys = set(list(expected.keys()) + list(actual.keys()))
+        for key in sorted(all_keys):
+            sub_path = f'{path}.{key}' if path else f'$.{key}'
+            if key not in expected:
+                diffs.append({'path': sub_path, 'type': 'added', 'actual': _truncate_val(actual[key])})
+            elif key not in actual:
+                diffs.append({'path': sub_path, 'type': 'removed', 'expected': _truncate_val(expected[key])})
+            elif expected[key] != actual[key]:
+                if isinstance(expected[key], (dict, list)) and isinstance(actual[key], (dict, list)):
+                    diffs.extend(json_diff(expected[key], actual[key], sub_path))
+                else:
+                    diffs.append({'path': sub_path, 'type': 'changed',
+                                   'expected': _truncate_val(expected[key]), 'actual': _truncate_val(actual[key])})
+    elif isinstance(expected, list):
+        for i in range(max(len(expected), len(actual))):
+            sub_path = f'{path}[{i}]'
+            if i >= len(expected):
+                diffs.append({'path': sub_path, 'type': 'added', 'actual': _truncate_val(actual[i])})
+            elif i >= len(actual):
+                diffs.append({'path': sub_path, 'type': 'removed', 'expected': _truncate_val(expected[i])})
+            elif expected[i] != actual[i]:
+                if isinstance(expected[i], (dict, list)) and isinstance(actual[i], (dict, list)):
+                    diffs.extend(json_diff(expected[i], actual[i], sub_path))
+                else:
+                    diffs.append({'path': sub_path, 'type': 'changed',
+                                   'expected': _truncate_val(expected[i]), 'actual': _truncate_val(actual[i])})
+    return diffs
+
+
+def _truncate_val(val, max_len=60):
+    """Truncate a value for display in diff output."""
+    s = json.dumps(val, ensure_ascii=False, default=str) if not isinstance(val, str) else val
+    if len(s) > max_len:
+        return s[:max_len] + '...'
+    return s
 
 
 # ─── Ghost wrapper ────────────────────────────────────────────────────────────
@@ -1210,6 +1324,14 @@ def main():
                             fp = fingerprint(input_for_fp, combined, norm_rules, ign_fields)
                         elif fp_level == 'entry':
                             fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                        elif fp_level == 'calls':
+                            if not watches:
+                                if not json_output:
+                                    print(f"  ⚠️  {cluster_id}: fingerprintLevel='calls' but no watches defined — falling back to 'entry'")
+                                fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                            else:
+                                call_counts = reduce_to_call_counts(recorder)
+                                fp = fingerprint(input_for_fp, call_counts, norm_rules, ign_fields)
                         else:
                             fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
@@ -1322,6 +1444,14 @@ def main():
                             fp = fingerprint(input_for_fp, combined, norm_rules, ign_fields)
                         elif fp_level == 'entry':
                             fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                        elif fp_level == 'calls':
+                            if not watches:
+                                if not json_output:
+                                    print(f"  ⚠️  {cluster_id}: fingerprintLevel='calls' but no watches defined — falling back to 'entry'")
+                                fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                            else:
+                                call_counts = reduce_to_call_counts(recorder)
+                                fp = fingerprint(input_for_fp, call_counts, norm_rules, ign_fields)
                         else:
                             fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
@@ -1427,6 +1557,14 @@ def main():
                             fp = fingerprint(input_for_fp, combined, norm_rules, ign_fields)
                         elif fp_level == 'entry':
                             fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                        elif fp_level == 'calls':
+                            if not watches:
+                                if not json_output:
+                                    print(f"  ⚠️  {cluster_id}: fingerprintLevel='calls' but no watches defined — falling back to 'entry'")
+                                fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                            else:
+                                call_counts = reduce_to_call_counts(recorder)
+                                fp = fingerprint(input_for_fp, call_counts, norm_rules, ign_fields)
                         else:
                             fp = fingerprint_sequence(recorder, norm_rules, ign_fields)
 
@@ -1519,6 +1657,15 @@ def main():
                             )
 
                         # Execute entry function, optionally with frozen time
+                        # Also handle expectThrow: input wrapped as {__expectThrow: true, value: ...}
+                        expect_throw = is_expect_throw(current_input) or regret.get('expectThrow', False)
+                        if is_expect_throw(current_input):
+                            actual_input = extract_input_value(current_input)
+                            input_for_args = deep_clone(actual_input) if actual_input is not None else actual_input
+                            input_for_fp = deep_clone(actual_input) if actual_input is not None else actual_input
+                            if input_transform:
+                                input_for_args = apply_input_transform(input_for_args, input_transform)
+
                         def _run_entry():
                             if multi_args and isinstance(input_for_args, list):
                                 return entry_fn(*input_for_args), input_for_fp
@@ -1532,7 +1679,37 @@ def main():
                             else:
                                 return (entry_fn(input_for_args) if input_for_args is not None else entry_fn()), input_for_fp
 
-                        if freeze_cms:
+                        if expect_throw:
+                            # ── expectThrow: call inside try/except, fingerprint error contract ──
+                            error_contract = None
+                            try:
+                                if freeze_cms:
+                                    for cm in freeze_cms:
+                                        cm.__enter__()
+                                    try:
+                                        _run_entry()  # Should throw
+                                    finally:
+                                        for cm in reversed(freeze_cms):
+                                            cm.__exit__(None, None, None)
+                                else:
+                                    _run_entry()
+                                # If we get here, the function did NOT throw — that's a failure
+                                if not json_output:
+                                    print(f"  ❌ {cluster_id}: expectThrow=True but no exception was raised")
+                                fp = 'EXPECT_THROW_NO_ERROR_SENTINEL'
+                            except Exception as err:
+                                error_contract = build_error_contract(err, norm_rules)
+                            if error_contract is not None:
+                                output_for_fp = error_contract
+                                fp = fingerprint(input_for_fp, output_for_fp, norm_rules, ign_fields)
+                                # Validate against golden error contract if present
+                                golden_ec = regret.get('errorContract')
+                                if golden_ec and not json_output:
+                                    if golden_ec.get('type') != error_contract.get('type'):
+                                        print(f"  ⚠️  {cluster_id}: error type mismatch — expected '{golden_ec.get('type')}', got '{error_contract.get('type')}'")
+                                    if golden_ec.get('message') != error_contract.get('message'):
+                                        print(f"  ⚠️  {cluster_id}: error message mismatch — expected '{golden_ec.get('message')}', got '{error_contract.get('message')}'")
+                        elif freeze_cms:
                             for cm in freeze_cms:
                                 cm.__enter__()
                             try:
@@ -1802,6 +1979,24 @@ def main():
                     icon = '✅' if is_match else '❌'
                     hash_str = regret.get('goldenHash', '') if is_match else f"{regret.get('goldenHash', '')} → {live_hash}"
                     print(f"  {icon} {cluster_id:<35} {hash_str:<22} {'PASS' if is_match else 'FAIL'}")
+                    # ── Diff output on failure (parity with validate.js) ──
+                    if not is_match and not cli.get('no_diff', False) and last_output is not None:
+                        golden_output = regret.get('output')
+                        if golden_output is not None:
+                            diffs = json_diff(golden_output, last_output)
+                            if diffs:
+                                print(f"     Diff ({len(diffs)} differences):")
+                                for d in diffs[:10]:
+                                    if d['type'] == 'changed':
+                                        print(f"       ~ {d['path']}: {d.get('expected', '?')} → {d.get('actual', '?')}")
+                                    elif d['type'] == 'added':
+                                        print(f"       + {d['path']}: {d.get('actual', '?')}")
+                                    elif d['type'] == 'removed':
+                                        print(f"       - {d['path']}: {d.get('expected', '?')}")
+                                    elif d['type'] == 'type_changed':
+                                        print(f"       > {d['path']}: {d.get('expected_type', '?')} → {d.get('actual_type', '?')}")
+                                if len(diffs) > 10:
+                                    print(f"       ... and {len(diffs) - 10} more")
                 results.append({
                     'id': cluster_id, 'pass': is_match,
                     'golden': regret.get('goldenHash'), 'live': live_hash
