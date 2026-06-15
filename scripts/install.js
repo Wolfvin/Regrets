@@ -15,6 +15,9 @@
 //   node scripts/install.js --depth 2
 //   node scripts/install.js --dry-run     (preview only, no write/capture)
 //   node scripts/install.js --skip-capture (write manifest but skip capture)
+//   node scripts/install.js --scope src/utils/math.js   (single file)
+//   node scripts/install.js --scope src/utils/          (flat directory)
+//   node scripts/install.js --scope packages/           (workspace/monorepo)
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { resolve, join, extname, relative } from 'path'
@@ -34,6 +37,46 @@ function getArg(args, flag) {
 }
 
 const args = process.argv.slice(2)
+
+// --help
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`
+regret install — Auto-discover + capture entire project in one command
+
+USAGE:
+  regret install [options]
+
+OPTIONS:
+  --dir <path>         Directory to scan (default: cwd)
+  --scope <path>       Target a specific file, directory, or workspace
+                         File:       --scope src/utils/math.js
+                                     Only scan that file, manifest at regrets/
+                         Directory:  --scope src/utils/
+                                     Scan all JS/TS/PY files in that dir (1 level)
+                                     Manifest at <dir>/regrets/
+                         Workspace:  --scope packages/
+                                     Each subfolder with package.json gets its own
+                                     manifest at <subfolder>/regrets/
+                       Cannot be used together with --dir
+  --stack <stack>      Only scan files for this stack (js, ts, python)
+  --depth <n>          Max directory depth (default: 3)
+  --dry-run            Preview only — no files written, no capture
+  --skip-capture       Write manifest but skip the capture step
+  --skip-build         Skip preBuild step
+  --quiet              Only print summary line
+
+EXAMPLES:
+  regret install                              Scan cwd, capture all
+  regret install --dir src/                   Scan src/ recursively
+  regret install --scope src/utils/math.js    Only math.js
+  regret install --scope src/utils/           All files in utils/ (1 level)
+  regret install --scope packages/            Monorepo: each package gets its own manifest
+  regret install --dry-run                    Preview what would be installed
+`)
+  process.exit(0)
+}
+
+const scopePath = getArg(args, '--scope')
 const scanDir = getArg(args, '--dir') || '.'
 const stackFilter = getArg(args, '--stack')
 const depth = parseInt(getArg(args, '--depth') || '3', 10)
@@ -42,6 +85,14 @@ const skipCapture = args.includes('--skip-capture')
 const skipBuild = args.includes('--skip-build')
 const quiet = args.includes('--quiet')
 const projectRoot = process.cwd()
+
+// --scope and --dir are mutually exclusive
+if (scopePath && args.includes('--dir')) {
+  console.error('❌ --scope and --dir cannot be used together.')
+  console.error('   Use --scope to target a specific file/directory/workspace,')
+  console.error('   or --dir to set the scan root for default discovery.')
+  process.exit(1)
+}
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -454,7 +505,7 @@ async function probeTrivialOutputs(cluster) {
 
 // ─── Capture a single cluster with timeout ─────────────────────────────────────
 
-function captureCluster(clusterId, manifestPath) {
+function captureCluster(clusterId, manifestPath, cwd) {
   return new Promise((resolve) => {
     let timedOut = false
     const timer = setTimeout(() => {
@@ -465,7 +516,7 @@ function captureCluster(clusterId, manifestPath) {
     try {
       execFileSync('node', [`${SCRIPTS_DIR}/capture.js`, '--cluster', clusterId], {
         stdio: 'pipe',
-        cwd: projectRoot,
+        cwd: cwd || projectRoot,
         timeout: CAPTURE_TIMEOUT_MS,
       })
       clearTimeout(timer)
@@ -489,38 +540,50 @@ function captureCluster(clusterId, manifestPath) {
   })
 }
 
-// ─── Main install flow ──────────────────────────────────────────────────────────
+// ─── Scope-aware install logic ──────────────────────────────────────────────────
+//
+// Core install flow extracted into a reusable function so that:
+//   - Default mode (--dir or cwd) calls it once
+//   - Workspace mode (--scope with subfolders) calls it once per subfolder
+//
+// Parameters:
+//   scopeDir      — absolute path to the directory to scan for files
+//   manifestDir   — absolute path to the regrets/ output directory
+//   scopeRoot     — directory that manifest file paths should be relative to
+//   cwdForCapture — working directory for running capture.js
+//   scopeLabel    — human-readable label for this scope (for display)
+//   isSingleFile  — true when --scope points to a single file (mode 1)
+//   singleFilePath— absolute path of the single file (mode 1 only)
+//   flatDirMode   — true when --scope points to a flat dir (mode 2, non-recursive)
+//   extensions    — file extensions to scan
+//   maxDepth      — max directory depth for file discovery
 
-async function main() {
-  console.log('\n🔧 Installing Regrets safety net...\n')
-
-  // ── Step 1: Resolve scan directory ──────────────────────────────────────────
-  const absScanDir = resolve(projectRoot, scanDir)
-  if (!existsSync(absScanDir)) {
-    console.error(`❌ Directory not found: ${scanDir}`)
-    process.exit(1)
-  }
-
-  // ── Step 2: Determine which extensions to scan ──────────────────────────────
-  let extensions = []
-  if (stackFilter) {
-    extensions = EXTENSIONS[stackFilter] || []
-    if (extensions.length === 0) {
-      console.error(`❌ Unknown stack: ${stackFilter}. Supported: js, ts, python`)
-      process.exit(1)
-    }
-  } else {
-    // Auto-detect: scan all supported types
-    extensions = [...EXTENSIONS.js, ...EXTENSIONS.ts, ...EXTENSIONS.python]
-  }
-
+async function installForScope({
+  scopeDir,
+  manifestDir,
+  scopeRoot,
+  cwdForCapture,
+  scopeLabel,
+  isSingleFile,
+  singleFilePath,
+  flatDirMode,
+  extensions,
+  maxDepth,
+}) {
   // ── Step 3: Discover files ──────────────────────────────────────────────────
-  const gitignorePatterns = loadGitignore(projectRoot)
-  let allFiles = discoverFiles(absScanDir, extensions, depth)
+  const gitignorePatterns = loadGitignore(scopeRoot)
+  let allFiles
+
+  if (isSingleFile && singleFilePath) {
+    // Mode 1: only the specified file
+    allFiles = [singleFilePath]
+  } else {
+    allFiles = discoverFiles(scopeDir, extensions, maxDepth)
+  }
 
   // Filter out gitignored files
   allFiles = allFiles.filter(f => {
-    const rel = relative(projectRoot, f)
+    const rel = relative(scopeRoot, f)
     return !isGitignored(rel, gitignorePatterns)
   })
 
@@ -532,7 +595,7 @@ async function main() {
     ? 'JS/TS/Python'
     : pyFiles.length > 0 ? 'Python' : 'JS/TS'
 
-  console.log(`Scanning: ${scanDir} (${stackLabel})`)
+  console.log(`Scanning: ${scopeLabel} (${stackLabel})`)
 
   // ── Step 4: Extract exported functions from each file ───────────────────────
   const clusters = []
@@ -545,7 +608,7 @@ async function main() {
     } catch { continue }
 
     const ext = extname(filePath)
-    const relPath = relative(projectRoot, filePath)
+    const relPath = relative(scopeRoot, filePath)
     const fns = extractExportedFunctions(source, ext)
 
     // Filter: skip functions starting with _
@@ -558,14 +621,12 @@ async function main() {
       // For TS files, try to find the compiled JS path
       let filePathForManifest = relPath
       if (ext === '.ts' || ext === '.tsx') {
-        // Common patterns: src/x.ts → dist/x.js, build/x.js, lib/x.js
         const compiledPath = relPath
           .replace(/^src\//, 'dist/')
           .replace(/\.tsx?$/, '.js')
-        if (existsSync(resolve(projectRoot, compiledPath))) {
+        if (existsSync(resolve(scopeRoot, compiledPath))) {
           filePathForManifest = compiledPath
         }
-        // If no compiled output found, keep the TS path — capture.js will handle it
       }
 
       clusters.push({
@@ -589,11 +650,10 @@ async function main() {
     console.log('⚠️  No exported functions found.')
     console.log('   Make sure your files use export statements (ESM) or module.exports (CJS).')
     console.log('   Functions starting with _ are automatically skipped.\n')
-    process.exit(0)
+    return { totalFunctions: 0, captured: 0, skipped: 0, trivialSkipped: 0, skippedDetails: [], totalFiles }
   }
 
   // ── Step 5: Handle existing manifest ────────────────────────────────────────
-  const manifestDir = resolve(projectRoot, 'regrets')
   const manifestPath = resolve(manifestDir, 'manifest.json')
   let existingClusters = []
 
@@ -601,7 +661,7 @@ async function main() {
     try {
       const existing = JSON.parse(readFileSync(manifestPath, 'utf8'))
       existingClusters = existing.clusters || []
-      console.warn(`⚠️  regrets/manifest.json already exists (${existingClusters.length} clusters)`)
+      console.warn(`⚠️  ${relative(projectRoot, manifestPath)} already exists (${existingClusters.length} clusters)`)
       console.warn('   Merging: new clusters will be added, existing ones preserved.\n')
     } catch {
       console.warn('⚠️  Existing manifest.json is invalid — overwriting.\n')
@@ -613,10 +673,6 @@ async function main() {
   let newClusters = clusters.filter(c => !existingIds.has(c.id))
 
   // ── Step 5b: Trivial-inputs guard ────────────────────────────────────────────
-  // Probe new clusters with auto-generated inputs. If any output is
-  // null, undefined, NaN, or the function throws, auto-generated inputs
-  // are not meaningful for regression testing — skip those clusters
-  // and warn the user to add meaningful inputs manually.
   let trivialSkipped = 0
   const trivialSkippedIds = []
 
@@ -663,7 +719,7 @@ async function main() {
       console.log(`${existingIds.size} existing clusters preserved`)
     }
     console.log('\nRun without --dry-run to write manifest and capture fingerprints.')
-    return
+    return { totalFunctions, captured: 0, skipped: 0, trivialSkipped, skippedDetails: [], totalFiles }
   }
 
   // ── Step 7: Write manifest ──────────────────────────────────────────────────
@@ -672,7 +728,8 @@ async function main() {
 
   if (newClusters.length > 0) {
     console.log(`Generating manifest...`)
-    console.log(`✅ manifest.json written (${mergedClusters.length} clusters, ${newClusters.length} new)\n`)
+    const manifestRelPath = relative(projectRoot, manifestPath)
+    console.log(`✅ ${manifestRelPath} written (${mergedClusters.length} clusters, ${newClusters.length} new)\n`)
   } else {
     console.log('No new clusters to add — all functions already in manifest.\n')
   }
@@ -683,7 +740,7 @@ async function main() {
     console.log('\nNext steps:')
     console.log('• regret capture — capture fingerprints for all clusters')
     console.log('• regret validate — verify all GREEN before starting work')
-    return
+    return { totalFunctions, captured: 0, skipped: 0, trivialSkipped, skippedDetails: [], totalFiles }
   }
 
   // Run preBuild if configured
@@ -691,7 +748,7 @@ async function main() {
     console.log(`\n🔧 Running preBuild: ${manifest.preBuild}`)
     try {
       const [cmd, ...cmdArgs] = manifest.preBuild.split(' ')
-      execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: projectRoot })
+      execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: cwdForCapture })
       console.log('   ✅ preBuild succeeded\n')
     } catch {
       console.error('   ❌ preBuild failed — continuing anyway\n')
@@ -708,7 +765,7 @@ async function main() {
     const relPath = cluster.file
     process.stdout.write(`  `)
 
-    const result = await captureCluster(cluster.id, manifestPath)
+    const result = await captureCluster(cluster.id, manifestPath, cwdForCapture)
 
     if (result.ok) {
       captured++
@@ -756,32 +813,203 @@ async function main() {
     writeFileSync(skipLogPath, lines.join('\n'), 'utf8')
   }
 
-  // ── Step 10: Summary ────────────────────────────────────────────────────────
+  return { totalFunctions, captured, skipped, trivialSkipped, skippedDetails, totalFiles }
+}
+
+// ─── Print summary for a single scope ────────────────────────────────────────
+
+function printScopeSummary(result, scopeLabel) {
+  const { totalFunctions, captured, skipped, trivialSkipped } = result
+
   console.log('')
   if (captured > 0 && skipped === 0 && trivialSkipped === 0) {
     console.log(`✅ Regrets installed: ${captured}/${totalFunctions} clusters captured`)
   } else if (captured > 0) {
     console.log(`✅ Regrets installed: ${captured}/${totalFunctions} clusters captured`)
-    if (skipped > 0) console.log(`${skipped} skipped — see regrets/install-skipped.txt`)
+    if (skipped > 0) console.log(`   ${skipped} skipped — see install-skipped.txt`)
   } else if (skipped > 0) {
     console.log(`⚠️  Regrets installed: 0/${totalFunctions} clusters captured`)
-    console.log(`${skipped} skipped — see regrets/install-skipped.txt for details`)
+    console.log(`   ${skipped} skipped — see install-skipped.txt for details`)
   }
   if (trivialSkipped > 0) {
-    console.log(`${trivialSkipped} skipped due to trivial auto-generated inputs (null/undefined/NaN/throws)`)
+    console.log(`   ${trivialSkipped} skipped due to trivial auto-generated inputs (null/undefined/NaN/throws)`)
   }
 
   console.log('')
   console.log('Next steps:')
-  console.log('• Review regrets/manifest.json — add more inputs for better coverage')
+  console.log('• Review manifest.json — add more inputs for better coverage')
   console.log('• regret validate — verify all GREEN before starting work')
   if (skipped > 0) {
-    console.log('• Check regrets/install-skipped.txt — fix skipped clusters')
+    console.log('• Check install-skipped.txt — fix skipped clusters')
   }
   if (trivialSkipped > 0) {
-    console.log(`• ${trivialSkipped} cluster(s) skipped due to trivial inputs — add meaningful inputs manually in regrets/manifest.json`)
+    console.log(`• ${trivialSkipped} cluster(s) skipped due to trivial inputs — add meaningful inputs manually in manifest.json`)
   }
   console.log('• regret uninstall — when done, clean up')
+}
+
+// ─── Main install flow ──────────────────────────────────────────────────────────
+
+async function main() {
+  console.log('\n🔧 Installing Regrets safety net...\n')
+
+  // ── Step 1: Determine which extensions to scan ──────────────────────────────
+  let extensions = []
+  if (stackFilter) {
+    extensions = EXTENSIONS[stackFilter] || []
+    if (extensions.length === 0) {
+      console.error(`❌ Unknown stack: ${stackFilter}. Supported: js, ts, python`)
+      process.exit(1)
+    }
+  } else {
+    // Auto-detect: scan all supported types
+    extensions = [...EXTENSIONS.js, ...EXTENSIONS.ts, ...EXTENSIONS.python]
+  }
+
+  // ── Step 2: Route based on --scope or default ──────────────────────────────
+  if (scopePath) {
+    const absScopePath = resolve(projectRoot, scopePath)
+    if (!existsSync(absScopePath)) {
+      console.error(`❌ Scope path not found: ${scopePath}`)
+      process.exit(1)
+    }
+
+    const stat = statSync(absScopePath)
+
+    if (stat.isFile()) {
+      // ── Mode 1: --scope points to a single file ───────────────────────────
+      console.log(`Scope: single file — ${scopePath}\n`)
+
+      const result = await installForScope({
+        scopeDir: dirname(absScopePath),
+        manifestDir: resolve(projectRoot, 'regrets'),
+        scopeRoot: projectRoot,
+        cwdForCapture: projectRoot,
+        scopeLabel: scopePath,
+        isSingleFile: true,
+        singleFilePath: absScopePath,
+        flatDirMode: false,
+        extensions,
+        maxDepth: depth,
+      })
+
+      printScopeSummary(result, scopePath)
+
+    } else if (stat.isDirectory()) {
+      // Detect workspace (subfolders with package.json) vs flat directory
+      const entries = readdirSync(absScopePath, { withFileTypes: true })
+      const subfolders = entries.filter(e =>
+        e.isDirectory() && !SKIP_DIRS.has(e.name) && !e.name.startsWith('.')
+      )
+      const subfoldersWithPackageJson = subfolders.filter(sf =>
+        existsSync(join(absScopePath, sf.name, 'package.json'))
+      )
+
+      if (subfoldersWithPackageJson.length > 0) {
+        // ── Mode 3: workspace / monorepo ────────────────────────────────────
+        console.log(`Scope: workspace — ${subfoldersWithPackageJson.length} package(s) found in ${scopePath}\n`)
+
+        const allResults = []
+        for (const sf of subfoldersWithPackageJson) {
+          const subfolderPath = join(absScopePath, sf.name)
+          const label = relative(projectRoot, subfolderPath) || sf.name
+
+          console.log(`\n📦 Processing package: ${sf.name}`)
+
+          const result = await installForScope({
+            scopeDir: subfolderPath,
+            manifestDir: join(subfolderPath, 'regrets'),
+            scopeRoot: subfolderPath,
+            cwdForCapture: subfolderPath,
+            scopeLabel: label,
+            isSingleFile: false,
+            singleFilePath: null,
+            flatDirMode: false,
+            extensions,
+            maxDepth: depth,
+          })
+          allResults.push({ name: sf.name, path: subfolderPath, result })
+        }
+
+        // ── Workspace summary ───────────────────────────────────────────────
+        console.log('\n' + '═'.repeat(60))
+        console.log('WORKSPACE SUMMARY')
+        console.log('═'.repeat(60))
+
+        let totalPackages = allResults.length
+        let packagesWithCaptures = 0
+        let totalCaptured = 0
+        let totalSkipped = 0
+        let totalTrivial = 0
+        let totalFunctions = 0
+
+        for (const { name, result } of allResults) {
+          const status = result.captured > 0 ? '✅' : (result.totalFunctions === 0 ? '⏭️ ' : '⚠️ ')
+          console.log(`  ${status} ${name}: ${result.captured} captured, ${result.skipped} skipped, ${result.trivialSkipped} trivial`)
+          totalCaptured += result.captured
+          totalSkipped += result.skipped
+          totalTrivial += result.trivialSkipped
+          totalFunctions += result.totalFunctions
+          if (result.captured > 0) packagesWithCaptures++
+        }
+
+        console.log('')
+        console.log(`${totalCaptured} cluster(s) captured across ${totalPackages} package(s)`)
+        if (totalSkipped > 0) {
+          console.log(`${totalSkipped} skipped — see install-skipped.txt in respective package directories`)
+        }
+        if (totalTrivial > 0) {
+          console.log(`${totalTrivial} skipped due to trivial auto-generated inputs`)
+        }
+        console.log(`${packagesWithCaptures}/${totalPackages} package(s) have clusters installed`)
+
+      } else {
+        // ── Mode 2: flat directory ──────────────────────────────────────────
+        console.log(`Scope: directory — ${scopePath}\n`)
+
+        const result = await installForScope({
+          scopeDir: absScopePath,
+          manifestDir: join(absScopePath, 'regrets'),
+          scopeRoot: absScopePath,
+          cwdForCapture: absScopePath,
+          scopeLabel: scopePath,
+          isSingleFile: false,
+          singleFilePath: null,
+          flatDirMode: true,
+          extensions,
+          maxDepth: 0,
+        })
+
+        printScopeSummary(result, scopePath)
+      }
+    } else {
+      console.error(`❌ Scope path is neither a file nor a directory: ${scopePath}`)
+      process.exit(1)
+    }
+
+  } else {
+    // ── Default mode: scan from cwd (or --dir) ─────────────────────────────────
+    const absScanDir = resolve(projectRoot, scanDir)
+    if (!existsSync(absScanDir)) {
+      console.error(`❌ Directory not found: ${scanDir}`)
+      process.exit(1)
+    }
+
+    const result = await installForScope({
+      scopeDir: absScanDir,
+      manifestDir: resolve(projectRoot, 'regrets'),
+      scopeRoot: projectRoot,
+      cwdForCapture: projectRoot,
+      scopeLabel: scanDir,
+      isSingleFile: false,
+      singleFilePath: null,
+      flatDirMode: false,
+      extensions,
+      maxDepth: depth,
+    })
+
+    printScopeSummary(result, scanDir)
+  }
 }
 
 main().catch(err => {
