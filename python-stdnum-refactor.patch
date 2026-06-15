@@ -1,0 +1,48 @@
+diff --git a/stdnum/ean.py b/stdnum/ean.py
+index befa232..d9ac5a7 100644
+--- a/stdnum/ean.py
++++ b/stdnum/ean.py
+@@ -43,8 +43,13 @@ def compact(number: str) -> str:
+ def calc_check_digit(number: str) -> str:
+     """Calculate the EAN check digit for 13-digit numbers. The number passed
+     should not have the check bit included."""
+-    return str((10 - sum((3, 1)[i % 2] * int(n)
+-                         for i, n in enumerate(reversed(number)))) % 10)
++    weighted_sum = 0
++    for position, digit_char in enumerate(reversed(number)):
++        digit = int(digit_char)
++        # Even positions (0-indexed from right) get weight 3, odd positions get weight 1
++        weight = 3 if position % 2 == 0 else 1
++        weighted_sum += weight * digit
++    return str((10 - weighted_sum) % 10)
+ 
+ 
+ def validate(number: str) -> str:
+diff --git a/stdnum/luhn.py b/stdnum/luhn.py
+index fe77f0a..dc0a4fb 100644
+--- a/stdnum/luhn.py
++++ b/stdnum/luhn.py
+@@ -50,12 +50,17 @@ from stdnum.exceptions import *
+ def checksum(number: str, alphabet: str = '0123456789') -> int:
+     """Calculate the Luhn checksum over the provided number. The checksum
+     is returned as an int. Valid numbers should have a checksum of 0."""
+-    n = len(alphabet)
+-    values = tuple(alphabet.index(i)
+-                   for i in reversed(str(number)))
+-    return (sum(values[::2]) +
+-            sum(sum(divmod(i * 2, n))
+-                for i in values[1::2])) % n
++    alphabet_size = len(alphabet)
++    digit_values = tuple(alphabet.index(digit)
++                         for digit in reversed(str(number)))
++    # Even-position digits (0-indexed from right): sum directly
++    even_position_sum = sum(digit_values[::2])
++    # Odd-position digits (0-indexed from right): double, then sum digits
++    odd_position_sum = sum(
++        sum(divmod(digit * 2, alphabet_size))
++        for digit in digit_values[1::2]
++    )
++    return (even_position_sum + odd_position_sum) % alphabet_size
+ 
+ 
+ def validate(number: str, alphabet: str = '0123456789') -> str:
