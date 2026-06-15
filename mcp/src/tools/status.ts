@@ -169,6 +169,8 @@ export async function handleStatus(
     const regretDir = join(workDir, "regrets");
     const manifestPath = join(workDir, "regrets/manifest.json");
     const auditLogPath = join(regretDir, "audit.log");
+    const chainsJsonPath = join(regretDir, "chains.json");
+    const chainsDir = join(regretDir, "chains");
 
     // Check if installed
     const isInstalled = existsSync(manifestPath);
@@ -314,6 +316,33 @@ export async function handleStatus(
         ? new Date(latestCaptureTime).toISOString()
         : null;
 
+    // Chain awareness
+    let chainsDefined = 0;
+    let chainsCaptured = 0;
+    const chainsUncaptured: string[] = [];
+    let chainsSection = false;
+
+    if (existsSync(chainsJsonPath)) {
+      chainsSection = true;
+      try {
+        const chainsJson = JSON.parse(readFileSync(chainsJsonPath, "utf8"));
+        const chainList = chainsJson.chains || [];
+        chainsDefined = chainList.length;
+        for (const chain of chainList) {
+          const chainFile = join(chainsDir, `${chain.id}.chain`);
+          if (existsSync(chainFile)) {
+            chainsCaptured++;
+          } else {
+            chainsUncaptured.push(chain.id);
+          }
+        }
+      } catch {
+        chainsSection = false;
+      }
+    }
+
+    const hasUncapturedChains = chainsSection && chainsUncaptured.length > 0;
+
     // safeToRefactor logic (same as status.js)
     const hasFragile =
       healthCounts.FRAGILE > 0 || healthCounts.UNSTABLE > 0;
@@ -324,7 +353,7 @@ export async function handleStatus(
     let safeToRefactor: "YES" | "PARTIAL" | "NO";
     if (hasFragile || hasLow) {
       safeToRefactor = "NO";
-    } else if (hasGood || hasMedium) {
+    } else if (hasGood || hasMedium || hasUncapturedChains) {
       safeToRefactor = "PARTIAL";
     } else if (clusterCount > 0 && capturedCount === clusterCount) {
       safeToRefactor = "YES";
@@ -332,7 +361,12 @@ export async function handleStatus(
       safeToRefactor = "NO";
     }
 
-    const result = {
+    // If uncaptured chains exist, max PARTIAL
+    if (hasUncapturedChains && safeToRefactor === "YES") {
+      safeToRefactor = "PARTIAL";
+    }
+
+    const result: Record<string, unknown> = {
       installed: true,
       clusters: clusterCount,
       captured: capturedCount,
@@ -343,6 +377,10 @@ export async function handleStatus(
       confidence: confidenceCounts,
       safeToRefactor,
     };
+
+    if (chainsSection) {
+      result.chains = { defined: chainsDefined, captured: chainsCaptured };
+    }
 
     return {
       content: [
