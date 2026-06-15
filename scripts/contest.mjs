@@ -42,12 +42,34 @@ class ContestRunner {
   constructor() { this.manifest = null; this.chains = [] }
 
   loadChains(chainFile) {
-    this.chains = JSON.parse(readFileSync(chainFile, 'utf8')).chains || []
+    let raw
+    try {
+      raw = readFileSync(chainFile, 'utf8')
+    } catch (e) {
+      if (e.code === 'ENOENT') throw new Error(`chains.json not found at ${chainFile}. Create regrets/chains.json to define chain flows.`)
+      throw new Error(`Cannot read ${chainFile}: ${e.message}`)
+    }
+    try {
+      this.chains = JSON.parse(raw).chains || []
+    } catch (e) {
+      throw new Error(`Invalid JSON in ${chainFile}: ${e.message}. Fix the syntax and retry.`)
+    }
     return this
   }
 
   loadManifest(manifestPath) {
-    this.manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    let raw
+    try {
+      raw = readFileSync(manifestPath, 'utf8')
+    } catch (e) {
+      if (e.code === 'ENOENT') throw new Error(`manifest.json not found at ${manifestPath}. Run 'regret init' first.`)
+      throw new Error(`Cannot read ${manifestPath}: ${e.message}`)
+    }
+    try {
+      this.manifest = JSON.parse(raw)
+    } catch (e) {
+      throw new Error(`Invalid JSON in ${manifestPath}: ${e.message}. Fix the syntax and retry.`)
+    }
     return this
   }
 
@@ -66,7 +88,15 @@ class ContestRunner {
 
     // JS/TS stack: use dynamic import + Ghost Proxy
     const absPath = resolve(CWD, cluster.file)
-    let rawModule = await import(pathToFileURL(absPath).href)
+    let rawModule
+    try {
+      rawModule = await import(pathToFileURL(absPath).href)
+    } catch (err) {
+      if (err.code === 'ERR_MODULE_NOT_FOUND' || err.code === 'ENOENT') {
+        throw new Error(`Cluster file not found at ${cluster.file} (resolved: ${absPath}). Compile the project or fix the 'file' field in manifest.json.`)
+      }
+      throw new Error(`Failed to import cluster file ${cluster.file}: ${err.message}`)
+    }
 
     // Handle CJS modules — merge default exports for consistent access
     rawModule = mergeCjsModule(rawModule)
@@ -160,6 +190,12 @@ class ContestRunner {
         calls: [],
       }
     } catch (err) {
+      if (err.code === 'ENOENT' || /spawn python3 ENOENT/i.test(err.message)) {
+        throw new Error(
+          `Python (python3) is not installed or not in PATH, but cluster "${step.cluster}" has stack=python. ` +
+          `Install Python 3 or remove the Python cluster from manifest.json.`
+        )
+      }
       throw new Error(`Python chain step failed for "${step.cluster}": ${err.message}`)
     }
   }
@@ -168,7 +204,17 @@ class ContestRunner {
     const chain = this.chains.find(c => c.id === chainId)
     if (!chain) throw new Error(`Chain "${chainId}" not found in chains.json`)
     const stepResults = []
-    for (const step of chain.steps) stepResults.push(await this.runStep(step))
+    for (let i = 0; i < chain.steps.length; i++) {
+      const step = chain.steps[i]
+      try {
+        stepResults.push(await this.runStep(step))
+      } catch (err) {
+        throw new Error(
+          `Step ${i + 1}/${chain.steps.length} (cluster "${step.cluster}") failed: ${err.message}` +
+          (i > 0 ? `. ${i} preceding step(s) completed OK.` : '')
+        )
+      }
+    }
     return { id: chainId, steps: stepResults, chainHash: this.computeChainHash(stepResults) }
   }
 
@@ -215,7 +261,12 @@ async function main() {
   }
 
   const runner = new ContestRunner()
-  runner.loadManifest(MANIFEST_PATH).loadChains(CHAIN_FILE)
+  try {
+    runner.loadManifest(MANIFEST_PATH).loadChains(CHAIN_FILE)
+  } catch (err) {
+    console.error(`❌ ${err.message}`)
+    process.exit(1)
+  }
 
   const chainsToRun = chainFilter
     ? runner.chains.filter(c => c.id === chainFilter)

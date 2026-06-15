@@ -24,8 +24,13 @@ let manifest = { clusters: [] }
 const manifestPath = resolve(process.cwd(), 'regrets/manifest.json')
 try {
   manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-} catch {
-  // No manifest — confidence will use inputCount = 0
+} catch (e) {
+  if (e.code === 'ENOENT') {
+    console.error(`❌ regrets/manifest.json not found at ${manifestPath}. Run 'regret init' first.`)
+    process.exit(1)
+  }
+  console.error(`❌ Invalid JSON in ${manifestPath}: ${e.message}. Fix the syntax and retry.`)
+  process.exit(1)
 }
 
 // Build lookup: cluster-id -> input count

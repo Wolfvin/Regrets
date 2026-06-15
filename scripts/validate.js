@@ -182,7 +182,9 @@ export function parseRegret(content) {
     else if (key === 'inputMutated') meta.inputMutated = val === 'true'
     else if (key === 'mutationFingerprint') meta.mutationFingerprint = val
     else if (key === 'version') meta.version = Number(val)
-    else if (key === 'constructorArgs' || key === 'setup' || key === 'initialState') meta[key] = JSON.parse(val)
+    else if (key === 'constructorArgs' || key === 'setup' || key === 'initialState') {
+      try { meta[key] = JSON.parse(val) } catch { /* skip malformed JSON in .regret meta */ }
+    }
     else if (key === 'instanceMethods') {
       try { meta.instanceMethods = JSON.parse(val) } catch { meta.instanceMethods = {} }
     }
@@ -206,17 +208,17 @@ export function parseRegret(content) {
   let parsedOutput = null
   if (inputLine) {
     const inputStr = inputLine.replace(/^INPUT\s+/, '')
-    parsedInput = inputStr === 'undefined' ? undefined : JSON.parse(inputStr)
+    try { parsedInput = inputStr === 'undefined' ? undefined : JSON.parse(inputStr) } catch { parsedInput = null }
   }
   if (outputLine) {
     const outputStr = outputLine.replace(/^OUTPUT\s+/, '')
-    parsedOutput = outputStr === 'undefined' ? undefined : JSON.parse(outputStr)
+    try { parsedOutput = outputStr === 'undefined' ? undefined : JSON.parse(outputStr) } catch { parsedOutput = null }
   }
   // Parse ERROR_CONTRACT line (expectThrow support)
   let parsedErrorContract = null
   if (errorContractLine) {
     const ecStr = errorContractLine.replace(/^ERROR_CONTRACT\s+/, '')
-    parsedErrorContract = JSON.parse(ecStr)
+    try { parsedErrorContract = JSON.parse(ecStr) } catch { parsedErrorContract = null }
   }
   // Parse MUTATION_BEFORE/AFTER lines
   const mutationBeforeLine = lines.find(l => l.startsWith('MUTATION_BEFORE '))
@@ -233,8 +235,8 @@ export function parseRegret(content) {
     output:     parsedOutput,
     errorContract: parsedErrorContract,
     goldenHash: hashLine   ? hashLine.replace(/^HASH\s+/, '').trim()          : null,
-    mutationBefore: mutationBeforeLine ? JSON.parse(mutationBeforeLine.replace(/^MUTATION_BEFORE\s+/, '')) : null,
-    mutationAfter:  mutationAfterLine  ? JSON.parse(mutationAfterLine.replace(/^MUTATION_AFTER\s+/, ''))   : null,
+    mutationBefore: mutationBeforeLine ? (() => { try { return JSON.parse(mutationBeforeLine.replace(/^MUTATION_BEFORE\s+/, '')) } catch { return null } })() : null,
+    mutationAfter:  mutationAfterLine  ? (() => { try { return JSON.parse(mutationAfterLine.replace(/^MUTATION_AFTER\s+/, '')) } catch { return null } })()   : null,
     goldenSideEffects,
     raw:        content
   }
@@ -599,7 +601,15 @@ export async function runCluster(clusterDef, regret, options = {}) {
     return await runReactCluster(clusterDef, regret)
   }
 
-  let mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
+  let mod
+  try {
+    mod = await import(pathToFileURL(resolve(process.cwd(), file)).href)
+  } catch (err) {
+    if (err.code === 'ERR_MODULE_NOT_FOUND' || err.code === 'ENOENT') {
+      throw new Error(`Cluster file not found at ${file} (cluster "${clusterDef.id}"). Compile the project or fix the 'file' field in manifest.json.`)
+    }
+    throw new Error(`Failed to import ${file} (cluster "${clusterDef.id}"): ${err.message}`)
+  }
 
   // Handle CJS modules — merge default exports for consistent access
   mod = mergeCjsModule(mod)
