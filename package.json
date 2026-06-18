@@ -38,6 +38,7 @@
     "mcp"
   ],
   "dependencies": {
-    "chokidar": "^5.0.0"
+    "chokidar": "^5.0.0",
+    "web-tree-sitter": "^0.26.9"
   }
 }
