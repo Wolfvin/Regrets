@@ -819,20 +819,32 @@ async function installForScope({
 // ─── Print summary for a single scope ────────────────────────────────────────
 
 function printScopeSummary(result, scopeLabel) {
-  const { totalFunctions, captured, skipped, trivialSkipped } = result
+  const { totalFiles, totalFunctions, captured, skipped, trivialSkipped, skippedDetails } = result
 
   console.log('')
-  if (captured > 0 && skipped === 0 && trivialSkipped === 0) {
-    console.log(`✅ Regrets installed: ${captured}/${totalFunctions} clusters captured`)
-  } else if (captured > 0) {
-    console.log(`✅ Regrets installed: ${captured}/${totalFunctions} clusters captured`)
-    if (skipped > 0) console.log(`   ${skipped} skipped — see install-skipped.txt`)
-  } else if (skipped > 0) {
-    console.log(`⚠️  Regrets installed: 0/${totalFunctions} clusters captured`)
-    console.log(`   ${skipped} skipped — see install-skipped.txt for details`)
-  }
-  if (trivialSkipped > 0) {
-    console.log(`   ${trivialSkipped} skipped due to trivial auto-generated inputs (null/undefined/NaN/throws)`)
+  console.log('📊 Install Summary')
+  console.log(`   Files scanned: ${totalFiles}`)
+  console.log(`   Functions found: ${totalFunctions}`)
+  console.log(`   Clusters captured: ${captured}`)
+  const totalSkipped = skipped + trivialSkipped
+  if (totalSkipped > 0) {
+    console.log(`   Skipped: ${totalSkipped}`)
+    if (trivialSkipped > 0) {
+      console.log(`     • ${trivialSkipped} trivial inputs (output is null/undefined/NaN/throws)`)
+    }
+    if (skipped > 0) {
+      // Group runtime skips by reason
+      const byReason = {}
+      for (const s of (skippedDetails || [])) {
+        const r = s.reason || 'unknown'
+        byReason[r] = (byReason[r] || 0) + 1
+      }
+      for (const [reason, count] of Object.entries(byReason)) {
+        console.log(`     • ${count} ${reason}`)
+      }
+    }
+  } else {
+    console.log(`   Skipped: 0`)
   }
 
   console.log('')
@@ -942,26 +954,42 @@ async function main() {
         let totalSkipped = 0
         let totalTrivial = 0
         let totalFunctions = 0
+        let grandTotalFiles = 0
 
         for (const { name, result } of allResults) {
           const status = result.captured > 0 ? '✅' : (result.totalFunctions === 0 ? '⏭️ ' : '⚠️ ')
-          console.log(`  ${status} ${name}: ${result.captured} captured, ${result.skipped} skipped, ${result.trivialSkipped} trivial`)
+          const skipParts = []
+          if (result.skipped > 0) skipParts.push(`${result.skipped} runtime`)
+          if (result.trivialSkipped > 0) skipParts.push(`${result.trivialSkipped} trivial`)
+          const skipStr = skipParts.length > 0 ? `, ${skipParts.join(' + ')} skipped` : ''
+          console.log(`  ${status} ${name}: ${result.captured} captured, ${result.totalFiles} file(s)${skipStr}`)
           totalCaptured += result.captured
           totalSkipped += result.skipped
           totalTrivial += result.trivialSkipped
           totalFunctions += result.totalFunctions
+          grandTotalFiles += result.totalFiles
           if (result.captured > 0) packagesWithCaptures++
         }
 
         console.log('')
-        console.log(`${totalCaptured} cluster(s) captured across ${totalPackages} package(s)`)
-        if (totalSkipped > 0) {
-          console.log(`${totalSkipped} skipped — see install-skipped.txt in respective package directories`)
+        console.log('📊 Workspace Totals')
+        console.log(`   Packages: ${totalPackages}`)
+        console.log(`   Files scanned: ${grandTotalFiles}`)
+        console.log(`   Functions found: ${totalFunctions}`)
+        console.log(`   Clusters captured: ${totalCaptured}`)
+        const allSkipped = totalSkipped + totalTrivial
+        if (allSkipped > 0) {
+          console.log(`   Skipped: ${allSkipped}`)
+          if (totalTrivial > 0) {
+            console.log(`     • ${totalTrivial} trivial inputs (output is null/undefined/NaN/throws)`)
+          }
+          if (totalSkipped > 0) {
+            console.log(`     • ${totalSkipped} runtime error/timeout — see install-skipped.txt in respective package directories`)
+          }
+        } else {
+          console.log(`   Skipped: 0`)
         }
-        if (totalTrivial > 0) {
-          console.log(`${totalTrivial} skipped due to trivial auto-generated inputs`)
-        }
-        console.log(`${packagesWithCaptures}/${totalPackages} package(s) have clusters installed`)
+        console.log(`   ${packagesWithCaptures}/${totalPackages} package(s) have clusters installed`)
 
       } else {
         // ── Mode 2: flat directory ──────────────────────────────────────────
