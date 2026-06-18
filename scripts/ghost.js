@@ -1,6 +1,6 @@
 // ghost.js — shared Ghost Proxy utilities
 // Used by capture.js, validate.js, and capture_react.mjs.
-// Do NOT duplicate these functions. Import them: import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
+// Do NOT duplicate these functions. Import them: import { createGhost, wrapCallees, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
 
 /**
  * Deep clone a value via JSON round-trip.
@@ -238,6 +238,197 @@ export function createGhost(targetModule, watchList, recorder, instanceMethods =
 
   // Return spread: non-watched fns pass through, watched are proxied
   return { ...targetModule, ...proxied }
+}
+
+/**
+ * Wrap specified callee functions on a module so that each invocation
+ * records its arguments and return value (or thrown error) into the
+ * calleeRecorder. This is the Phase 2 callee-wrapping feature: it lets
+ * the Ghost Proxy capture each direct callee of an entry function as
+ * its own behavioral contract, identified by
+ * `<parentClusterId>.calls.<calleeName>`.
+ *
+ * Design constraints (see Phase 2 spec):
+ *   - Opt-in: only invoked when a manifest cluster declares `callees: [...]`.
+ *   - Depth 1: only the named callees are wrapped. They are NOT recursively
+ *     re-wrapped if they themselves call other wrapped functions.
+ *   - Accessible callees only: we resolve `targetModule[calleeName]`. If the
+ *     name is missing or not a function (typical for closure-private or
+ *     arrow-function-assigned-to-const-not-exported cases), we log a warning
+ *     and skip — we never throw.
+ *   - Restorable: the returned cleanup function puts the originals back, so
+ *     the module is left untouched after capture/validate.
+ *
+ * The recorder entries are shaped:
+ *   { fn: '<calleeName>', args: [...deepClone], result: <deepClone>,
+ *     error: '<string>'|undefined, parentClusterId: '<id>' }
+ *
+ * Async callees are handled transparently: the proxy awaits the promise and
+ * records the resolved value (or the rejection error).
+ *
+ * @param {object} targetModule - The module whose functions to wrap
+ * @param {string[]} calleeNames - Callee function names to wrap
+ * @param {Array} calleeRecorder - Array to push callee call records into
+ * @param {object} [options]
+ * @param {string} [options.parentClusterId='<unknown>'] - For warning context
+ * @param {boolean} [options.quiet=false] - Suppress per-callee warnings
+ * @returns {Function} cleanup function that restores the original functions.
+ *                     Safe to call multiple times; subsequent calls are no-ops.
+ */
+export function wrapCallees(targetModule, calleeNames, calleeRecorder, options = {}) {
+  const {
+    parentClusterId = '<unknown>',
+    quiet = false,
+  } = options
+
+  const restores = []
+
+  // Defensive: accept undefined/null calleeNames as "no-op"
+  const names = Array.isArray(calleeNames) ? calleeNames : []
+
+  // CJS modules imported via dynamic import() expose the original
+  // `module.exports` object as `targetModule.default`. After mergeCjsModule(),
+  // top-level keys (e.g. `targetModule.add`) are shallow-copied references
+  // that point to the SAME function as `targetModule.default.add`.
+  //
+  // When the entry function calls the callee via `module.exports.foo(...)`,
+  // the lookup resolves to `targetModule.default.foo`, NOT to the merged
+  // `targetModule.foo`. To make callee wrapping actually intercept such
+  // calls, we must reassign the proxy on every "live holder" that may be
+  // consulted at call time.
+  //
+  // For frozen ESM namespace objects, reassignment throws — we catch and
+  // continue (the caller already warned about closure-private callees).
+  const liveHolders = [targetModule]
+  if (targetModule && typeof targetModule === 'object' &&
+      targetModule.default && typeof targetModule.default === 'object' &&
+      !Array.isArray(targetModule.default) &&
+      targetModule.default !== targetModule) {
+    liveHolders.push(targetModule.default)
+  }
+
+  for (const calleeName of names) {
+    if (typeof calleeName !== 'string' || calleeName.length === 0) {
+      if (!quiet) {
+        console.warn(`  ⚠️  Callee name must be a non-empty string — skipping (cluster: ${parentClusterId})`)
+      }
+      continue
+    }
+
+    // Find the original function on any live holder. We consider the
+    // callee "found" if at least one holder exposes it as a function.
+    let original = null
+    const holdersWithFn = []
+    for (const holder of liveHolders) {
+      if (holder && typeof holder[calleeName] === 'function') {
+        if (!original) original = holder[calleeName]
+        holdersWithFn.push(holder)
+      }
+    }
+    if (!original) {
+      if (!quiet) {
+        console.warn(`  ⚠️  Callee "${calleeName}" not found or not a function on module exports — skipping (cluster: ${parentClusterId})`)
+        console.warn(`      This typically means the function is a closure-private or not exported. The parent cluster will still be captured.`)
+      }
+      continue
+    }
+
+    const proxy = new Proxy(original, {
+      apply(target, thisArg, args) {
+        let result
+        try {
+          result = target.apply(thisArg, args)
+        } catch (err) {
+          calleeRecorder.push({
+            fn: calleeName,
+            args: deepClone(args),
+            error: String(err),
+            parentClusterId,
+          })
+          throw err
+        }
+        // Handle promises transparently (same pattern as createGhost)
+        if (result && typeof result.then === 'function') {
+          return result.then(resolved => {
+            calleeRecorder.push({
+              fn: calleeName,
+              args: deepClone(args),
+              result: deepClone(resolved),
+              parentClusterId,
+            })
+            return resolved
+          }).catch(err => {
+            calleeRecorder.push({
+              fn: calleeName,
+              args: deepClone(args),
+              error: String(err),
+              parentClusterId,
+            })
+            throw err
+          })
+        }
+        calleeRecorder.push({
+          fn: calleeName,
+          args: deepClone(args),
+          result: deepClone(result),
+          parentClusterId,
+        })
+        return result
+      },
+
+      // Pass through `new` calls so wrapped constructors keep working.
+      // Callee recordings under `new` capture the constructed instance
+      // snapshot (data properties only, mirroring createGhost's construct).
+      construct(target, args, newTarget) {
+        const instance = Reflect.construct(target, args, newTarget)
+        const snapshot = snapshotInstance(instance)
+        calleeRecorder.push({
+          fn: calleeName,
+          args: deepClone(args),
+          result: snapshot,
+          construct: true,
+          parentClusterId,
+        })
+        return instance
+      },
+    })
+
+    // Reassign the proxy on every holder that currently exposes the
+    // original function. This is what makes the wrap actually intercept
+    // calls made via `module.exports.foo(...)` (CJS) or `mod.foo(...)`
+    // (mutable namespace patterns).
+    let reassignedAnywhere = false
+    for (const holder of holdersWithFn) {
+      try {
+        holder[calleeName] = proxy
+        reassignedAnywhere = true
+        restores.push({ obj: holder, key: calleeName, original })
+      } catch {
+        // ESM namespace objects are frozen — silently skip.
+        // The warning below fires if NO holder accepted the reassignment.
+      }
+    }
+    if (!reassignedAnywhere && !quiet) {
+      console.warn(`  ⚠️  Callee "${calleeName}" found but module is frozen (ESM namespace) — could not install proxy (cluster: ${parentClusterId})`)
+      console.warn(`      Consider using a CJS module or exporting the function via a mutable namespace object.`)
+    }
+  }
+
+  // Cleanup function: idempotent — first call restores everything,
+  // subsequent calls are no-ops. This makes it safe to call from a
+  // finally block even if wrapCallees itself partially failed.
+  let cleaned = false
+  return function cleanup() {
+    if (cleaned) return
+    cleaned = true
+    for (const { obj, key, original } of restores) {
+      try {
+        obj[key] = original
+      } catch {
+        // Module namespace objects may be frozen (ESM). Best-effort restore.
+      }
+    }
+  }
 }
 
 /**

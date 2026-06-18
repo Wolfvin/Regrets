@@ -5,6 +5,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   createGhost,
+  wrapCallees,
   deepClone,
   normalizeHtml,
   consumeIterator
@@ -314,5 +315,264 @@ describe('createGhost edge cases', () => {
     ghost.foo(1)
     assert.equal(recorder.length, 1)
     assert.equal(recorder[0].fn, 'foo')
+  })
+})
+
+// ─── wrapCallees (Phase 2: callee wrapping) ─────────────────────────────────
+
+describe('wrapCallees', () => {
+  it('records callee invocation with args and result', () => {
+    const mod = { add: (a, b) => a + b, main: (x) => mod.add(x, 1) }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['add'], recorder, { parentClusterId: 'main', quiet: true })
+    try {
+      mod.main(5)
+      assert.equal(recorder.length, 1, 'exactly one callee call recorded')
+      assert.equal(recorder[0].fn, 'add')
+      assert.deepEqual(recorder[0].args, [5, 1])
+      assert.equal(recorder[0].result, 6)
+      assert.equal(recorder[0].parentClusterId, 'main')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('does NOT alter the return value of the wrapped callee', () => {
+    const mod = { double: (x) => x * 2, run: (x) => mod.double(x) }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['double'], recorder, { quiet: true })
+    try {
+      const result = mod.run(21)
+      assert.equal(result, 42, 'callee return value passes through unchanged')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('records multiple invocations of the same callee', () => {
+    const mod = { inc: (x) => x + 1, run: () => mod.inc(mod.inc(mod.inc(0))) }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['inc'], recorder, { quiet: true })
+    try {
+      mod.run()
+      assert.equal(recorder.length, 3, 'three inc() calls recorded')
+      assert.deepEqual(recorder.map(r => r.args), [[0], [1], [2]])
+      assert.deepEqual(recorder.map(r => r.result), [1, 2, 3])
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('records distinct callees separately in one recorder', () => {
+    const mod = {
+      a: (x) => x + 1,
+      b: (x) => x * 2,
+      main: (x) => mod.b(mod.a(x)),
+    }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['a', 'b'], recorder, { quiet: true })
+    try {
+      mod.main(10)
+      assert.equal(recorder.length, 2)
+      assert.equal(recorder[0].fn, 'a')
+      assert.equal(recorder[0].result, 11)
+      assert.equal(recorder[1].fn, 'b')
+      assert.equal(recorder[1].result, 22)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('records errors thrown by wrapped callees and re-throws', () => {
+    const mod = { boom: () => { throw new Error('kaboom') }, run: () => mod.boom() }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['boom'], recorder, { quiet: true })
+    try {
+      assert.throws(() => mod.run(), { message: 'kaboom' })
+      assert.equal(recorder.length, 1)
+      assert.ok(recorder[0].error.includes('kaboom'))
+      assert.equal(recorder[0].result, undefined)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('handles async callees transparently', async () => {
+    const mod = {
+      asyncFetch: async (url) => `response:${url}`,
+      run: async (url) => mod.asyncFetch(url),
+    }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['asyncFetch'], recorder, { quiet: true })
+    try {
+      const result = await mod.run('http://test')
+      assert.equal(result, 'response:http://test')
+      assert.equal(recorder.length, 1)
+      assert.equal(recorder[0].result, 'response:http://test')
+      assert.deepEqual(recorder[0].args, ['http://test'])
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('warns and skips callees that are not exported on the module', () => {
+    const mod = { main: () => 42 }  // no `add` export
+    const recorder = []
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (msg) => warnings.push(String(msg))
+    try {
+      const cleanup = wrapCallees(mod, ['add'], recorder, { parentClusterId: 'main' })
+      // main was never wrapped — calling it should not record anything
+      mod.main()
+      assert.equal(recorder.length, 0, 'missing callee should not record')
+      assert.ok(warnings.some(w => w.includes('add') && w.includes('main')),
+        `expected a warning mentioning 'add' and 'main', got: ${warnings.join(' | ')}`)
+      cleanup()
+    } finally {
+      console.warn = origWarn
+    }
+  })
+
+  it('warns and skips non-function callees', () => {
+    const mod = { notFn: 42, main: () => 1 }
+    const recorder = []
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (msg) => warnings.push(String(msg))
+    try {
+      const cleanup = wrapCallees(mod, ['notFn'], recorder, { parentClusterId: 'main' })
+      mod.main()
+      assert.equal(recorder.length, 0)
+      assert.ok(warnings.some(w => w.includes('notFn')))
+      cleanup()
+    } finally {
+      console.warn = origWarn
+    }
+  })
+
+  it('restores original functions on cleanup', () => {
+    const originalAdd = (a, b) => a + b
+    const mod = { add: originalAdd, main: (x) => mod.add(x, 1) }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['add'], recorder, { quiet: true })
+    cleanup()
+    // After cleanup, `add` should be the original function (not a Proxy)
+    assert.equal(mod.add, originalAdd, 'original function restored after cleanup')
+    // And calls should not be recorded anymore
+    mod.main(5)
+    assert.equal(recorder.length, 0, 'no recording after cleanup')
+  })
+
+  it('cleanup is idempotent (safe to call multiple times)', () => {
+    const mod = { add: (a, b) => a + b }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['add'], recorder, { quiet: true })
+    cleanup()
+    // Calling again should not throw
+    assert.doesNotThrow(() => cleanup())
+  })
+
+  it('treats missing calleeNames as a no-op', () => {
+    const mod = { add: (a, b) => a + b }
+    const recorder = []
+    const cleanup = wrapCallees(mod, undefined, recorder, { quiet: true })
+    // add() should still be the original (no Proxy wrapping)
+    mod.add(1, 2)
+    assert.equal(recorder.length, 0)
+    cleanup()
+  })
+
+  it('is opt-in — calling wrapCallees does not interfere with createGhost', () => {
+    const mod = { add: (a, b) => a + b, main: (x) => mod.add(x, 1) }
+    const ghostRecorder = []
+    const calleeRecorder = []
+    // Wrap main with createGhost AND wrap add with wrapCallees.
+    // The ghost captures main; the callee wrapper captures add.
+    const ghost = createGhost(mod, ['main'], ghostRecorder)
+    const cleanup = wrapCallees(mod, ['add'], calleeRecorder, { parentClusterId: 'main', quiet: true })
+    try {
+      ghost.main(5)
+      assert.equal(ghostRecorder.length, 1, 'main captured by ghost')
+      assert.equal(ghostRecorder[0].fn, 'main')
+      assert.equal(calleeRecorder.length, 1, 'add captured by wrapCallees')
+      assert.equal(calleeRecorder[0].fn, 'add')
+      assert.equal(calleeRecorder[0].result, 6)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('records new-constructor callee invocations with instance snapshot', () => {
+    class Thing {
+      constructor(name) { this.name = name }
+    }
+    const mod = { Thing, makeThing: (n) => new mod.Thing(n) }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['Thing'], recorder, { quiet: true })
+    try {
+      mod.makeThing('widget')
+      assert.equal(recorder.length, 1)
+      assert.equal(recorder[0].fn, 'Thing')
+      assert.equal(recorder[0].construct, true)
+      assert.deepEqual(recorder[0].result, { name: 'widget' })
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('propagates reassignment to targetModule.default for CJS-style modules', () => {
+    // Simulate a CJS module imported via dynamic import() after mergeCjsModule:
+    //   targetModule = { default: <module.exports>, ...shallow-copied keys }
+    // The entry function calls the callee via `module.exports.foo(...)`,
+    // which resolves to `default.foo` — NOT to the merged top-level key.
+    // wrapCallees must reassign on BOTH holders for the proxy to be hit.
+    const liveExports = {
+      add: (a, b) => a + b,
+      // main looks up add via the live exports object (CJS idiom)
+      main: function (x) { return liveExports.add(x, 1) },
+    }
+    const mod = { default: liveExports, add: liveExports.add, main: liveExports.main }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['add'], recorder, { parentClusterId: 'main', quiet: true })
+    try {
+      const result = mod.main(41)
+      assert.equal(result, 42, 'main return value passes through')
+      assert.equal(recorder.length, 1, 'add() was intercepted via the default-holder path')
+      assert.equal(recorder[0].fn, 'add')
+      assert.deepEqual(recorder[0].args, [41, 1])
+      assert.equal(recorder[0].result, 42)
+    } finally {
+      cleanup()
+    }
+    // After cleanup, default.add must also be restored (not just the top-level key)
+    assert.equal(liveExports.add, mod.add, 'default.add restored to original')
+  })
+
+  it('warns when callee cannot be reassigned because all holders are frozen', () => {
+    // ESM namespace objects are frozen — Object.isFrozen returns true.
+    // wrapCallees should detect the failed reassignment and warn.
+    const frozen = Object.freeze({
+      add: (a, b) => a + b,
+      main: (x) => frozen.add(x, 1),
+    })
+    const mod = frozen
+    const recorder = []
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (msg) => warnings.push(String(msg))
+    try {
+      const cleanup = wrapCallees(mod, ['add'], recorder, { parentClusterId: 'main' })
+      // Even though reassignment fails, the call still goes through the original
+      // function — but no recording happens because the proxy was never installed.
+      const result = mod.main(5)
+      assert.equal(result, 6)
+      assert.equal(recorder.length, 0, 'proxy not installed on frozen module → no recording')
+      assert.ok(warnings.some(w => w.includes('frozen') && w.includes('add')),
+        `expected a frozen-module warning mentioning 'add', got: ${warnings.join(' | ')}`)
+      cleanup()
+    } finally {
+      console.warn = origWarn
+    }
   })
 })

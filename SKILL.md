@@ -112,6 +112,92 @@ The ghost proxy **cannot wrap functions that start with `_`** (underscore). It o
 
 Capture will now warn: `"Entry function '_' starts with underscore. Ghost proxy cannot wrap private functions."`
 
+### Callee Wrapping (Phase 2 — opt-in)
+
+The base Ghost Proxy only intercepts the entry function — it captures the entry's `(input, output)` but does NOT see what happens inside. When an entry function `c(x)` calls `a(x)` and `b(x)`, the parent cluster captures `c`'s output, but `a` and `b`'s individual `(input, output)` contracts are invisible. A refactor that changes `a`'s behavior — but accidentally preserves `c`'s output through compensating changes in `b` — would pass validate silently.
+
+Phase 2 adds **callee wrapping** to make those inner contracts explicit. When a manifest cluster declares `"callees": ["a", "b"]`, capture.js installs a Proxy on each named callee (in addition to the entry ghost) so every call records its args and result. After the entry finishes, each callee that was actually called gets its own `.regret` file at `regrets/<parentClusterId>.calls.<calleeName>.regret`, forming a separate behavioral contract.
+
+```
+Before Phase 2:                  After Phase 2 (with "callees": ["a","b"]):
+┌──────────────────────┐         ┌──────────────────────┐
+│ cluster: c           │         │ cluster: c           │ ← parent contract (unchanged)
+│ INPUT  x             │         │ INPUT  x             │
+│ OUTPUT <c of x>      │         │ OUTPUT <c of x>      │
+└──────────────────────┘         └──────────────────────┘
+                                  ┌──────────────────────┐
+                                  │ cluster: c.calls.a   │ ← new: callee contract
+                                  │ INPUT  x             │
+                                  │ OUTPUT <a of x>      │
+                                  └──────────────────────┘
+                                  ┌──────────────────────┐
+                                  │ cluster: c.calls.b   │ ← new: callee contract
+                                  │ INPUT  x             │
+                                  │ OUTPUT <b of x>      │
+                                  └──────────────────────┘
+```
+
+**Constraints (by design):**
+
+1. **Opt-in.** When `callees` is absent or empty, capture.js behaves identically to the pre-Phase-2 Ghost Proxy. No new files, no warnings, no overhead.
+2. **Depth 1.** Only the named callees are wrapped. If callee `a` itself calls `b`, that nested call is recorded as part of `a`'s execution (it does NOT spawn a `c.calls.a.calls.b` cluster).
+3. **Accessible callees only.** The callee must be resolvable as `module.exports[calleeName]` (CJS) or `mod[calleeName]` (mutable namespace). Closure-private functions and bare-name ESM `function` declarations are NOT interceptable — `wrapCallees` logs a warning and skips them. The parent cluster is still captured normally.
+4. **Backward compatible.** The `.regret` file format is unchanged. Callee `.regret` files use the same format with two extra metadata lines (`parent:` and `callee:`). `validate.js` skips `.calls.` clusters silently — they are validated implicitly via the parent cluster's fingerprint (which already includes the callee's effect on the entry output).
+
+**Manifest example:**
+
+```json
+{
+  "clusters": [
+    {
+      "id": "main",
+      "entry": "main",
+      "watches": ["main"],
+      "file": "src/api.cjs",
+      "stack": "js",
+      "callees": ["add", "mul"],
+      "inputs": [5, 10, 100]
+    }
+  ]
+}
+```
+
+**Subject file pattern (CJS — what works):**
+
+```js
+// src/api.cjs — uses module.exports.foo(...) lookup idiom
+module.exports.add = function (a, b) { return a + b }
+module.exports.mul = function (a, b) { return a * b }
+module.exports.main = function (x) {
+  return module.exports.add(x, 1) + module.exports.mul(x, 2)
+}
+```
+
+**Subject file pattern (ESM — what does NOT work, with rationale):**
+
+```js
+// src/api.mjs — bare-name ESM declarations
+export function add(a, b) { return a + b }   // ← closure-private at module scope
+export function main(x) { return add(x, 1) } // ← `add` here is the local binding,
+                                             //   not module.add. Reassigning
+                                             //   rawModule.add has no effect.
+```
+
+For ESM, use a mutable namespace object instead:
+
+```js
+// src/api.mjs — namespace pattern that IS interceptable
+export const fns = {
+  add: (a, b) => a + b,
+  main: (x) => fns.add(x, 1),
+}
+// manifest: entry="fns.main", callees=["add"] — but note: wrapCallees currently
+// only resolves top-level keys. For dotted-path callees, expose them at the
+// top level too (e.g., `export const add = fns.add.bind(fns)` after defining fns).
+```
+
+The `wrapCallees` function lives in `scripts/ghost.js` alongside `createGhost`. It returns an idempotent cleanup function that restores the originals — capture.js calls it from a `finally` block so the module is left untouched even when capture throws.
+
 ---
 
 ## Cluster Manifest
@@ -208,6 +294,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `seed` | ❌ | Integer seed for deterministic `Math.random()` — replaces Math.random with mulberry32 PRNG for the duration of the function call, then restores. Eliminates drift in functions using random numbers. |
 | `autoIncrement` | ❌ | Add to `normalize` array to replace auto-incrementing ID patterns: `"b1"` → `"b<ID>"`, small integers (1-9999) → `"<ID>"`. Use when `resetState` alone isn't sufficient. |
 | `trackState` | ❌ | Array of attribute names to track on the object before/after the call (e.g., `["_len", "_cache_complete"]`). Detects internal state mutations that `trackMutation` can't see. See `references/datetime-stateful-patterns.md`. |
+| `callees` | ❌ | **Phase 2 (opt-in)** — Array of function names to wrap inside the entry function so each callee's `(args, result)` is captured as its own behavioral contract under cluster id `<parentClusterId>.calls.<calleeName>`. Depth 1 only (no recursive wrapping). Accessible callees only — closure-private or non-exported functions are skipped with a warning. Callee must be reachable via `module.exports.foo(...)` (CJS) or `mod.foo(...)` (mutable namespace). ESM top-level `function foo() {}` declarations called by bare name from a sibling `function main() {}` are NOT interceptable (ESM namespaces are frozen and the call uses the local binding). Backward compatible: when omitted or empty, behavior is identical to the pre-Phase-2 Ghost Proxy. |
 
 ---
 
