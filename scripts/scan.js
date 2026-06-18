@@ -17,6 +17,7 @@
 
 import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve, join, extname, relative } from 'path'
+import { analyzeScope } from './analyzer.js'
 
 const args = process.argv.slice(2)
 const scanDir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : '.'
@@ -1144,6 +1145,13 @@ for (const filePath of files) {
     source = readFileSync(filePath, 'utf8')
   } catch { continue }
 
+  // Try the WASM-backed analyzer first. If it returns function definitions
+  // for this file, use them in place of the regex-based extractor. If it
+  // returns nothing (stub today, or unsupported language), fall through to
+  // the existing regex logic so behavior is unchanged for users.
+  const scope = await analyzeScope(filePath)
+  const scopeFns = scope.functions.filter(f => f.file === relPath || f.file === filePath).map(f => f.name)
+
   // Detect barrel files
   if (isBarrelFile(source)) {
     const barrelExports = extractBarrelExports(source)
@@ -1156,7 +1164,7 @@ for (const filePath of files) {
   }
 
   const lines = source.split('\n').length
-  const fns = extractExportedFunctions(source, ext)
+  const fns = scopeFns.length > 0 ? scopeFns : extractExportedFunctions(source, ext)
 
   // Also scan for internal/non-exported functions
   const internalFns = extractInternalFunctions(source, ext)
