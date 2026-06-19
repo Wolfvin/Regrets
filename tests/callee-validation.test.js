@@ -12,7 +12,8 @@
 //   - --verbose: skipped clusters (the `.calls.*` files in the main loop)
 //     are printed with reason `[skipped: callee contract — not in manifest]`.
 //   - Callee that changed behavior → validate reports FAIL and exits 1.
-//   - --cluster filter: callee phase does not run (single-cluster mode).
+//   - --cluster filter (parent): callee phase runs for that parent's callees
+//     too, so a callee regression that preserves the parent output is caught.
 //   - Parent cluster not in manifest → callee is skipped with a warning,
 //     NOT counted as a failure.
 //
@@ -333,21 +334,23 @@ export { main, add, mul }
     if (existsSync(TMP)) rmSync(TMP, { recursive: true, force: true })
   })
 
-  it('--cluster filter skips callee phase entirely', () => {
+  it('--cluster filter (parent) RE-RUNS callee phase for that parent — catches callee regressions', () => {
+    // Bug C (#284): --cluster main must include main.calls.* re-validation.
+    // A refactor that changes a callee but preserves the parent output would
+    // otherwise produce a false GREEN under --cluster. The filter now loads
+    // both main.regret and main.calls.*.regret, and the callee phase runs
+    // against the loaded callee contracts.
     const result = runCli(TMP, ['--cluster', 'main'])
-    assert.equal(result.exitCode, 0, `expected exit 0, got ${result.exitCode}\nstdout: ${result.stdout}`)
+    assert.equal(result.exitCode, 0, `expected exit 0 (nothing changed), got ${result.exitCode}\nstdout: ${result.stdout}`)
 
-    // No callee phase should run when --cluster is set
-    assert.doesNotMatch(
+    // Callee phase SHOULD run for --cluster main
+    assert.match(
       result.stdout,
-      /Re-validating \d+ callee contract/,
-      'should NOT run callee phase with --cluster filter'
+      /Re-validating 2 callee contract/,
+      'should run callee phase with --cluster <parent> filter'
     )
-    assert.doesNotMatch(
-      result.stdout,
-      /callee contract/i,
-      'should NOT mention callee contracts with --cluster filter'
-    )
+    assert.match(result.stdout, /main\.calls\.add.*PASS \(callee\)/, 'should report main.calls.add PASS under --cluster main')
+    assert.match(result.stdout, /main\.calls\.mul.*PASS \(callee\)/, 'should report main.calls.mul PASS under --cluster main')
   })
 
   it('orphan callee (parent not in manifest) — skipped with warning, NOT a failure', () => {

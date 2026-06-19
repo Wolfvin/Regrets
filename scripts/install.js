@@ -505,6 +505,22 @@ async function probeTrivialOutputs(cluster) {
 }
 
 // ─── Capture a single cluster with timeout ─────────────────────────────────────
+//
+// Issue #264: previously this function treated ANY exit code 0 from capture.js
+// as success. But capture.js exited 0 even when it skipped a cluster whose
+// stack it does not support (python/rust/go/etc) — no .regret file was
+// actually written. install.js then printed "✅ captured", creating a silent
+// false success. The fix has two layers:
+//
+//   1. Detect capture.js's new non-zero exit codes for unsupported stacks
+//      (exit 2 = all skipped, exit 3 = mixed). The stderr emitted by
+//      capture.js carries the marker `regrets-unsupported-stack: <stack> —`
+//      so we can attribute the skip to a specific stack.
+//
+//   2. Belt-and-suspenders: even when capture.js exits 0, verify the
+//      .regret file actually exists on disk. If it doesn't, surface a
+//      clear "no .regret file written" failure rather than claiming
+//      success. This protects against any future silent-skip regression.
 
 function captureCluster(clusterId, manifestPath, cwd) {
   return new Promise((resolve) => {
@@ -514,28 +530,55 @@ function captureCluster(clusterId, manifestPath, cwd) {
       resolve({ ok: false, reason: 'timeout' })
     }, CAPTURE_TIMEOUT_MS)
 
+    // Where capture.js writes its .regret output. Mirrors the path logic
+    // in capture.js (outDir = cwd/regrets, filename = `<id>.regret`).
+    const captureCwd = cwd || projectRoot
+    const expectedRegretPath = join(captureCwd, 'regrets', `${clusterId}.regret`)
+
     try {
       execFileSync('node', [`${SCRIPTS_DIR}/capture.js`, '--cluster', clusterId], {
         stdio: 'pipe',
-        cwd: cwd || projectRoot,
+        cwd: captureCwd,
         timeout: CAPTURE_TIMEOUT_MS,
       })
       clearTimeout(timer)
-      if (!timedOut) {
-        resolve({ ok: true })
+      if (timedOut) return
+
+      // Belt-and-suspenders (issue #264): even with exit 0, a missing
+      // .regret file means the capture silently did nothing. Report a
+      // clear failure rather than a false success.
+      if (!existsSync(expectedRegretPath)) {
+        resolve({
+          ok: false,
+          reason: 'no-regret-file',
+          detail: `capture.js exited 0 but regrets/${clusterId}.regret was not written`,
+        })
+        return
       }
+      resolve({ ok: true })
     } catch (err) {
       clearTimeout(timer)
       if (timedOut) return // already resolved
 
       const stderr = err.stderr ? err.stderr.toString() : ''
-      const reason = stderr.includes('timeout') || err.killed
-        ? 'timeout'
-        : stderr.includes('ECONNREFUSED') || stderr.includes('fetch')
-          ? 'network'
-          : stderr.includes('ENOENT')
-            ? 'import-error'
-            : 'runtime-error'
+      const exitCode = err.status ?? 0
+
+      // Issue #264: capture.js exits 2 (all skipped) or 3 (mixed) when a
+      // cluster's stack is not supported. Detect via either the exit code
+      // or the stderr marker, whichever is available.
+      const isUnsupportedStack =
+        exitCode === 2 || exitCode === 3 ||
+        stderr.includes('regrets-unsupported-stack:')
+
+      const reason = isUnsupportedStack
+        ? 'unsupported-stack'
+        : stderr.includes('timeout') || err.killed
+          ? 'timeout'
+          : stderr.includes('ECONNREFUSED') || stderr.includes('fetch')
+            ? 'network'
+            : stderr.includes('ENOENT')
+              ? 'import-error'
+              : 'runtime-error'
       resolve({ ok: false, reason, detail: stderr.slice(0, 200) })
     }
   })
@@ -841,6 +884,24 @@ async function installForScope({
       if (reason === 'timeout') reasonLabel = 'timeout (needs network/IO)'
       else if (reason === 'network') reasonLabel = 'network error'
       else if (reason === 'import-error') reasonLabel = 'import error'
+      else if (reason === 'unsupported-stack') {
+        // Parse the stack name from capture.js's stderr marker
+        // (`regrets-unsupported-stack: <stack> —`) so we can show the
+        // specific capture command inline, not just a generic hint.
+        const stackMatch = (result.detail || '').match(/regrets-unsupported-stack:\s*(\w+)/)
+        const stackName = stackMatch ? stackMatch[1] : null
+        const stackCmds = {
+          python: 'python3 scripts/capture.py',
+          rust: 'bash scripts/capture_rust.sh capture',
+          go: 'bash scripts/capture_go.sh capture',
+          react: 'node scripts/capture_react.mjs',
+        }
+        const cmd = stackName && stackCmds[stackName]
+          ? stackCmds[stackName]
+          : 'the stack-specific capture script (see install-skipped.txt)'
+        reasonLabel = `unsupported stack "${stackName || '?'}" — use: ${cmd}`
+      }
+      else if (reason === 'no-regret-file') reasonLabel = 'capture reported success but no .regret file was written'
       else reasonLabel = 'runtime error'
 
       console.log(`⚠️  ${cluster.id} [${relPath}] skipped — ${reasonLabel}`)
@@ -873,6 +934,14 @@ async function installForScope({
     lines.push('• Network/IO: add mock data or use --skip-capture + manual inputs')
     lines.push('• Import error: check compiled output path in manifest')
     lines.push('• Runtime error: add proper inputs in manifest.json')
+    lines.push('• Unsupported stack: capture.js only handles js/ts/css. For other stacks,')
+    lines.push('  run the stack-specific capture script directly:')
+    lines.push('    - Python:  python3 scripts/capture.py')
+    lines.push('    - Rust:    bash scripts/capture_rust.sh capture')
+    lines.push('    - Go:      bash scripts/capture_go.sh capture')
+    lines.push('    - React:   node scripts/capture_react.mjs')
+    lines.push('• "no .regret file was written": capture.js reported success but did')
+    lines.push('  not actually write the .regret file. This is a bug — please report it.')
 
     writeFileSync(skipLogPath, lines.join('\n'), 'utf8')
   }
