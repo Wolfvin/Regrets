@@ -21,6 +21,7 @@ import { createGhost, wrapCallees, deepClone, consumeIterator } from './ghost.js
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
 import { isEsmSource, transformEsmForCallees, HOLDER_NAME, registerEsmTempFile, deleteEsmTempFile, generateEsmTempFileName } from './esm-callee-transform.js'
+import { isCjsSource, transformCjsForCallees } from './cjs-callee-transform.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -406,58 +407,93 @@ for (const cluster of clusters) {
     //
     // Only attempt transformation when ALL of the following hold:
     //   1. The cluster declares callees (otherwise there's nothing to wrap).
-    //   2. The file extension is one we support (.mjs, .js, .ts, .tsx).
-    //   3. The source is ESM (not CJS — CJS wrapping already works).
-    //   4. transformEsmForCallees returns a non-null result. The transformer
-    //      aborts on shadowing, parse errors, missing function declarations,
-    //      or any other safety concern — in which case we fall back to the
-    //      original import and let wrapCallees emit the actionable warning
-    //      (Approach B).
+    //   2. The file extension is one we support (.mjs, .cjs, .js, .ts, .tsx).
+    //   3. The source is ESM OR CJS (both have their own transform modules).
+    //   4. The corresponding transform returns a non-null result. Each
+    //      transformer aborts on shadowing, parse errors, missing function
+    //      declarations, or any other safety concern — in which case we
+    //      fall back to the original import and let wrapCallees emit the
+    //      actionable warning (Approach B).
+    //
+    // ESM transform (closes #262, #276):
+    //   - Handles `function foo()`, `export function foo()`,
+    //     `export async function foo()`, `export const foo = () => {}`,
+    //     `export const foo = function() {}`
+    //   - Rewrites internal bare-name calls → `__regretsHolder.foo(...)`
+    //   - Holder is exported as a module namespace property.
+    //
+    // CJS transform (closes #263):
+    //   - Handles `function foo()`, `const foo = () => {}`,
+    //     `const foo = function() {}`
+    //   - Rewrites internal bare-name calls → `__regretsHolder.foo(...)`
+    //   - Holder is attached as `module.exports.__regretsHolder`.
+    //   - Previously, CJS bare-name calls were silently invisible to
+    //     wrapCallees (the proxy was installed on `module.exports.foo` but
+    //     the internal call resolved to the local binding). The warning
+    //     "declared but never called during capture" was misleading.
     //
     // The transformation rewrites internal call sites to go through
     // `__regretsHolder`, populates the holder with the original function
-    // references, and exports the holder. wrapCallees detects the holder on
-    // the imported module and reassigns on it instead of the frozen namespace.
+    // references, and exports/attaches the holder. wrapCallees detects the
+    // holder on the imported module and reassigns on it instead of the
+    // (frozen, for ESM) namespace or instead of the (wrong, for CJS
+    // bare-name) `module.exports.foo` lookup path.
     let moduleUrl = pathToFileURL(absPath).href
     if (Array.isArray(callees) && callees.length > 0 &&
-        ['.mjs', '.js', '.ts', '.tsx'].includes(fileExt)) {
+        ['.mjs', '.cjs', '.js', '.ts', '.tsx'].includes(fileExt)) {
       try {
         const source = readFileSync(absPath, 'utf8')
-        if (isEsmSource(source, fileExt)) {
-          const transformResult = await transformEsmForCallees(source, callees, fileExt)
-          if (transformResult) {
-            // Write transformed source to a temp file in the SAME directory
-            // as the original so relative imports resolve unchanged. The temp
-            // file is deleted in the finally block below — and also by the
-            // process-wide signal handlers (SIGINT/SIGTERM/exit/uncaughtException)
-            // installed by esm-callee-transform.js, so it doesn't leak if the
-            // process is killed mid-capture.
-            //
-            // Register BEFORE write: ensures the signal handler catches the
-            // file even if SIGINT arrives between writeFileSync and register.
-            // Name is collision-safe (pid + UUID) so concurrent capture runs
-            // in CI cannot stomp on each other.
-            const dir = dirname(absPath)
-            const tempName = generateEsmTempFileName()
-            esmTransformTempPath = join(dir, tempName)
-            registerEsmTempFile(esmTransformTempPath)
-            writeFileSync(esmTransformTempPath, transformResult.transformedSource, 'utf8')
-            moduleUrl = pathToFileURL(esmTransformTempPath).href
-            if (!quiet) {
-              console.log(`   🔄 ESM bare-name transform applied (callees: ${callees.join(', ')})`)
-              if (verbose) {
-                console.log(`   │ Temp file: ${esmTransformTempPath}`)
-              }
+        const isEsm = isEsmSource(source, fileExt)
+        const isCjs = !isEsm && isCjsSource(source, fileExt)
+        let transformResult = null
+        let transformKind = null  // 'ESM' | 'CJS' — used for the user-facing log line
+        if (isEsm) {
+          transformResult = await transformEsmForCallees(source, callees, fileExt)
+          transformKind = 'ESM'
+        } else if (isCjs) {
+          transformResult = await transformCjsForCallees(source, callees, fileExt)
+          transformKind = 'CJS'
+        }
+        if (transformResult) {
+          // Write transformed source to a temp file in the SAME directory
+          // as the original so relative imports/requires resolve unchanged.
+          // The temp file is deleted in the finally block below — and also
+          // by the process-wide signal handlers (SIGINT/SIGTERM/exit/
+          // uncaughtException) installed by esm-callee-transform.js, so it
+          // doesn't leak if the process is killed mid-capture.
+          //
+          // Register BEFORE write: ensures the signal handler catches the
+          // file even if SIGINT arrives between writeFileSync and register.
+          // Name is collision-safe (pid + UUID) so concurrent capture runs
+          // in CI cannot stomp on each other.
+          //
+          // Temp file extension: .cjs for CJS sources (so Node treats it
+          // as CJS), .mjs for everything else (ESM). This matters because
+          // the transformed source preserves the original module system's
+          // syntax — ESM transforms produce `export { ... }`, CJS
+          // transforms produce `module.exports.__regretsHolder = ...`.
+          const dir = dirname(absPath)
+          const tempExt = isCjs ? '.cjs' : '.mjs'
+          const tempName = generateEsmTempFileName().replace(/\.mjs$/, tempExt)
+          esmTransformTempPath = join(dir, tempName)
+          registerEsmTempFile(esmTransformTempPath)
+          writeFileSync(esmTransformTempPath, transformResult.transformedSource, 'utf8')
+          moduleUrl = pathToFileURL(esmTransformTempPath).href
+          if (!quiet) {
+            console.log(`   🔄 ${transformKind} bare-name transform applied (callees: ${callees.join(', ')})`)
+            if (verbose) {
+              console.log(`   │ Temp file: ${esmTransformTempPath}`)
             }
-          } else if (verbose && !quiet) {
-            console.log(`   ℹ️  ESM transform aborted (safety check) — falling back to original import`)
           }
+        } else if (verbose && !quiet) {
+          const kind = isEsm ? 'ESM' : (isCjs ? 'CJS' : 'unknown')
+          console.log(`   ℹ️  ${kind} transform aborted (safety check) — falling back to original import`)
         }
       } catch (transformErr) {
         // Any error during transformation is non-fatal — fall back to
         // importing the original file. wrapCallees will emit the warning.
         if (!quiet) {
-          console.warn(`   ⚠️  ESM transform failed: ${transformErr.message} — falling back to original import`)
+          console.warn(`   ⚠️  Callee transform failed: ${transformErr.message} — falling back to original import`)
         }
       }
     }
@@ -1656,7 +1692,30 @@ for (const cluster of clusters) {
         const goldenCall = callsByCallee.get(calleeName)
         if (!goldenCall) {
           if (!quiet) {
-            console.warn(`   ⚠️  Callee "${calleeName}" was declared but never called during capture — no contract written (cluster: ${id})`)
+            // Issue #263: this warning used to say "declared but never
+            // called during capture" — which was misleading. The callee
+            // MAY have been called many times, but if the source transform
+            // was aborted (shadowing, unsupported pattern, parse error)
+            // AND the module is a frozen ESM namespace OR a CJS module
+            // whose internal calls resolve to local bindings (not
+            // `module.exports.foo`), the proxy simply couldn't see the
+            // call. The user-facing fix is the same in both cases
+            // (refactor or use the explicit `module.exports.foo(...)`
+            // idiom in CJS), but the diagnosis should be accurate.
+            console.warn(`   ⚠️  Callee "${calleeName}" was not intercepted during capture — no contract written (cluster: ${id})`)
+            console.warn(`      This means either:`)
+            console.warn(`        a. The callee was genuinely never called by the entry function for any input.`)
+            console.warn(`        b. The callee WAS called, but the source transform was aborted (shadowing,`)
+            console.warn(`           unsupported declaration pattern, parse error) AND the module's`)
+            console.warn(`           internal calls don't go through a path wrapCallees can intercept`)
+            console.warn(`           (frozen ESM namespace, or CJS bare-name calls without transform).`)
+            console.warn(`      The parent cluster is still captured. To enable callee contracts:`)
+            console.warn(`        - For ESM: ensure the callee is a top-level \`function foo(){}\` or`)
+            console.warn(`          \`export function foo(){}\` or \`export const foo = () => {}\` and`)
+            console.warn(`          not shadowed anywhere in the file.`)
+            console.warn(`        - For CJS: ensure the callee is a top-level \`function foo(){}\` or`)
+            console.warn(`          \`const foo = () => {}\` and not shadowed. Alternatively, call`)
+            console.warn(`          the callee via \`module.exports.foo(...)\` instead of the bare name.`)
           }
           continue
         }

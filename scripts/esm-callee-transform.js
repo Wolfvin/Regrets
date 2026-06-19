@@ -30,6 +30,32 @@
 // the end of the module still works — by the time `main()` is actually
 // called (after import completes), `__regretsHolder.foo` is defined.
 //
+// Supported ESM patterns (closes #262, #276)
+// ─────────────────────────────────────────
+// The transformer recognises these top-level callee declaration shapes:
+//
+//   1. `function foo() {}`                         (bare function declaration)
+//   2. `export function foo() {}`                  (the most common ESM idiom — #262)
+//   3. `export async function foo() {}`            (async variant)
+//   4. `export function* foo() {}`                 (generator variant)
+//   5. `export const foo = (a, b) => a + b`        (arrow function — #276)
+//   6. `export const foo = function(a, b) { ... }` (function expression — #276)
+//
+// For patterns 1-4 the `export` keyword stays in place — the function name
+// binding is still resolved through the user's original export. We only
+// rewrite internal call sites and append a holder-population trailer.
+//
+// For patterns 5-6 the `export` keyword is stripped from the inline
+// declaration (turning `export const foo = ...` into `const foo = ...`)
+// and the name is re-exported via the trailing `export { ..., __regretsHolder }`
+// list. This works around the fact that ESM namespace properties set via
+// `export const` are non-writable: reassigning `module.foo = proxy` would
+// throw "Cannot assign to read only property". By routing the export
+// through the trailing export list, the namespace property remains
+// writable (because it's a live binding to a `const`-declared identifier
+// — and we don't try to reassign the const, we reassign the holder entry
+// instead, which IS a plain mutable object).
+//
 // Safety
 // ─────
 // The transformer is conservative — it aborts (returns null) on any of:
@@ -42,7 +68,10 @@
 //       * inside destructuring patterns
 //     This avoids incorrectly rewriting calls that reference the shadowing
 //     binding instead of the top-level function.
-//   - No function_declaration matching a callee name is found at top level.
+//   - No transformable top-level function declaration matches a callee name.
+//     (Callees that are nested, closure-private, class methods, etc. cannot
+//     be transformed — the user gets the standard "could not install proxy"
+//     warning from wrapCallees with the right diagnostic.)
 //
 // When the transformer aborts, capture.js falls back to the original import
 // and wrapCallees emits the existing "frozen module" warning (Approach B).
@@ -289,9 +318,18 @@ function detectShadowing(root, calleeSet) {
     //   1. Inside a function body → ALWAYS shadowing (regardless of value type).
     //      Even `function main() { const add = () => ... }` shadows the outer `add`.
     //   2. At top level with non-function value → shadowing (e.g. `let add = 42`).
-    //      The top-level function-bearing case (`const add = () => ...`) is the
-    //      legitimate definition; we don't flag it here, but transformation will
-    //      still abort because `add` isn't a function_declaration.
+    //      The top-level function-bearing cases (`const add = () => ...` and
+    //      `export const add = () => ...`) are the legitimate definitions and
+    //      are now transformable (see collectTopLevelExportedConstFunctions).
+    //      A top-level `const add = () => ...` WITHOUT `export` is still a
+    //      legitimate binding that calls can be rewritten through the holder
+    //      — but since it's not exported, wrapCallees cannot install a proxy
+    //      on the namespace. The transformer still rewrites the call sites
+    //      via the holder; the user just won't get callee contracts unless
+    //      they also export the function (which is the standard ESM pattern).
+    //      We don't flag the function-bearing top-level case as shadowing
+    //      here — it's handled separately by collectTopLevelFunctionDeclarations
+    //      and collectTopLevelExportedConstFunctions.
     if (node.type === 'variable_declarator') {
       const nameNode = node.childForFieldName('name')
       if (nameNode && nameNode.type === 'identifier' && calleeSet.has(nameNode.text)) {
@@ -324,25 +362,151 @@ function detectShadowing(root, calleeSet) {
 }
 
 /**
- * Collect the set of top-level function_declaration names. These are the
- * only functions we can safely transform (their calls inside other function
- * bodies are what we rewrite).
+ * Collect the set of top-level function_declaration names that can be
+ * transformed. This includes:
+ *
+ *   1. Plain top-level `function foo() {}` declarations (direct child of
+ *      the program node) — the case the original transformer handled.
+ *
+ *   2. `export function foo() {}` declarations — these are wrapped in an
+ *      `export_statement` node, so they're NOT direct children of the
+ *      program node. The inner function_declaration IS still effectively
+ *      top-level (it has the same hoisting + binding semantics as case
+ *      1) and its calls can be safely rewritten through the holder.
+ *      Closes #262: `export function foo()` (the most common ESM idiom)
+ *      used to be silently skipped.
+ *
+ *   3. `export async function foo() {}` and `export function* foo() {}`
+ *      (generators) — same wrapping pattern as case 2.
+ *
+ * The transformer rewrites calls to these functions inside other
+ * function bodies to go through `__regretsHolder.NAME(...)`. The
+ * function declarations themselves are NOT moved — they stay in place
+ * (the `export` keyword stays where it is, the function body is
+ * unchanged). Only the call sites get rewritten, and a holder
+ * population trailer is appended at the end of the module.
+ *
+ * Returns a Map<name, kind> where kind is one of:
+ *   - 'function_declaration'  (cases 1, 2, 3 above)
  */
 function collectTopLevelFunctionDeclarations(root) {
-  const names = new Set()
+  const found = new Map()
   // Top-level means direct child of the program node.
   for (let i = 0; i < root.childCount; i++) {
     const child = root.child(i)
     if (!child) continue
+    // Case 1: direct top-level function_declaration
     if (child.type === 'function_declaration' ||
         child.type === 'generator_function_declaration') {
       const nameNode = child.childForFieldName('name')
       if (nameNode && nameNode.text) {
-        names.add(nameNode.text)
+        found.set(nameNode.text, 'function_declaration')
+      }
+      continue
+    }
+    // Case 2/3: export_statement wrapping a function_declaration
+    // (e.g. `export function foo() {}` or `export async function foo() {}`).
+    if (child.type === 'export_statement') {
+      for (let j = 0; j < child.childCount; j++) {
+        const inner = child.child(j)
+        if (!inner) continue
+        if (inner.type === 'function_declaration' ||
+            inner.type === 'generator_function_declaration') {
+          const nameNode = inner.childForFieldName('name')
+          if (nameNode && nameNode.text) {
+            found.set(nameNode.text, 'function_declaration')
+          }
+        }
       }
     }
   }
-  return names
+  return found
+}
+
+/**
+ * Collect the set of top-level `export const NAME = <function-value>` names.
+ *
+ * These are the ESM patterns closed by issue #276:
+ *
+ *   - `export const foo = (a, b) => a + b`           (arrow function)
+ *   - `export const foo = function(a, b) { ... }`    (function expression)
+ *
+ * Both shapes parse as:
+ *   export_statement
+ *     export
+ *     lexical_declaration
+ *       const
+ *       variable_declarator
+ *         name: identifier  ← NAME
+ *         value: arrow_function | function_expression
+ *
+ * Unlike `function_declaration`, a `const`-assigned arrow/function is NOT
+ * hoisted. That means populating the holder at the END of the module works
+ * (the assignment has already run by then), but we also have to be careful:
+ * the holder is populated AFTER the user's const declaration, so any
+ * top-level call (module-evaluation time) to the callee via the holder
+ * would see `undefined`. We never rewrite top-level calls — only calls
+ * inside function bodies — so this is fine.
+ *
+ * The transformer strips the `export` keyword from these declarations
+ * (turning `export const foo = ...` into `const foo = ...`) and re-exports
+ * the name via the trailing `export { ..., __regretsHolder }` list. This
+ * works around the fact that ESM namespace properties are non-writable —
+ * by NOT exporting `foo` directly, we avoid the "Cannot assign to read
+ * only property" error that would otherwise fire when wrapCallees tries
+ * to reassign `module.foo = proxy`. The user-facing API is unchanged
+ * (the module still exports `foo`), but the binding is resolved via the
+ * trailing export list rather than via the inline `export const`.
+ *
+ * Returns a Map<name, { declStart, declEnd }> with byte ranges of the
+ * `export_statement` node (so the transformer can strip the `export`
+ * keyword by removing bytes [exportStart, exportStart + 7) — the
+ * keyword `export` plus one space — and leaving the rest intact).
+ */
+function collectTopLevelExportedConstFunctions(root) {
+  const found = new Map()
+  for (let i = 0; i < root.childCount; i++) {
+    const child = root.child(i)
+    if (!child || child.type !== 'export_statement') continue
+
+    // Look for lexical_declaration (const/let/var) as the exported child.
+    let lexDecl = null
+    for (let j = 0; j < child.childCount; j++) {
+      const inner = child.child(j)
+      if (inner && (inner.type === 'lexical_declaration' ||
+                    inner.type === 'variable_declaration')) {
+        lexDecl = inner
+        break
+      }
+    }
+    if (!lexDecl) continue
+
+    // Walk the lexical_declaration's variable_declarator children.
+    for (let k = 0; k < lexDecl.childCount; k++) {
+      const decl = lexDecl.child(k)
+      if (!decl || decl.type !== 'variable_declarator') continue
+      const nameNode = decl.childForFieldName('name')
+      const valueNode = decl.childForFieldName('value')
+      if (!nameNode || nameNode.type !== 'identifier' || !nameNode.text) continue
+      if (!valueNode) continue
+      if (valueNode.type === 'arrow_function' ||
+          valueNode.type === 'function_expression' ||
+          valueNode.type === 'function') {
+        // Record the byte range of the `export` keyword + the single
+        // space that follows it, so the transformer can strip them
+        // (turning `export const foo = ...` into `const foo = ...`).
+        // We store the export_statement's start (which is the `export`
+        // keyword's start) and the lexical_declaration's start (which
+        // is the `const`/`let`/`var` keyword's start, immediately
+        // after the single space).
+        found.set(nameNode.text, {
+          exportStart: child.startIndex,
+          declStart: lexDecl.startIndex,
+        })
+      }
+    }
+  }
+  return found
 }
 
 /**
@@ -423,9 +587,18 @@ function doTransform(root, source, calleeNames) {
   // Safety check 1: no shadowing
   if (detectShadowing(root, calleeSet)) return null
 
-  // Safety check 2: callees must include at least one top-level function_declaration
-  const topLevelFns = collectTopLevelFunctionDeclarations(root)
-  const calleesToTransform = calleeNames.filter(name => topLevelFns.has(name))
+  // Safety check 2: callees must include at least one transformable top-level
+  // function. We accept BOTH:
+  //   - top-level function_declaration (with or without an `export` wrapper)
+  //   - top-level `export const NAME = <arrow|function-expression>`
+  //
+  // Both kinds populate the holder at the end of the module, so call sites
+  // can be uniformly rewritten to `__regretsHolder.NAME(...)`.
+  const fnDecls = collectTopLevelFunctionDeclarations(root)   // Map<name, kind>
+  const constFns = collectTopLevelExportedConstFunctions(root) // Map<name, {exportStart, declStart}>
+
+  const transformableFns = new Set([...fnDecls.keys(), ...constFns.keys()])
+  const calleesToTransform = calleeNames.filter(name => transformableFns.has(name))
   if (calleesToTransform.length === 0) return null
 
   // Find all call sites to rewrite
@@ -448,7 +621,30 @@ function doTransform(root, source, calleeNames) {
       transformed.slice(site.endByte)
   }
 
-  // Step 2: insert holder declaration at the top (after imports)
+  // Step 2: for `export const NAME = <fn>` callees, strip the `export`
+  // keyword (turning `export const NAME = ...` into `const NAME = ...`).
+  // The name will be re-exported via the trailing export list below,
+  // which avoids the ESM "Cannot assign to read only property" error
+  // when wrapCallees tries to reassign `module.NAME = proxy`.
+  //
+  // Splice from end to start so earlier offsets stay valid. We only
+  // strip the keyword for callees the user asked to transform — other
+  // `export const` declarations are left untouched.
+  const constCalleesToStrip = calleesToTransform
+    .filter(name => constFns.has(name))
+    .map(name => constFns.get(name))
+    .sort((a, b) => b.exportStart - a.exportStart)
+  for (const { exportStart, declStart } of constCalleesToStrip) {
+    // Replace bytes [exportStart, declStart) (the `export` keyword plus
+    // any whitespace between it and the `const`/`let`/`var` keyword)
+    // with empty string. This turns `export const foo = ...` into
+    // `const foo = ...` cleanly, preserving the rest of the line.
+    transformed =
+      transformed.slice(0, exportStart) +
+      transformed.slice(declStart)
+  }
+
+  // Step 3: insert holder declaration at the top (after imports)
   // Use a leading newline to ensure we don't run together with the previous
   // statement (e.g. `import ... from '...'const __regretsHolder = {}` would
   // be a syntax error). The leading newline is harmless when insertOffset is 0.
@@ -459,11 +655,24 @@ function doTransform(root, source, calleeNames) {
     holderDecl +
     transformed.slice(insertOffset)
 
-  // Step 3: append holder population + export at the end
+  // Step 4: append holder population + export at the end.
+  //
+  // The trailing `export { ... }` list includes:
+  //   - The holder (so wrapCallees can reassign entries on it)
+  //   - Every `export const NAME = <fn>` callee whose `export` keyword we
+  //     stripped in step 2 — re-exporting here keeps the user-facing API
+  //     unchanged (the module still exports NAME).
+  //
+  // `function_declaration` callees (whether bare or `export function foo()`)
+  // keep their original `export` keyword (or their separate `export { foo }`
+  // statement) — we don't need to re-export them.
   const assignments = calleesToTransform
     .map(name => `${HOLDER_NAME}.${name} = ${name};`)
     .join('\n')
-  const trailer = `\n${assignments}\nexport { ${HOLDER_NAME} };\n`
+  const reExportNames = calleesToTransform
+    .filter(name => constFns.has(name))
+  const exportList = [HOLDER_NAME, ...reExportNames].join(', ')
+  const trailer = `\n${assignments}\nexport { ${exportList} };\n`
   transformed = transformed + trailer
 
   return { transformedSource: transformed, holderName: HOLDER_NAME }
