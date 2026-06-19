@@ -473,3 +473,422 @@ export { main, add }
     )
   }, 30_000)
 })
+
+// ─── E2E: three new patterns (closes #262, #263, #276) ──────────────────────
+//
+// These tests exercise the FULL capture.js pipeline for the three callee
+// declaration patterns that the Red Team identified as silently failing
+// before this fix:
+//
+//   #262 — `export function foo() {}` (ESM — the most common idiom)
+//   #276 — `export const foo = () => {}` and `export const foo = function() {}` (ESM)
+//   #263 — bare-name calls in CJS (`function foo() {} + module.exports = { foo }`)
+//
+// Each test:
+//   1. Writes a fixture in the supported pattern
+//   2. Writes a manifest declaring `callees: [...]`
+//   3. Runs `node scripts/capture.js`
+//   4. Verifies the callee `.regret` file is created (proving interception)
+//   5. Verifies NO temp files are left behind
+//   6. Verifies the original source file is unmodified
+
+describe('E2E: capture.js intercepts callee in `export function foo()` module (issue #262)', () => {
+  const tmpDir = makeTmpDir('export_fn')
+
+  before(() => {
+    // The MOST COMMON ESM idiom — used to be silently skipped by the
+    // transformer because `function_declaration` was wrapped in an
+    // `export_statement` node (not a direct child of the program node).
+    writeFileSync(join(tmpDir, 'api.mjs'), `
+export function add(a, b) { return a + b }
+export function main(x) { return add(x, 1) }
+`)
+
+    writeManifest(tmpDir, [
+      {
+        id: 'main',
+        entry: 'main',
+        file: './api.mjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [5],
+        watches: [],
+        callees: ['add'],
+      },
+    ])
+  })
+
+  after(() => {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('capture.js intercepts the callee and writes both .regret files', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.equal(result.exitCode, 0, `capture should exit 0\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+
+    const regretFiles = listRegretFiles(tmpDir)
+    assert.ok(
+      regretFiles.includes('main.regret'),
+      `parent .regret file should exist; got: ${regretFiles.join(', ')}`
+    )
+    assert.ok(
+      regretFiles.includes('main.calls.add.regret'),
+      `callee .regret file should exist (proving the \`export function foo()\` callee was intercepted); got: ${regretFiles.join(', ')}`
+    )
+
+    // Verify the callee .regret file content
+    const calleeContent = readFileSync(join(tmpDir, 'regrets', 'main.calls.add.regret'), 'utf8')
+    assert.ok(calleeContent.includes('cluster: main.calls.add'), 'callee regret has correct cluster id')
+    assert.ok(calleeContent.includes('parent: main'), 'callee regret has parent reference')
+    assert.ok(calleeContent.includes('callee: add'), 'callee regret has callee name')
+    // The golden call should be add(5, 1) → 6
+    assert.ok(calleeContent.includes('INPUT  [5,1]'), 'callee regret records args [5, 1]')
+    assert.ok(calleeContent.includes('OUTPUT 6'), 'callee regret records result 6')
+  })
+
+  it('capture.js stdout mentions the ESM transform was applied', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.ok(
+      result.stdout.includes('ESM bare-name transform applied'),
+      `stdout should mention transform applied; got: ${result.stdout}`
+    )
+  })
+
+  it('no temp files left behind after capture', () => {
+    // Re-run to make sure cleanup happens
+    runCaptureCli(tmpDir)
+    const tempFiles = listTempTransformFiles(tmpDir)
+    assert.deepEqual(tempFiles, [], `no temp files; got: ${tempFiles.join(', ')}`)
+  })
+
+  it('original source file is unmodified after capture', () => {
+    const source = readFileSync(join(tmpDir, 'api.mjs'), 'utf8')
+    assert.ok(source.includes('export function add(a, b) { return a + b }'),
+      'original export function add() declaration should be unchanged')
+    assert.ok(source.includes('export function main(x) { return add(x, 1) }'),
+      'original export function main() declaration should be unchanged')
+    assert.ok(!source.includes('__regretsHolder'),
+      'no __regretsHolder should leak into the original source')
+  })
+})
+
+describe('E2E: capture.js intercepts callee in `export const foo = () => {}` module (issue #276)', () => {
+  const tmpDir = makeTmpDir('export_const_arrow')
+
+  before(() => {
+    // The SKILL.md previously CLAIMED this worked, but it actually threw
+    // "Cannot assign to read only property" because ESM namespace properties
+    // set via `export const` are non-writable. The fix strips the `export`
+    // keyword and re-exports via a trailing `export { ..., __regretsHolder }`
+    // list, which keeps the property writable.
+    writeFileSync(join(tmpDir, 'api.mjs'), `
+export const add = (a, b) => a + b
+export const main = (x) => add(x, 1)
+`)
+
+    writeManifest(tmpDir, [
+      {
+        id: 'main',
+        entry: 'main',
+        file: './api.mjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [5],
+        watches: [],
+        callees: ['add'],
+      },
+    ])
+  })
+
+  after(() => {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('capture.js intercepts the callee and writes both .regret files', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.equal(result.exitCode, 0, `capture should exit 0\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+
+    const regretFiles = listRegretFiles(tmpDir)
+    assert.ok(
+      regretFiles.includes('main.calls.add.regret'),
+      `callee .regret file should exist (proving the \`export const foo = () => {}\` callee was intercepted); got: ${regretFiles.join(', ')}`
+    )
+
+    const calleeContent = readFileSync(join(tmpDir, 'regrets', 'main.calls.add.regret'), 'utf8')
+    assert.ok(calleeContent.includes('cluster: main.calls.add'), 'callee regret has correct cluster id')
+    assert.ok(calleeContent.includes('INPUT  [5,1]'), 'callee regret records args [5, 1]')
+    assert.ok(calleeContent.includes('OUTPUT 6'), 'callee regret records result 6')
+  })
+
+  it('capture.js stdout mentions the ESM transform was applied', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.ok(
+      result.stdout.includes('ESM bare-name transform applied'),
+      `stdout should mention transform applied; got: ${result.stdout}`
+    )
+  })
+
+  it('no temp files left behind', () => {
+    runCaptureCli(tmpDir)
+    const tempFiles = listTempTransformFiles(tmpDir)
+    assert.deepEqual(tempFiles, [], `no temp files; got: ${tempFiles.join(', ')}`)
+  })
+
+  it('original source file is unmodified', () => {
+    const source = readFileSync(join(tmpDir, 'api.mjs'), 'utf8')
+    assert.ok(source.includes('export const add = (a, b) => a + b'),
+      'original export const add declaration should be unchanged')
+    assert.ok(!source.includes('__regretsHolder'),
+      'no __regretsHolder should leak into the original source')
+  })
+})
+
+describe('E2E: capture.js intercepts callee in `export const foo = function() {}` module (issue #276 variant)', () => {
+  const tmpDir = makeTmpDir('export_const_fn')
+
+  before(() => {
+    writeFileSync(join(tmpDir, 'api.mjs'), `
+export const add = function(a, b) { return a + b }
+export const main = function(x) { return add(x, 1) }
+`)
+
+    writeManifest(tmpDir, [
+      {
+        id: 'main',
+        entry: 'main',
+        file: './api.mjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [5],
+        watches: [],
+        callees: ['add'],
+      },
+    ])
+  })
+
+  after(() => {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('capture.js intercepts the callee and writes both .regret files', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.equal(result.exitCode, 0, `capture should exit 0\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+
+    const regretFiles = listRegretFiles(tmpDir)
+    assert.ok(
+      regretFiles.includes('main.calls.add.regret'),
+      `callee .regret file should exist; got: ${regretFiles.join(', ')}`
+    )
+
+    const calleeContent = readFileSync(join(tmpDir, 'regrets', 'main.calls.add.regret'), 'utf8')
+    assert.ok(calleeContent.includes('INPUT  [5,1]'), 'callee regret records args [5, 1]')
+    assert.ok(calleeContent.includes('OUTPUT 6'), 'callee regret records result 6')
+  })
+})
+
+describe('E2E: capture.js intercepts bare-name callee in CJS module (issue #263)', () => {
+  const tmpDir = makeTmpDir('cjs_bare_name')
+
+  before(() => {
+    // The classic CJS pattern that BROKE before this fix:
+    //   function add() {} is a local binding
+    //   main() calls add() — resolves to the local binding, not module.exports.add
+    //   wrapCallees reassigned module.exports.add = proxy, but the internal call
+    //   never saw it. The warning "declared but never called during capture"
+    //   was misleading — the callee WAS called, just not intercepted.
+    writeFileSync(join(tmpDir, 'api.cjs'), `
+function add(a, b) { return a + b }
+function mul(a, b) { return a * b }
+function main(x) { return add(x, mul(x, 2)) }
+module.exports = { main, add, mul }
+`)
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({
+      name: 'cjs-bare-name-test',
+      version: '0.0.0',
+    }))
+
+    writeManifest(tmpDir, [
+      {
+        id: 'main',
+        entry: 'main',
+        file: './api.cjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [5],
+        watches: [],
+        callees: ['add', 'mul'],
+      },
+    ])
+  })
+
+  after(() => {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('capture.js intercepts both bare-name callees and writes their .regret files', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.equal(result.exitCode, 0, `capture should exit 0\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+
+    const regretFiles = listRegretFiles(tmpDir)
+    assert.ok(
+      regretFiles.includes('main.regret'),
+      `parent .regret should exist; got: ${regretFiles.join(', ')}`
+    )
+    assert.ok(
+      regretFiles.includes('main.calls.add.regret'),
+      `add callee .regret should exist (proving CJS bare-name interception now works); got: ${regretFiles.join(', ')}`
+    )
+    assert.ok(
+      regretFiles.includes('main.calls.mul.regret'),
+      `mul callee .regret should exist; got: ${regretFiles.join(', ')}`
+    )
+
+    // main(5) = add(5, mul(5, 2)) = add(5, 10) = 15
+    // The callee contracts should record these intermediate values.
+    const addContent = readFileSync(join(tmpDir, 'regrets', 'main.calls.add.regret'), 'utf8')
+    assert.ok(addContent.includes('cluster: main.calls.add'), 'add callee regret has correct cluster id')
+    assert.ok(addContent.includes('INPUT  [5,10]'), 'add callee regret records args [5, 10] (5 from main, 10 from mul)')
+    assert.ok(addContent.includes('OUTPUT 15'), 'add callee regret records result 15')
+
+    const mulContent = readFileSync(join(tmpDir, 'regrets', 'main.calls.mul.regret'), 'utf8')
+    assert.ok(mulContent.includes('cluster: main.calls.mul'), 'mul callee regret has correct cluster id')
+    assert.ok(mulContent.includes('INPUT  [5,2]'), 'mul callee regret records args [5, 2]')
+    assert.ok(mulContent.includes('OUTPUT 10'), 'mul callee regret records result 10')
+  })
+
+  it('capture.js stdout mentions the CJS transform was applied', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.ok(
+      result.stdout.includes('CJS bare-name transform applied'),
+      `stdout should mention CJS transform applied; got: ${result.stdout}`
+    )
+  })
+
+  it('no temp files left behind after CJS capture', () => {
+    runCaptureCli(tmpDir)
+    const tempFiles = listTempTransformFiles(tmpDir)
+    assert.deepEqual(tempFiles, [], `no temp files; got: ${tempFiles.join(', ')}`)
+  })
+
+  it('original CJS source file is unmodified after capture', () => {
+    const source = readFileSync(join(tmpDir, 'api.cjs'), 'utf8')
+    assert.ok(source.includes('function add(a, b) { return a + b }'),
+      'original function add declaration should be unchanged')
+    assert.ok(source.includes('function main(x) { return add(x, mul(x, 2)) }'),
+      'original function main declaration should be unchanged (bare-name calls preserved)')
+    assert.ok(source.includes('module.exports = { main, add, mul }'),
+      'module.exports statement should be unchanged')
+    assert.ok(!source.includes('__regretsHolder'),
+      'no __regretsHolder should leak into the original source')
+  })
+})
+
+describe('E2E: capture.js intercepts bare-name callee in CJS module with const arrow (issue #263 variant)', () => {
+  const tmpDir = makeTmpDir('cjs_const_arrow')
+
+  before(() => {
+    writeFileSync(join(tmpDir, 'api.cjs'), `
+const add = (a, b) => a + b
+const main = (x) => add(x, 1)
+module.exports = { main, add }
+`)
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({
+      name: 'cjs-const-arrow-test',
+      version: '0.0.0',
+    }))
+
+    writeManifest(tmpDir, [
+      {
+        id: 'main',
+        entry: 'main',
+        file: './api.cjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [5],
+        watches: [],
+        callees: ['add'],
+      },
+    ])
+  })
+
+  after(() => {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('capture.js intercepts the callee and writes both .regret files', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.equal(result.exitCode, 0, `capture should exit 0\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+
+    const regretFiles = listRegretFiles(tmpDir)
+    assert.ok(
+      regretFiles.includes('main.calls.add.regret'),
+      `callee .regret should exist for const-arrow CJS pattern; got: ${regretFiles.join(', ')}`
+    )
+
+    const calleeContent = readFileSync(join(tmpDir, 'regrets', 'main.calls.add.regret'), 'utf8')
+    assert.ok(calleeContent.includes('INPUT  [5,1]'), 'callee regret records args [5, 1]')
+    assert.ok(calleeContent.includes('OUTPUT 6'), 'callee regret records result 6')
+  })
+})
+
+describe('E2E: CJS module with module.exports.foo() calls does NOT trigger transform', () => {
+  // Sanity check: the existing CJS pattern (using `module.exports.foo(...)`
+  // explicitly) already works without source transformation. capture.js
+  // should NOT apply the CJS transform in this case (no bare-name calls to
+  // rewrite). This preserves backward compatibility with PR #243.
+  const tmpDir = makeTmpDir('cjs_module_exports')
+
+  before(() => {
+    writeFileSync(join(tmpDir, 'api.cjs'), `
+function add(a, b) { return a + b }
+function main(x) { return module.exports.add(x, 1) }
+module.exports = { main, add }
+`)
+    writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({
+      name: 'cjs-module-exports-test',
+      version: '0.0.0',
+    }))
+
+    writeManifest(tmpDir, [
+      {
+        id: 'main',
+        entry: 'main',
+        file: './api.cjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [5],
+        watches: [],
+        callees: ['add'],
+      },
+    ])
+  })
+
+  after(() => {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('capture.js intercepts via the existing module.exports path (no transform needed)', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.equal(result.exitCode, 0, `capture should exit 0\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+
+    const regretFiles = listRegretFiles(tmpDir)
+    assert.ok(
+      regretFiles.includes('main.calls.add.regret'),
+      `callee .regret should exist (existing module.exports path still works); got: ${regretFiles.join(', ')}`
+    )
+  })
+
+  it('capture.js does NOT mention CJS transform for module.exports.foo modules', () => {
+    const result = runCaptureCli(tmpDir)
+    assert.ok(
+      !result.stdout.includes('CJS bare-name transform applied'),
+      `CJS capture should NOT trigger transform when there are no bare-name calls; got: ${result.stdout}`
+    )
+  })
+
+  it('no temp files created', () => {
+    runCaptureCli(tmpDir)
+    const tempFiles = listTempTransformFiles(tmpDir)
+    assert.deepEqual(tempFiles, [], `no temp files; got: ${tempFiles.join(', ')}`)
+  })
+})

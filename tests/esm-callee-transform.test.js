@@ -545,6 +545,278 @@ module.exports = { main, add }
   })
 })
 
+// ─── New patterns: export function, export const arrow/function ────────────
+//
+// Closes #262 (export function foo() {}) and #276 (export const foo = () => {}).
+// These patterns are the most common ESM idioms in real-world code and used
+// to be silently skipped by the transformer.
+
+describe('transformEsmForCallees — export function foo() (issue #262)', () => {
+  it('transforms `export function foo() {}` — the most common ESM idiom', async () => {
+    const source = `
+export function add(a, b) { return a + b }
+export function main(x) { return add(x, 1) }
+`
+    const result = await transformEsmForCallees(source, ['add'], '.mjs')
+    assert.ok(result, 'transform should succeed for `export function foo()`')
+
+    // Internal call should be rewritten
+    assert.ok(
+      result.transformedSource.includes(`${HOLDER_NAME}.add(x, 1)`),
+      'internal call should be rewritten to use holder'
+    )
+
+    // The export function declarations should be preserved in place
+    assert.ok(result.transformedSource.includes('export function add(a, b)'), 'add declaration preserved')
+    assert.ok(result.transformedSource.includes('export function main(x)'), 'main declaration preserved')
+
+    // Holder declared + populated + exported
+    assert.ok(result.transformedSource.includes(`const ${HOLDER_NAME} = {}`), 'holder declaration present')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.add = add`), 'holder populated with add reference')
+    assert.ok(result.transformedSource.includes(`export { ${HOLDER_NAME} }`), 'holder exported')
+  })
+
+  it('transforms `export async function foo() {}`', async () => {
+    const source = `
+export async function fetchData(url) { return 'response:' + url }
+export async function main(url) { return await fetchData(url) }
+`
+    const result = await transformEsmForCallees(source, ['fetchData'], '.mjs')
+    assert.ok(result, 'transform should succeed for `export async function foo()`')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.fetchData(url)`), 'internal call rewritten')
+    assert.ok(result.transformedSource.includes('export async function fetchData'), 'declaration preserved')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.fetchData = fetchData`), 'holder populated')
+  })
+
+  it('transforms `export function* foo() {}` (generator)', async () => {
+    const source = `
+export function* gen() { yield 1; yield 2 }
+export function main() { return [...gen()] }
+`
+    const result = await transformEsmForCallees(source, ['gen'], '.mjs')
+    assert.ok(result, 'transform should succeed for `export function* foo()`')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.gen()`), 'internal call rewritten')
+    assert.ok(result.transformedSource.includes('export function* gen'), 'declaration preserved')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.gen = gen`), 'holder populated')
+  })
+
+  it('handles mixed: `export function foo` + bare `function main` + `export { main }`', async () => {
+    const source = `
+export function add(a, b) { return a + b }
+function main(x) { return add(x, 1) }
+export { main }
+`
+    const result = await transformEsmForCallees(source, ['add'], '.mjs')
+    assert.ok(result, 'mixed export patterns should work')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.add(x, 1)`), 'internal call rewritten')
+    assert.ok(result.transformedSource.includes('export function add'), 'export function preserved')
+    assert.ok(result.transformedSource.includes('function main'), 'bare function preserved')
+    assert.ok(result.transformedSource.includes('export { main }'), 'bare export preserved')
+  })
+
+  it('E2E: intercepts bare-name callee in `export function foo()` module', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'regrets-esm-export-fn-'))
+    try {
+      const source = `
+export function add(a, b) { return a + b }
+export function main(x) { return add(x, 1) }
+`
+      const transformResult = await transformEsmForCallees(source, ['add'], '.mjs')
+      assert.ok(transformResult)
+      const tempPath = join(tmpDir, '.regrets-tmp-export-fn.mjs')
+      writeFileSync(tempPath, transformResult.transformedSource, 'utf8')
+      try {
+        const mod = await import(pathToFileURL(tempPath).href)
+        assert.equal(mod.main(5), 6, 'main return value correct without wrap')
+
+        const recorder = []
+        const cleanup = wrapCallees(mod, ['add'], recorder, { parentClusterId: 'main', quiet: true })
+        try {
+          const result = mod.main(41)
+          assert.equal(result, 42)
+          assert.equal(recorder.length, 1)
+          assert.equal(recorder[0].fn, 'add')
+          assert.deepEqual(recorder[0].args, [41, 1])
+          assert.equal(recorder[0].result, 42)
+        } finally {
+          cleanup()
+        }
+      } finally {
+        try { rmSync(tempPath, { force: true }) } catch {}
+      }
+    } finally {
+      try { rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+    }
+  })
+})
+
+describe('transformEsmForCallees — export const foo = () => {} (issue #276)', () => {
+  it('transforms `export const foo = () => {}` (arrow function)', async () => {
+    const source = `
+export const add = (a, b) => a + b
+export const main = (x) => add(x, 1)
+`
+    const result = await transformEsmForCallees(source, ['add'], '.mjs')
+    assert.ok(result, 'transform should succeed for `export const foo = () => {}`')
+
+    // Internal call should be rewritten
+    assert.ok(
+      result.transformedSource.includes(`${HOLDER_NAME}.add(x, 1)`),
+      'internal call should be rewritten to use holder'
+    )
+
+    // The `export` keyword should be stripped from the callee declaration,
+    // turning `export const add = ...` into `const add = ...`
+    assert.ok(result.transformedSource.includes('const add = (a, b) => a + b'), 'add declaration kept (export stripped)')
+    assert.ok(!result.transformedSource.match(/export\s+const\s+add\s*=/), 'export keyword removed from add')
+
+    // The `export` keyword should be preserved for non-callee declarations
+    assert.ok(result.transformedSource.includes('export const main ='), 'main export preserved (we did not strip it)')
+
+    // Holder declared + populated + callee re-exported via trailing export list
+    assert.ok(result.transformedSource.includes(`const ${HOLDER_NAME} = {}`), 'holder declaration present')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.add = add`), 'holder populated with add reference')
+    assert.ok(
+      result.transformedSource.includes(`export { ${HOLDER_NAME}, add }`),
+      'holder AND add re-exported via trailing export list'
+    )
+  })
+
+  it('transforms `export const foo = function() {}` (function expression)', async () => {
+    const source = `
+export const add = function(a, b) { return a + b }
+export const main = function(x) { return add(x, 1) }
+`
+    const result = await transformEsmForCallees(source, ['add'], '.mjs')
+    assert.ok(result, 'transform should succeed for `export const foo = function() {}`')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.add(x, 1)`), 'internal call rewritten')
+    assert.ok(result.transformedSource.includes('const add = function(a, b)'), 'function expression declaration kept (export stripped)')
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.add = add`), 'holder populated')
+    assert.ok(result.transformedSource.includes(`export { ${HOLDER_NAME}, add }`), 'trailing export list includes add')
+  })
+
+  it('does NOT strip export from non-callee `export const` declarations', async () => {
+    // The user declares both `add` (callee) and `mul` (NOT a callee).
+    // We should only strip `export` from `add`, not from `mul`.
+    const source = `
+export const add = (a, b) => a + b
+export const mul = (a, b) => a * b
+export const main = (x) => add(x, mul(x, 2))
+`
+    const result = await transformEsmForCallees(source, ['add'], '.mjs')
+    assert.ok(result)
+    // add's export stripped
+    assert.ok(result.transformedSource.includes('const add = (a, b) => a + b'))
+    assert.ok(!result.transformedSource.match(/export\s+const\s+add\s*=/))
+    // mul's export PRESERVED (we didn't ask to transform mul)
+    assert.ok(result.transformedSource.includes('export const mul = (a, b) => a * b'),
+      'mul (non-callee) export should NOT be stripped')
+    // main's export PRESERVED
+    assert.ok(result.transformedSource.includes('export const main ='),
+      'main (non-callee) export should NOT be stripped')
+    // Only `add` (callee) is in the trailing re-export list alongside the holder
+    assert.ok(result.transformedSource.includes(`export { ${HOLDER_NAME}, add }`),
+      'trailing export list should contain only holder + callee names whose export we stripped')
+  })
+
+  it('E2E: intercepts bare-name callee in `export const foo = () => {}` module', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'regrets-esm-export-const-arrow-'))
+    try {
+      const source = `
+export const add = (a, b) => a + b
+export const main = (x) => add(x, 1)
+`
+      const transformResult = await transformEsmForCallees(source, ['add'], '.mjs')
+      assert.ok(transformResult)
+      const tempPath = join(tmpDir, '.regrets-tmp-export-const-arrow.mjs')
+      writeFileSync(tempPath, transformResult.transformedSource, 'utf8')
+      try {
+        const mod = await import(pathToFileURL(tempPath).href)
+        // Verify the export surface is preserved (mod.add is still accessible)
+        assert.equal(typeof mod.add, 'function', 'mod.add should still be exported')
+        assert.equal(typeof mod.main, 'function', 'mod.main should still be exported')
+        assert.equal(mod.main(5), 6, 'main return value correct without wrap')
+
+        const recorder = []
+        const cleanup = wrapCallees(mod, ['add'], recorder, { parentClusterId: 'main', quiet: true })
+        try {
+          const result = mod.main(41)
+          assert.equal(result, 42)
+          assert.equal(recorder.length, 1, 'add should be intercepted exactly once')
+          assert.equal(recorder[0].fn, 'add')
+          assert.deepEqual(recorder[0].args, [41, 1])
+          assert.equal(recorder[0].result, 42)
+        } finally {
+          cleanup()
+        }
+
+        // After cleanup, mod.add should still be accessible and behave normally
+        assert.equal(mod.main(10), 11)
+      } finally {
+        try { rmSync(tempPath, { force: true }) } catch {}
+      }
+    } finally {
+      try { rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+    }
+  })
+
+  it('E2E: intercepts bare-name callee in `export const foo = function() {}` module', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'regrets-esm-export-const-fn-'))
+    try {
+      const source = `
+export const add = function(a, b) { return a + b }
+export const main = function(x) { return add(x, 1) }
+`
+      const transformResult = await transformEsmForCallees(source, ['add'], '.mjs')
+      assert.ok(transformResult)
+      const tempPath = join(tmpDir, '.regrets-tmp-export-const-fn.mjs')
+      writeFileSync(tempPath, transformResult.transformedSource, 'utf8')
+      try {
+        const mod = await import(pathToFileURL(tempPath).href)
+        assert.equal(typeof mod.add, 'function')
+        assert.equal(mod.main(5), 6)
+
+        const recorder = []
+        const cleanup = wrapCallees(mod, ['add'], recorder, { parentClusterId: 'main', quiet: true })
+        try {
+          const result = mod.main(41)
+          assert.equal(result, 42)
+          assert.equal(recorder.length, 1)
+          assert.deepEqual(recorder[0].args, [41, 1])
+          assert.equal(recorder[0].result, 42)
+        } finally {
+          cleanup()
+        }
+      } finally {
+        try { rmSync(tempPath, { force: true }) } catch {}
+      }
+    } finally {
+      try { rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+    }
+  })
+
+  it('handles multiple `export const` callees simultaneously', async () => {
+    const source = `
+export const add = (a, b) => a + b
+export const mul = (a, b) => a * b
+export const main = (x) => add(x, mul(x, 2))
+`
+    const result = await transformEsmForCallees(source, ['add', 'mul'], '.mjs')
+    assert.ok(result)
+    // Both callees' exports stripped
+    assert.ok(result.transformedSource.includes('const add = (a, b) => a + b'))
+    assert.ok(result.transformedSource.includes('const mul = (a, b) => a * b'))
+    // Both internal calls rewritten
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.mul(x, 2)`))
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.add(x,`))
+    // Both holders populated
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.add = add`))
+    assert.ok(result.transformedSource.includes(`${HOLDER_NAME}.mul = mul`))
+    // Trailing export includes both callees
+    assert.ok(result.transformedSource.includes(`export { ${HOLDER_NAME}, add, mul }`))
+  })
+})
+
 // ─── ESM temp file lifecycle ────────────────────────────────────────────────
 //
 // Tests for the process-wide temp file registry + signal handlers that

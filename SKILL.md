@@ -141,12 +141,67 @@ Before Phase 2:                  After Phase 2 (with "callees": ["a","b"]):
 
 1. **Opt-in.** When `callees` is absent or empty, capture.js behaves identically to the pre-Phase-2 Ghost Proxy. No new files, no warnings, no overhead.
 2. **Depth 1.** Only the named callees are wrapped. If callee `a` itself calls `b`, that nested call is recorded as part of `a`'s execution (it does NOT spawn a `c.calls.a.calls.b` cluster).
-3. **Accessible callees only.** The callee must be resolvable as `module.exports[calleeName]` (CJS) or `mod[calleeName]` (mutable namespace). Closure-private functions are NOT interceptable — `wrapCallees` logs a warning and skips them. The parent cluster is still captured normally. **ESM bare-name `function` declarations are now interceptable** via automatic in-memory source transformation (see "ESM bare-name callees" below) — when transformation is not possible (e.g. shadowing, parse errors), `wrapCallees` falls back to a warning and skips.
+3. **Accessible callees only.** The callee must be a top-level function-bearing declaration in one of the supported patterns (see "Supported Callee Patterns" below). Closure-private functions, class methods, and destructured exports are NOT interceptable — `wrapCallees` logs an actionable warning and skips them. The parent cluster is still captured normally. **ESM `export function`, `export async function`, `export function*`, `export const` arrow/function expressions, and CJS bare-name calls are now interceptable** via automatic in-memory source transformation (see "Supported Callee Patterns" below) — when transformation is not possible (e.g. shadowing, parse errors), `wrapCallees` falls back to a warning and skips.
 4. **Backward compatible.** The `.regret` file format is unchanged. Callee `.regret` files use the same format with two extra metadata lines (`parent:` and `callee:`). `validate.js` re-validates each `.calls.*` contract by re-running the callee with its saved args and comparing the hash — this catches callee regressions that preserve the parent's output (a core security guarantee of Phase 2). Use `--skip-callees` to opt out entirely.
 
    **Update propagation (#284).** `regret update <parent>` also re-captures and updates all `<parent>.calls.*.regret` files for that parent, so the next `regret validate` does not report stale callee failures after a confirmed behavior change. Direct `regret update <parent>.calls.<callee>` is rejected — callee contracts are derived from the parent's inputs, so update the parent (or re-capture) instead. `regret validate --cluster <parent>` includes `<parent>.calls.*` re-validation so single-cluster debugging does not produce false GREENs.
 
    **Missing callee detection (#288).** If a parent declares `callees: [...]` but a `<parent>.calls.<callee>.regret` file is missing (e.g. capture was never run, callee wrapping failed silently, or the file was deleted manually), `regret validate` FAILs the parent with a clear message listing the missing contracts and pointing to `regret capture --cluster <parent>` as the fix. `--skip-callees` opts out of this check too.
+
+### Supported Callee Patterns
+
+The source transformer (`scripts/esm-callee-transform.js` for ESM, `scripts/cjs-callee-transform.js` for CJS) handles these top-level callee declaration shapes. The original source is NEVER modified — the transformed source lives only in a temp file (same directory, deleted after capture).
+
+**ESM patterns (in `.mjs`, or `.js`/`.ts`/`.tsx` with ESM syntax):**
+
+```js
+// Pattern 1: bare function declaration + separate export (was already supported)
+function add(a, b) { return a + b }
+function main(x) { return add(x, 1) }
+export { main, add }
+
+// Pattern 2: `export function foo()` — the most common ESM idiom
+//            (was silently skipped — issue #262 — now supported)
+export function add(a, b) { return a + b }
+export function main(x) { return add(x, 1) }
+
+// Pattern 3: `export async function foo()` and `export function* foo()`
+//            (now supported)
+export async function fetchData(url) { return fetch(url) }
+export function* gen() { yield 1 }
+
+// Pattern 4: `export const foo = () => {}` and `export const foo = function() {}`
+//            (was claimed to work but actually threw "Cannot assign to read
+//            only property" — issue #276 — now supported)
+export const add = (a, b) => a + b
+export const main = (x) => add(x, 1)
+```
+
+**CJS patterns (in `.cjs`, or `.js` with CJS syntax):**
+
+```js
+// Pattern 5: bare function declarations + module.exports
+//            (was silently invisible — issue #263 — now supported)
+function add(a, b) { return a + b }
+function main(x) { return add(x, 1) }
+module.exports = { main, add }
+
+// Pattern 6: const arrow / function expressions + module.exports
+//            (now supported)
+const add = (a, b) => a + b
+const main = (x) => add(x, 1)
+module.exports = { main, add }
+```
+
+**Already supported without source transformation:**
+
+```js
+// CJS using `module.exports.foo(...)` calls — wrapCallees intercepts
+// directly via the live holder mechanism, no transform needed.
+function add(a, b) { return a + b }
+function main(x) { return module.exports.add(x, 1) }
+module.exports = { main, add }
+```
 
 **Manifest example:**
 
@@ -177,21 +232,48 @@ module.exports.main = function (x) {
 }
 ```
 
-**Subject file pattern (ESM bare-name — NOW INTERCEPTABLE via auto-transform):**
+**Subject file pattern (ESM `export function` — NOW INTERCEPTABLE):**
 
 ```js
-// src/api.mjs — bare-name ESM declarations
+// src/api.mjs — the most common ESM idiom
 // When capture.js detects this pattern AND the cluster declares `callees`,
 // it transparently rewrites the source in-memory so internal `add(x, 1)`
 // calls route through a mutable `__regretsHolder` object that wrapCallees
 // can reassign. The original file is NEVER modified — the transformed
 // source lives only in a temp file (same directory, deleted after capture).
-function add(a, b) { return a + b }
-function main(x) { return add(x, 1) }
-export { main, add }
+export function add(a, b) { return a + b }
+export function main(x) { return add(x, 1) }
 ```
 
-**When ESM auto-transform aborts (Approach B fallback):**
+**Subject file pattern (ESM `export const foo = () => {}` — NOW INTERCEPTABLE):**
+
+```js
+// src/api.mjs — arrow function exports
+// The transformer strips the inline `export` keyword from callee
+// declarations (turning `export const add = ...` into `const add = ...`)
+// and re-exports them via a trailing `export { ..., __regretsHolder }`
+// list. This works around the ESM "Cannot assign to read only property"
+// error that would otherwise fire when wrapCallees reassigns the holder
+// entry. The user-facing API is unchanged — the module still exports
+// `add` — but the binding is resolved via the trailing export list.
+export const add = (a, b) => a + b
+export const main = (x) => add(x, 1)
+```
+
+**Subject file pattern (CJS bare-name calls — NOW INTERCEPTABLE):**
+
+```js
+// src/api.cjs — the classic CJS pattern that used to silently fail
+// The transformer rewrites bare-name internal calls (`add(x, 1)`) to
+// route through `__regretsHolder.add(x, 1)`. The existing
+// `module.exports.add(x, 1)` calls (if any) are left unchanged —
+// they already work without transformation.
+function add(a, b) { return a + b }
+function main(x) { return add(x, 1) }
+module.exports = { main, add }
+```
+
+**When source transform aborts (Approach B fallback):**
 
 The transformer is conservative — it aborts (and `wrapCallees` falls back to
 an actionable warning) when any of these safety concerns are detected:
@@ -199,21 +281,25 @@ an actionable warning) when any of these safety concerns are detected:
 - A callee name is **shadowed** anywhere in the file (parameter name,
   destructuring pattern, or inner `let`/`const` declaration). Rewriting
   calls in that case could change semantics.
-- The callee is not a top-level `function_declaration` (e.g. it's a
-  `const add = () => ...` arrow function export). Arrow-function export
-  transformation is not yet supported.
+- The callee is not a transformable top-level function-bearing declaration
+  (e.g. it's a class method, a nested function, or a destructured export).
 - The file cannot be parsed by tree-sitter, or the language is unsupported.
-- There are no internal calls to rewrite (the entry function doesn't
-  actually call the callee).
+- For CJS: there are no bare-name internal calls to rewrite (the user only
+  uses `module.exports.foo(...)` calls — those already work without
+  transformation, so the transform is a no-op and we skip it).
 
 When the transformer aborts, `wrapCallees` emits a warning like:
 
 ```
-⚠️  Callee "add" found but module is frozen (ESM namespace) — could not install proxy
-    ESM bare-name function declarations cannot be intercepted directly.
+⚠️  Callee "add" found but module is frozen (no mutable holder available) — could not install proxy
+    This means the source transform was aborted (shadowing, parse error, unsupported
+    pattern) AND the module's namespace is frozen (ESM) or its internal calls
+    resolve to local bindings rather than a holder wrapCallees can intercept.
     Options to enable callee wrapping:
-      1. Refactor:  function add() { ... }  →  export const add = () => { ... }
-      2. Convert the module to CommonJS:  module.exports.add = ...
+      1. Refactor to a supported pattern (see list above) and ensure the callee
+         name is not shadowed anywhere in the file.
+      2. For CJS: call the callee via `module.exports.add(...)` instead
+         of the bare name — this works without source transformation.
     The callee is skipped; the parent cluster is still captured.
 ```
 
@@ -329,7 +415,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `seed` | ❌ | Integer seed for deterministic `Math.random()` — replaces Math.random with mulberry32 PRNG for the duration of the function call, then restores. Eliminates drift in functions using random numbers. |
 | `autoIncrement` | ❌ | Add to `normalize` array to replace auto-incrementing ID patterns: `"b1"` → `"b<ID>"`, small integers (1-9999) → `"<ID>"`. Use when `resetState` alone isn't sufficient. |
 | `trackState` | ❌ | Array of attribute names to track on the object before/after the call (e.g., `["_len", "_cache_complete"]`). Detects internal state mutations that `trackMutation` can't see. See `references/datetime-stateful-patterns.md`. |
-| `callees` | ❌ | **Phase 2 (opt-in)** — Array of function names to wrap inside the entry function so each callee's `(args, result)` is captured as its own behavioral contract under cluster id `<parentClusterId>.calls.<calleeName>`. Depth 1 only (no recursive wrapping). Accessible callees only — closure-private or non-exported functions are skipped with a warning. Callee must be reachable via `module.exports.foo(...)` (CJS), `mod.foo(...)` (mutable namespace), OR via the auto-generated `__regretsHolder` for ESM bare-name `function` declarations (capture.js transparently rewrites ESM source in-memory to route internal calls through a mutable holder; the original file is never modified). When the ESM transform aborts (shadowing, arrow-function exports, parse errors), `wrapCallees` falls back to an actionable warning and skips. Backward compatible: when omitted or empty, behavior is identical to the pre-Phase-2 Ghost Proxy. |
+| `callees` | ❌ | **Phase 2 (opt-in)** — Array of function names to wrap inside the entry function so each callee's `(args, result)` is captured as its own behavioral contract under cluster id `<parentClusterId>.calls.<calleeName>`. Depth 1 only (no recursive wrapping). Accessible callees only — closure-private, class-method, and destructured-export callees are skipped with an actionable warning. Supported declaration patterns (capture.js transparently rewrites source in-memory to route internal calls through a mutable `__regretsHolder`; the original file is never modified): ESM `function foo(){}` / `export function foo(){}` / `export async function foo(){}` / `export function* foo(){}` / `export const foo = () => {}` / `export const foo = function(){}`; CJS `function foo(){}` / `const foo = () => {}` / `const foo = function(){}` (paired with `module.exports = { foo }`). When the source transform aborts (shadowing, parse errors, unsupported patterns), `wrapCallees` falls back to an actionable warning and skips. Backward compatible: when omitted or empty, behavior is identical to the pre-Phase-2 Ghost Proxy. |
 
 ---
 

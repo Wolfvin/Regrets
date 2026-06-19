@@ -459,26 +459,34 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
       // Emit a specific, actionable warning. Two cases:
       //   1. The module exposes our `__regretsHolder` but the callee isn't
       //      on it — this happens when the transformer couldn't rewrite
-      //      this particular callee (e.g. it's not a function_declaration).
-      //      The fix is to convert it to a top-level function declaration.
+      //      this particular callee (e.g. it's a class method, a destructured
+      //      export, or a closure-private function). The fix is to refactor
+      //      to a top-level function declaration or `export const foo = ...`.
       //   2. The module is a plain frozen ESM namespace with no holder —
-      //      the user never opted into transformation (or it was aborted).
-      //      The fix is to refactor to `export const foo = ...` or use CJS.
+      //      the user never opted into transformation (or it was aborted
+      //      due to shadowing/parse errors). The fix is to remove the
+      //      shadowing or convert to a supported pattern.
       const hasHolder = !!(targetModule && typeof targetModule === 'object' &&
                           targetModule[holderName])
       if (hasHolder) {
-        console.warn(`  ⚠️  Callee "${calleeName}" could not be installed on the ESM holder "${holderName}" (cluster: ${parentClusterId})`)
-        console.warn(`      This typically means "${calleeName}" is not a top-level function_declaration in the source.`)
-        console.warn(`      Refactor to:  function ${calleeName}() { ... }  (top-level, exported)`)
+        console.warn(`  ⚠️  Callee "${calleeName}" could not be installed on the holder "${holderName}" (cluster: ${parentClusterId})`)
+        console.warn(`      This typically means "${calleeName}" is not a transformable top-level function.`)
+        console.warn(`      Supported ESM patterns:  function ${calleeName}() {} / export function ${calleeName}() {} /`)
+        console.warn(`                               export const ${calleeName} = () => {} / export const ${calleeName} = function() {}`)
+        console.warn(`      Supported CJS patterns:  function ${calleeName}() {} / const ${calleeName} = () => {} /`)
+        console.warn(`                               const ${calleeName} = function() {}`)
+        console.warn(`      Class methods, nested functions, and destructured exports are not yet supported.`)
         console.warn(`      The callee is skipped; the parent cluster is still captured.`)
       } else {
-        console.warn(`  ⚠️  Callee "${calleeName}" found but module is frozen (ESM namespace) — could not install proxy (cluster: ${parentClusterId})`)
-        console.warn(`      ESM bare-name function declarations cannot be intercepted directly.`)
-        console.warn(`      The internal call uses the local binding, not the module namespace.`)
+        console.warn(`  ⚠️  Callee "${calleeName}" found but module is frozen (no mutable holder available) — could not install proxy (cluster: ${parentClusterId})`)
+        console.warn(`      This means the source transform was aborted (shadowing, parse error, unsupported`)
+        console.warn(`      pattern) AND the module's namespace is frozen (ESM) or its internal calls`)
+        console.warn(`      resolve to local bindings rather than a holder wrapCallees can intercept.`)
         console.warn(`      Options to enable callee wrapping:`)
-        console.warn(`        1. Refactor:  function ${calleeName}() { ... }  →  export const ${calleeName} = () => { ... }`)
-        console.warn(`           (then re-run \`regret install\` to refresh the manifest)`)
-        console.warn(`        2. Convert the module to CommonJS:  module.exports.${calleeName} = ...`)
+        console.warn(`        1. Refactor to a supported pattern (see list above) and ensure the callee`)
+        console.warn(`           name is not shadowed anywhere in the file.`)
+        console.warn(`        2. For CJS: call the callee via \`module.exports.${calleeName}(...)\` instead`)
+        console.warn(`           of the bare name — this works without source transformation.`)
         console.warn(`      The callee is skipped; the parent cluster is still captured.`)
       }
     }
