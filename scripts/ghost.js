@@ -279,6 +279,7 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
   const {
     parentClusterId = '<unknown>',
     quiet = false,
+    holderName = '__regretsHolder',
   } = options
 
   const restores = []
@@ -299,12 +300,31 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
   //
   // For frozen ESM namespace objects, reassignment throws — we catch and
   // continue (the caller already warned about closure-private callees).
+  //
+  // ESM bare-name workaround: when capture.js detects an ESM module with
+  // callees declared, it transforms the source to introduce a mutable
+  // `__regretsHolder` object (name configurable via `holderName` option)
+  // and rewrites internal call sites to go through it. The holder is
+  // exported from the transformed module as a plain (non-frozen) object,
+  // so reassigning `holder.foo = proxy` works and internal calls see the
+  // proxy. We add the holder as a live holder so wrapCallees can intercept
+  // via it transparently.
   const liveHolders = [targetModule]
   if (targetModule && typeof targetModule === 'object' &&
       targetModule.default && typeof targetModule.default === 'object' &&
       !Array.isArray(targetModule.default) &&
       targetModule.default !== targetModule) {
     liveHolders.push(targetModule.default)
+  }
+  // ESM-transformed holder: a plain mutable object exported under
+  // `holderName`. If present, it's the primary interception point for
+  // internal calls — the namespace and default holders remain in the list
+  // for backward compatibility (they're no-ops on frozen namespaces).
+  if (targetModule && typeof targetModule === 'object' &&
+      targetModule[holderName] && typeof targetModule[holderName] === 'object' &&
+      !Array.isArray(targetModule[holderName]) &&
+      !Object.isFrozen(targetModule[holderName])) {
+    liveHolders.push(targetModule[holderName])
   }
 
   for (const calleeName of names) {
@@ -409,8 +429,31 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
       }
     }
     if (!reassignedAnywhere && !quiet) {
-      console.warn(`  ⚠️  Callee "${calleeName}" found but module is frozen (ESM namespace) — could not install proxy (cluster: ${parentClusterId})`)
-      console.warn(`      Consider using a CJS module or exporting the function via a mutable namespace object.`)
+      // Emit a specific, actionable warning. Two cases:
+      //   1. The module exposes our `__regretsHolder` but the callee isn't
+      //      on it — this happens when the transformer couldn't rewrite
+      //      this particular callee (e.g. it's not a function_declaration).
+      //      The fix is to convert it to a top-level function declaration.
+      //   2. The module is a plain frozen ESM namespace with no holder —
+      //      the user never opted into transformation (or it was aborted).
+      //      The fix is to refactor to `export const foo = ...` or use CJS.
+      const hasHolder = !!(targetModule && typeof targetModule === 'object' &&
+                          targetModule[holderName])
+      if (hasHolder) {
+        console.warn(`  ⚠️  Callee "${calleeName}" could not be installed on the ESM holder "${holderName}" (cluster: ${parentClusterId})`)
+        console.warn(`      This typically means "${calleeName}" is not a top-level function_declaration in the source.`)
+        console.warn(`      Refactor to:  function ${calleeName}() { ... }  (top-level, exported)`)
+        console.warn(`      The callee is skipped; the parent cluster is still captured.`)
+      } else {
+        console.warn(`  ⚠️  Callee "${calleeName}" found but module is frozen (ESM namespace) — could not install proxy (cluster: ${parentClusterId})`)
+        console.warn(`      ESM bare-name function declarations cannot be intercepted directly.`)
+        console.warn(`      The internal call uses the local binding, not the module namespace.`)
+        console.warn(`      Options to enable callee wrapping:`)
+        console.warn(`        1. Refactor:  function ${calleeName}() { ... }  →  export const ${calleeName} = () => { ... }`)
+        console.warn(`           (then re-run \`regret install\` to refresh the manifest)`)
+        console.warn(`        2. Convert the module to CommonJS:  module.exports.${calleeName} = ...`)
+        console.warn(`      The callee is skipped; the parent cluster is still captured.`)
+      }
     }
   }
 

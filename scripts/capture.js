@@ -14,12 +14,13 @@
 //   node scripts/capture.js --verbose         Print extra detail (call trace, ghost intercepts, normalize)
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, openSync, closeSync, unlinkSync } from 'fs'
-import { resolve, dirname, join } from 'path'
+import { resolve, dirname, join, extname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify, normalize as fpNormalize, stripFields } from './fingerprint.js'
 import { createGhost, wrapCallees, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
+import { isEsmSource, transformEsmForCallees, HOLDER_NAME } from './esm-callee-transform.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -380,13 +381,78 @@ for (const cluster of clusters) {
   // wrapCallees() call ran. Default is a no-op.
   let cleanupCallees = () => {}
 
+  // ESM bare-name transformation: when a cluster declares `callees` AND the
+  // target file is ESM, we transform the source in-memory so internal calls
+  // route through a mutable `__regretsHolder` object that wrapCallees can
+  // reassign. The transformed source is loaded via a temp file in the SAME
+  // directory as the original (so relative imports resolve unchanged). The
+  // temp file is deleted in the finally block below — the original file is
+  // never modified.
+  //
+  // `esmTransformTempPath` is declared outside `try` so the finally block
+  // can clean it up even if the body throws partway through. Null means
+  // no temp file was created (CJS module, or transformation aborted).
+  let esmTransformTempPath = null
+
   try {
     // Dynamic import of target module
     // When isolateGlobals is true, we use cache-busting (timestamp query param)
     // to get a fresh module instance per import, preventing shared mutable state
     // from leaking between input runs.
     const absPath = resolve(process.cwd(), file)
+    const fileExt = extname(absPath).toLowerCase()
+
+    // ─── ESM bare-name callee transformation (Approach A) ─────────────────
+    //
+    // Only attempt transformation when ALL of the following hold:
+    //   1. The cluster declares callees (otherwise there's nothing to wrap).
+    //   2. The file extension is one we support (.mjs, .js, .ts, .tsx).
+    //   3. The source is ESM (not CJS — CJS wrapping already works).
+    //   4. transformEsmForCallees returns a non-null result. The transformer
+    //      aborts on shadowing, parse errors, missing function declarations,
+    //      or any other safety concern — in which case we fall back to the
+    //      original import and let wrapCallees emit the actionable warning
+    //      (Approach B).
+    //
+    // The transformation rewrites internal call sites to go through
+    // `__regretsHolder`, populates the holder with the original function
+    // references, and exports the holder. wrapCallees detects the holder on
+    // the imported module and reassigns on it instead of the frozen namespace.
     let moduleUrl = pathToFileURL(absPath).href
+    if (Array.isArray(callees) && callees.length > 0 &&
+        ['.mjs', '.js', '.ts', '.tsx'].includes(fileExt)) {
+      try {
+        const source = readFileSync(absPath, 'utf8')
+        if (isEsmSource(source, fileExt)) {
+          const transformResult = await transformEsmForCallees(source, callees, fileExt)
+          if (transformResult) {
+            // Write transformed source to a temp file in the SAME directory
+            // as the original so relative imports resolve unchanged. The temp
+            // file is deleted in the finally block below.
+            const dir = dirname(absPath)
+            const tempName = `.regrets-transform-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mjs`
+            esmTransformTempPath = join(dir, tempName)
+            writeFileSync(esmTransformTempPath, transformResult.transformedSource, 'utf8')
+            moduleUrl = pathToFileURL(esmTransformTempPath).href
+            if (!quiet) {
+              console.log(`   🔄 ESM bare-name transform applied (callees: ${callees.join(', ')})`)
+              if (verbose) {
+                console.log(`   │ Temp file: ${esmTransformTempPath}`)
+              }
+            }
+          } else if (verbose && !quiet) {
+            console.log(`   ℹ️  ESM transform aborted (safety check) — falling back to original import`)
+          }
+        }
+      } catch (transformErr) {
+        // Any error during transformation is non-fatal — fall back to
+        // importing the original file. wrapCallees will emit the warning.
+        if (!quiet) {
+          console.warn(`   ⚠️  ESM transform failed: ${transformErr.message} — falling back to original import`)
+        }
+      }
+    }
+
     if (isolateGlobals) {
       // Add cache-busting query param to force a fresh module parse
       moduleUrl += `?_t=${Date.now()}`
@@ -1202,8 +1268,22 @@ for (const cluster of clusters) {
         // ─── isolateGlobals: re-import module with cache-busting for fresh state ──
         // When isolateGlobals is true, re-import the module before each input run
         // to get a fresh instance without any accumulated mutable global state.
+        //
+        // ESM-transform note: if we transformed the source (esmTransformTempPath
+        // is set), re-import the temp file too. The temp file is still on disk
+        // at this point (it's only deleted in the finally block). The fresh
+        // module will have its own `__regretsHolder` — but wrapCallees (called
+        // once before the loop) only wraps the FIRST rawModule. For isolateGlobals
+        // + ESM-transform, callee wrapping currently only intercepts the first
+        // run; subsequent runs use the fresh module without callee proxies.
+        // This is an accepted limitation — isolateGlobals + callees is a rare
+        // combination. The capture still works (parent contract is captured),
+        // just callee recordings may be empty on runs > 1.
         if (isolateGlobals) {
-          const reimportUrl = pathToFileURL(absPath).href + `?_t=${Date.now()}`
+          const reimportBase = esmTransformTempPath
+            ? pathToFileURL(esmTransformTempPath).href
+            : pathToFileURL(absPath).href
+          const reimportUrl = reimportBase + `?_t=${Date.now()}`
           const freshModule = await import(reimportUrl)
           const freshMerged = mergeCjsModule(freshModule)
           // Re-create ghost proxy with fresh module
@@ -1644,6 +1724,22 @@ for (const cluster of clusters) {
     // Phase 2: restore original callee functions (idempotent — safe even
     // if wrapCallees was never invoked, because cleanupCallees defaults to a no-op).
     cleanupCallees()
+    // ESM bare-name transform: delete the temp file (if any) that held the
+    // transformed source. Best-effort — if deletion fails (rare race with
+    // another process), log and continue. The temp file is hidden (starts
+    // with `.`) and its name includes a timestamp + random suffix, so even
+    // if it leaks it's easy to identify and clean up.
+    if (esmTransformTempPath) {
+      try {
+        unlinkSync(esmTransformTempPath)
+      } catch (e) {
+        if (e.code !== 'ENOENT' && !quiet) {
+          // Don't fail the capture if temp file cleanup fails — just warn.
+          console.warn(`   ⚠️  Could not delete ESM transform temp file ${esmTransformTempPath}: ${e.message}`)
+        }
+      }
+      esmTransformTempPath = null
+    }
   }
 }
 
