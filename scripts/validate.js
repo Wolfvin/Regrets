@@ -8,7 +8,8 @@
 //   node scripts/validate.js --fail-fast
 //   node scripts/validate.js --no-diff
 //   node scripts/validate.js --quiet           Only print summary line
-//   node scripts/validate.js --verbose         Print extra detail (input, output, calls)
+//   node scripts/validate.js --verbose         Print extra detail (input, output, calls) + skipped clusters
+//   node scripts/validate.js --skip-callees    Do not re-validate .calls.* callee contracts
 //   node scripts/validate.js --reporter junit
 
 import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync, openSync, closeSync, unlinkSync, statSync } from 'fs'
@@ -106,6 +107,7 @@ let noDiff        = false
 let reporter      = null
 let quiet         = false
 let verbose       = false
+let skipCallees   = false
 
 if (isMainModule) {
   const args          = process.argv.slice(2)
@@ -129,6 +131,7 @@ if (isMainModule) {
   reporter      = getArg(args, '--reporter') ?? null
   quiet         = args.includes('--quiet')
   verbose       = args.includes('--verbose')
+  skipCallees   = args.includes('--skip-callees')
 
   if (quiet && verbose) {
     console.warn('⚠️  --quiet and --verbose are mutually exclusive; using --quiet')
@@ -1377,6 +1380,163 @@ export function formatSideEffectDiff(goldenSideEffects, liveSERecording, normali
   return lines.length > 0 ? lines.join('\n') : ''
 }
 
+// ─── Callee contract re-validation ──────────────────────────────────────────
+//
+// `.calls.*` regret files are written by capture.js for each declared callee
+// of a parent cluster. Each file records:
+//   - parent cluster id (so we can look up the parent's `file` and fp config)
+//   - callee name (= entry function name in the parent's module)
+//   - saved args (INPUT line, already an array)
+//   - saved result OR error contract (OUTPUT / ERROR_CONTRACT line)
+//   - golden fingerprint (HASH line)
+//   - optional `threw: true` flag indicating the callee was expected to throw
+//
+// Re-validation re-runs the callee function with the saved args and computes
+// a fresh fingerprint, then compares it to the golden. This detects callee
+// regressions that would otherwise be invisible (the parent cluster's
+// fingerprint only captures the parent's output, not the callee's individual
+// behavior — a callee that returns a wrong intermediate value but somehow
+// preserves the parent's final output would silently slip through).
+
+export async function runCalleeContract(calleeRegret, parentClusterDef, options = {}) {
+  const {
+    normalize = [],
+    ignoreFields = [],
+    ignorePaths = [],
+  } = options
+
+  // ── Resolve parent module + callee function ─────────────────────────────
+  const parentFile = parentClusterDef.file
+  if (!parentFile) {
+    return {
+      pass: false,
+      error: `parent cluster "${parentClusterDef.id}" has no 'file' field — cannot locate callee`,
+      liveHash: null,
+    }
+  }
+
+  // Skip non-JS stacks — they have their own validators (validate.py, etc.)
+  const parentStack = parentClusterDef.stack ?? 'js'
+  if (parentStack === 'python' || parentStack === 'rust' || parentStack === 'go') {
+    return {
+      pass: false,
+      skipped: true,
+      error: `parent stack=${parentStack} — use the matching validator`,
+      liveHash: calleeRegret.goldenHash,
+    }
+  }
+
+  // Resolve entry/callee names — prefer the callee .regret's `entry` field,
+  // fall back to its `callee` field, then to the callee name embedded in the
+  // cluster id (`<parent>.calls.<callee>`).
+  const calleeName =
+    calleeRegret.entry ??
+    calleeRegret.callee ??
+    calleeRegret.cluster?.split('.calls.').pop() ??
+    null
+
+  if (!calleeName) {
+    return {
+      pass: false,
+      error: 'callee .regret has no entry/callee/cluster field — cannot determine which function to call',
+      liveHash: null,
+    }
+  }
+
+  // ── Import parent module (with CJS merge) ───────────────────────────────
+  let mod
+  try {
+    mod = await import(pathToFileURL(resolve(process.cwd(), parentFile)).href)
+  } catch (err) {
+    if (err.code === 'ERR_MODULE_NOT_FOUND' || err.code === 'ENOENT') {
+      return {
+        pass: false,
+        error: `parent file not found at ${parentFile} (cluster "${parentClusterDef.id}"). Compile the project or fix the 'file' field in manifest.json.`,
+        liveHash: null,
+      }
+    }
+    return {
+      pass: false,
+      error: `failed to import parent file ${parentFile}: ${err.message}`,
+      liveHash: null,
+    }
+  }
+  mod = mergeCjsModule(mod)
+
+  // Resolve the callee function — check mod, mod.default, then `module.exports = function` shape
+  const entryFn =
+    mod[calleeName] ??
+    mod.default?.[calleeName] ??
+    ((calleeName === 'default' || calleeName === 'module.exports') && typeof mod.default === 'function' ? mod.default : null)
+
+  if (typeof entryFn !== 'function') {
+    return {
+      pass: false,
+      error: `callee "${calleeName}" not found (or not a function) in ${parentFile}`,
+      liveHash: null,
+    }
+  }
+
+  // ── Re-run the callee with saved args ───────────────────────────────────
+  // INPUT line in the callee .regret is the args array (e.g. [5, 1]).
+  // If it's not an array, wrap it as a single-arg call.
+  const savedArgs = Array.isArray(calleeRegret.input)
+    ? deepClone(calleeRegret.input)
+    : [deepClone(calleeRegret.input)]
+
+  const expectThrow = calleeRegret.threw === true || calleeRegret.threw === 'true'
+  const fpConfig = { normalize, ignoreFields, ignorePaths }
+
+  let liveResult
+  let liveError = null
+  try {
+    liveResult = await entryFn(...savedArgs)
+  } catch (err) {
+    liveError = err
+  }
+
+  // ── Compute live fingerprint ────────────────────────────────────────────
+  // Match capture.js semantics: error → { __error: message }, else result.
+  let liveFpOutput
+  let liveErrorContract = null
+  if (liveError != null) {
+    // Use the same error-contract builder as the main validator so messages
+    // are normalized the same way (timestamps/uuids/epochs/stack stripped).
+    liveErrorContract = buildErrorContract(liveError, normalize)
+    liveFpOutput = { __error: String(liveError) }
+  } else {
+    liveFpOutput = liveResult ?? null
+  }
+
+  const liveHash = fingerprint(deepClone(savedArgs), liveFpOutput, fpConfig)
+
+  // ── Compare against golden ──────────────────────────────────────────────
+  const goldenHash = calleeRegret.goldenHash
+  const isMatch = liveHash === goldenHash
+
+  // expectThrow mismatch takes priority — it's a behavioral change in the
+  // callee's contract (was throwing, now doesn't, or vice versa).
+  let expectThrowViolated = false
+  if (expectThrow && liveError == null) {
+    expectThrowViolated = true
+  } else if (!expectThrow && liveError != null) {
+    expectThrowViolated = true
+  }
+
+  return {
+    pass: isMatch && !expectThrowViolated,
+    liveHash,
+    goldenHash,
+    expectThrowViolated,
+    expectedThrow: expectThrow,
+    liveError: liveError ? String(liveError) : null,
+    liveErrorContract,
+    liveOutput: liveError == null ? liveResult : null,
+    goldenOutput: calleeRegret.output ?? null,
+    goldenErrorContract: calleeRegret.errorContract ?? null,
+  }
+}
+
 // ─── Main (CLI only) ──────────────────────────────────────────────────────────
 
 if (isMainModule) {
@@ -1423,10 +1583,13 @@ for (const file of regretFiles) {
     // Phase 2 callee clusters (`<parent>.calls.<callee>`) are intentionally
     // not declared in the manifest — they are emitted by capture.js as
     // behavioral sub-contracts of their parent cluster. Validate skips
-    // them silently here; they are validated implicitly when the parent
-    // cluster is validated (the parent's call to the callee is part of
-    // the parent's fingerprint).
+    // them silently here; they are re-validated explicitly in the callee
+    // re-validation phase below (unless --skip-callees is set), so callee
+    // regressions are now detected instead of silently missed.
     if (id.includes('.calls.')) {
+      if (verbose && !jsonOutput && !quiet) {
+        console.log(`  ⏭  ${id.padEnd(35)} [skipped: callee contract — not in manifest]`)
+      }
       continue
     }
     if (!quiet && !jsonOutput) console.warn(`  ⚠️  ${id}: not in manifest — skipping`)
@@ -1589,15 +1752,196 @@ for (const file of regretFiles) {
   }
 }
 
+// ─── Callee contract re-validation phase ─────────────────────────────────────
+//
+// After the main loop, we re-validate each `.calls.*` regret file by
+// re-running its callee function with the saved args and comparing the
+// fingerprint to the golden. This catches callee regressions that the
+// parent cluster's fingerprint cannot detect (e.g. a callee that returns
+// a wrong intermediate value but happens to preserve the parent's output).
+//
+// Skipped when:
+//   - --skip-callees is set (user explicitly opts out)
+//   - --update mode is active (we're updating a single cluster, not validating)
+//   - --cluster filter is set (only one cluster is being looked at — its
+//     callees aren't in regretFiles either, so there's nothing to do)
+//   - --drift-mode is active (drift detection is for non-determinism in the
+//     parent cluster's output across multiple runs; callee re-validation
+//     only runs once and isn't meaningful in drift mode)
+//
+// Callee results are tracked in `calleeResults` (separate from `results`)
+// so the summary line can report them as a distinct count:
+//   "✅ All 2 tests passed, 3 callee contracts verified."
+//   "❌ 1 callee contract failed: main.calls.add"
+
+const calleeResults = []
+
+const runCalleePhase = !skipCallees && !updateMode && !driftMode && !clusterFilter
+
+if (runCalleePhase) {
+  // Build a quick lookup of parent cluster defs by id.
+  const parentDefById = new Map()
+  for (const c of manifest.clusters || []) {
+    parentDefById.set(c.id, c)
+  }
+
+  // Only iterate over `.calls.*` files — the main loop already handled the
+  // parent clusters.
+  const calleeRegretFiles = regretFiles.filter(f => basename(f, '.regret').includes('.calls.'))
+
+  if (calleeRegretFiles.length > 0 && !jsonOutput && !quiet) {
+    console.log(`\n🔍 Re-validating ${calleeRegretFiles.length} callee contract(s)...\n`)
+  }
+
+  for (const file of calleeRegretFiles) {
+    const calleeId     = basename(file, '.regret')
+    const calleeRegret = parseRegret(readFileSync(join(regretDir, file), 'utf8'))
+    const parentId     = calleeRegret.parent ?? calleeId.split('.calls.').slice(0, -1).join('.calls.')
+    const parentDef    = parentDefById.get(parentId)
+
+    if (!parentDef) {
+      if (!jsonOutput && !quiet) {
+        console.log(`  ⚠️  ${calleeId.padEnd(35)} parent "${parentId}" not in manifest — skipping`)
+      }
+      calleeResults.push({
+        id: calleeId,
+        pass: false,
+        skipped: true,
+        error: `parent cluster "${parentId}" not in manifest`,
+      })
+      continue
+    }
+
+    try {
+      const result = await runCalleeContract(calleeRegret, parentDef, {
+        normalize: parentDef.normalize ?? [],
+        ignoreFields: parentDef.ignoreFields ?? [],
+        ignorePaths: parentDef.ignorePaths ?? [],
+      })
+
+      if (result.skipped) {
+        if (!jsonOutput && !quiet) {
+          console.log(`  ⏭  ${calleeId.padEnd(35)} ${result.error}`)
+        }
+        calleeResults.push({
+          id: calleeId,
+          pass: true,
+          skipped: true,
+          error: result.error,
+        })
+        continue
+      }
+
+      if (result.pass) {
+        if (!jsonOutput && !quiet) {
+          console.log(`  ✅ ${calleeId.padEnd(35)} ${result.goldenHash}  PASS (callee)`)
+        }
+        calleeResults.push({
+          id: calleeId,
+          pass: true,
+          expected: result.goldenHash,
+          actual: result.liveHash,
+        })
+      } else {
+        if (!jsonOutput && !quiet) {
+          const hstr = result.expectThrowViolated
+            ? `(expectThrow violated: ${result.expectedThrow ? 'expected throw, none thrown' : 'unexpected throw'})`
+            : `${result.goldenHash} → ${result.liveHash}`
+          console.log(`  ❌ ${calleeId.padEnd(35)} ${hstr}  FAIL (callee)`)
+          if (result.liveError) {
+            console.log(`    Actual error:   ${result.liveError}`)
+          } else if (result.goldenErrorContract) {
+            console.log(`    Expected error: ${result.goldenErrorContract.type}: ${result.goldenErrorContract.message}`)
+            console.log(`    Actual:         callee did NOT throw (error path removed)`)
+          } else if (!noDiff && result.goldenOutput != null && result.liveOutput != null) {
+            const diff = formatDiffOutput(result.goldenOutput, result.liveOutput, { verbose })
+            if (diff) console.log(diff)
+          }
+        }
+        calleeResults.push({
+          id: calleeId,
+          pass: false,
+          expected: result.goldenHash,
+          actual: result.liveHash,
+          expectThrowViolated: result.expectThrowViolated,
+          goldenOutput: result.goldenOutput,
+          liveOutput: result.liveOutput,
+          liveError: result.liveError,
+          goldenErrorContract: result.goldenErrorContract,
+        })
+      }
+    } catch (err) {
+      if (!jsonOutput && !quiet) {
+        console.log(`  ❌ ${calleeId.padEnd(35)} ERROR: ${err.message}`)
+      }
+      calleeResults.push({
+        id: calleeId,
+        pass: false,
+        error: err.message,
+      })
+    }
+
+    if (!calleeResults.at(-1).pass && failFast) {
+      if (!jsonOutput && !quiet) console.log(`\n  --fail-fast: stopping.`)
+      break
+    }
+  }
+}
+
+const calleePassed = calleeResults.filter(r => r.pass && !r.skipped).length
+const calleeFailed = calleeResults.filter(r => !r.pass && !r.skipped).length
+const calleeSkipped = calleeResults.filter(r => r.skipped).length
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
 const passed  = results.filter(r => r.pass).length
 const failed  = results.filter(r => !r.pass).length
 const drifted = results.filter(r => r.drift).length
 
+// Helper: build the callee-summary suffix appended to the main summary line.
+// Empty when callee re-validation didn't run at all (no .calls.* files,
+// --skip-callees flag set, --update, --drift-mode, or --cluster filter).
+//   ""                                    → callees not considered
+//   ", 3 callee contracts verified"       → all callees passed
+//   ", 1 callee contract failed"          → at least one callee failed
+function calleeSummarySuffix() {
+  if (calleeResults.length === 0) return ''
+  if (calleeFailed > 0) {
+    return `, ${calleeFailed} callee contract${calleeFailed === 1 ? '' : 's'} failed`
+  }
+  if (calleePassed === 0) return ''  // all skipped, nothing to report
+  return `, ${calleePassed} callee contract${calleePassed === 1 ? '' : 's'} verified`
+}
+
+// Helper: build a failure summary line that mentions BOTH cluster failures
+// and callee failures, and — when only callees fail — names the failing
+// callee ids in the summary line itself (per the spec:
+//   "❌ 1 callee contract failed: main.calls.add"
+// ).
+function formatFailureSummaryLine() {
+  const failedCalleeIds = calleeResults
+    .filter(r => !r.pass && !r.skipped)
+    .map(r => r.id)
+
+  if (failed > 0 && calleeFailed > 0) {
+    // Both clusters and callees failed — mention counts, list IDs in detail block.
+    return `❌ ${failed} cluster${failed === 1 ? '' : 's'} FAILED, ${calleeFailed} callee contract${calleeFailed === 1 ? '' : 's'} failed.`
+  }
+  if (failed > 0) {
+    // Only clusters failed — original format.
+    return `❌ ${failed}/${results.length} FAILED.`
+  }
+  // Only callees failed — use the spec's exact format with id list.
+  return `❌ ${calleeFailed} callee contract${calleeFailed === 1 ? '' : 's'} failed: ${failedCalleeIds.join(', ')}`
+}
+
+// Exit code considers BOTH cluster failures and callee failures.
+const totalFailed = failed + calleeFailed
+
 if (reporter === 'junit') {
-  // Write JUnit XML to regrets/results.xml
-  const junitXml = generateJUnitXml(results)
+  // Merge cluster results + callee results into a single JUnit testsuite
+  // so callee regressions show up as failed testcases in CI dashboards.
+  const junitXml = generateJUnitXml([...results, ...calleeResults])
   const resultsPath = join(regretDir, 'results.xml')
   try {
     writeFileSync(resultsPath, junitXml, 'utf8')
@@ -1607,15 +1951,16 @@ if (reporter === 'junit') {
   }
   // Still show console output
   console.log(`\n${'─'.repeat(60)}`)
-  if (failed === 0) {
-    console.log(`✅ All ${passed} tests passed. Refactor is safe.`)
+  if (totalFailed === 0) {
+    console.log(`✅ All ${passed} tests passed${calleeSummarySuffix()}. Refactor is safe.`)
   } else {
-    console.log(`❌ ${failed}/${results.length} FAILED.`)
+    console.log(formatFailureSummaryLine())
   }
   console.log(`\n📊 JUnit XML written to: ${resultsPath}`)
-  process.exit(failed > 0 ? 1 : 0)
+  process.exit(totalFailed > 0 ? 1 : 0)
 } else if (jsonOutput) {
-  // JSON output mode
+  // JSON output mode — include callee results as a separate top-level field
+  // so programmatic consumers can distinguish cluster passes from callee passes.
   const jsonResult = {
     passed,
     failed,
@@ -1634,13 +1979,29 @@ if (reporter === 'junit') {
         ...(r.expectedError ? { expectedError: r.expectedError } : {}),
         ...(r.actualError ? { actualError: r.actualError } : {}),
         ...(r.expectThrowViolated ? { expectThrowViolated: true } : {}),
-      }))
+      })),
+    callees: {
+      passed: calleePassed,
+      failed: calleeFailed,
+      skipped: calleeSkipped,
+      considered: calleeResults.length,
+      contracts: calleeResults.map(r => ({
+        id: r.id,
+        status: r.skipped ? 'skipped' : (r.pass ? 'pass' : (r.expectThrowViolated ? 'expect_throw_violated' : (r.error ? 'error' : 'fail'))),
+        ...(r.expected ? { expected: r.expected } : {}),
+        ...(r.actual ? { actual: r.actual } : {}),
+        ...(r.error ? { error: r.error } : {}),
+        ...(r.liveError ? { liveError: r.liveError } : {}),
+        ...(r.expectThrowViolated ? { expectThrowViolated: true } : {}),
+      })),
+    },
   }
   console.log(JSON.stringify(jsonResult, null, 0))
-  process.exit(failed > 0 ? 1 : 0)
+  process.exit(totalFailed > 0 ? 1 : 0)
 } else if (quiet) {
   // ─── Quiet summary: only one line ─────────────────────────────────────────
   const failedIds = results.filter(r => !r.pass).map(r => r.id)
+  const calleeFailedIds = calleeResults.filter(r => !r.pass && !r.skipped).map(r => r.id)
   if (updateMode) {
     console.log(`✅ Update complete. ${results.filter(r => r.updated).length} updated.`)
     process.exit(0)
@@ -1649,11 +2010,14 @@ if (reporter === 'junit') {
     console.log(`❌ ${drifted}/${results.length} drifted: [${failedIds.join(', ')}]`)
     process.exit(1)
   }
-  if (failed === 0) {
-    console.log(`✅ ${passed}/${results.length} passed`)
+  if (totalFailed === 0) {
+    console.log(`✅ ${passed}/${results.length} passed${calleeSummarySuffix()}`)
     process.exit(0)
   }
-  console.log(`❌ ${failed}/${results.length} failed: [${failedIds.join(', ')}]`)
+  // Mix cluster failures and callee failures in the bracketed list so a single
+  // quiet line still surfaces all failing ids.
+  const allFailedIds = [...failedIds, ...calleeFailedIds]
+  console.log(`❌ ${totalFailed} failed: [${allFailedIds.join(', ')}]`)
   process.exit(1)
 } else {
   console.log(`\n${'─'.repeat(60)}`)
@@ -1666,11 +2030,11 @@ if (reporter === 'junit') {
     console.log(`❌ Drift in ${drifted} cluster(s). Add normalize rules and re-capture.`)
     process.exit(1)
   }
-  if (failed === 0) {
-    console.log(`✅ All ${passed} tests passed${driftMode ? ` (${runs} runs — stable)` : ''}. Refactor is safe.\n`)
+  if (totalFailed === 0) {
+    console.log(`✅ All ${passed} tests passed${driftMode ? ` (${runs} runs — stable)` : ''}${calleeSummarySuffix()}. Refactor is safe.\n`)
     process.exit(0)
   }
-  console.log(`❌ ${failed}/${results.length} FAILED.\n`)
+  console.log(formatFailureSummaryLine() + '\n')
   results.filter(r => !r.pass).forEach(r => {
     console.log(`  • ${r.id}`)
     if (r.expectThrowViolated) console.log(`    Expected error: ${r.expectedError?.type}: ${r.expectedError?.message} — function did NOT throw`)
@@ -1679,6 +2043,21 @@ if (reporter === 'junit') {
     else if (r.expectedError && r.actualError) console.log(`    Error contract changed: expected ${r.expectedError.type}: ${r.expectedError.message}, got ${r.actualError.type}: ${r.actualError.message}`)
     else if (r.expected && r.actual) console.log(`    Expected: ${r.expected}  Got: ${r.actual}`)
     else if (r.drift) console.log(`    Drift detected — hashes vary across runs`)
+    if (!noDiff && r.goldenOutput != null && r.liveOutput != null) {
+      const diff = formatDiffOutput(r.goldenOutput, r.liveOutput, { verbose })
+      if (diff) console.log(diff)
+    }
+  })
+  // Callee failures — listed after cluster failures, prefixed with `[callee]`
+  // so users can immediately see which failures are callee regressions vs
+  // parent cluster regressions.
+  calleeResults.filter(r => !r.pass && !r.skipped).forEach(r => {
+    console.log(`  • ${r.id}  [callee]`)
+    if (r.expectThrowViolated) console.log(`    Expect-throw contract violated — callee's throw behavior changed`)
+    else if (r.error) console.log(`    ${r.error}`)
+    else if (r.liveError) console.log(`    Callee threw unexpectedly: ${r.liveError}`)
+    else if (r.goldenErrorContract) console.log(`    Expected error: ${r.goldenErrorContract.type}: ${r.goldenErrorContract.message} — callee did NOT throw`)
+    else if (r.expected && r.actual) console.log(`    Expected: ${r.expected}  Got: ${r.actual}`)
     if (!noDiff && r.goldenOutput != null && r.liveOutput != null) {
       const diff = formatDiffOutput(r.goldenOutput, r.liveOutput, { verbose })
       if (diff) console.log(diff)
