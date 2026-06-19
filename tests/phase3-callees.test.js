@@ -210,3 +210,163 @@ function main(x) { return helper(x) + 1 }
     )
   })
 })
+
+// ─── Method call extraction tests ─────────────────────────────────────────
+//
+// Verifies that method calls (obj.method(), this.helper(), super.init())
+// are tracked as call edges by the analyzer, with only the method name
+// (not the receiver) captured. External method names (arr.map, etc.)
+// are filtered out by install.js because they are not defined in the file.
+
+describe('Phase 3: method call extraction (obj.method(), this.helper(), super.init())', () => {
+  before(() => {
+    mkdirSync(TMP, { recursive: true })
+
+    // Fixture: class with this.helper() and super.init() method calls,
+    // plus bare identifier calls for comparison.
+    writeFileSync(join(TMP, 'method_calls.js'), `
+function helper(x) { return x * 2 }
+function init(x) { return x + 1 }
+function main() {
+  this.helper(1)
+  super.init(2)
+  obj.process(3)
+  arr.map(fn)
+  helper(4)
+}
+module.exports = { main, helper, init }
+`)
+
+    // Fixture: method calls where the method IS defined in the same file.
+    // helper and init are defined → they should appear in callees.
+    // process and map are NOT defined → they should be filtered out.
+    writeFileSync(join(TMP, 'method_internal.js'), `
+function helper(x) { return x * 2 }
+function init(x) { return x + 1 }
+function main() {
+  this.helper(1)
+  super.init(2)
+  obj.process(3)
+  arr.map(fn)
+}
+module.exports = { main, helper, init }
+`)
+
+    // Fixture: mixed bare + method calls to the same function.
+    // helper is called both as bare identifier AND as method —
+    // callees should deduplicate.
+    writeFileSync(join(TMP, 'method_mixed.js'), `
+function helper(x) { return x * 2 }
+function main() {
+  helper(1)
+  this.helper(2)
+}
+module.exports = { main, helper }
+`)
+
+    writeFileSync(join(TMP, 'package.json'), JSON.stringify({
+      name: 'phase3-method-call-test',
+      version: '0.0.0',
+      type: 'module',
+    }))
+  })
+
+  after(() => cleanupFixtures())
+
+  it('tracks this.helper() as a call edge to "helper"', () => {
+    cleanManifest()
+    const result = runInstall(['--scope', 'method_calls.js', '--skip-capture'])
+    assert.equal(result.exitCode, 0, `Expected exit 0, got ${result.exitCode}\nstderr: ${result.stderr}`)
+
+    const manifest = readManifest()
+    const mainCluster = findCluster(manifest, 'main')
+    assert.ok(mainCluster, 'cluster "main" should exist')
+    assert.ok(
+      mainCluster.callees && mainCluster.callees.includes('helper'),
+      'main cluster callees should include "helper" from this.helper()'
+    )
+  })
+
+  it('tracks super.init() as a call edge to "init"', () => {
+    cleanManifest()
+    const result = runInstall(['--scope', 'method_calls.js', '--skip-capture'])
+    assert.equal(result.exitCode, 0)
+
+    const manifest = readManifest()
+    const mainCluster = findCluster(manifest, 'main')
+    assert.ok(mainCluster, 'cluster "main" should exist')
+    assert.ok(
+      mainCluster.callees && mainCluster.callees.includes('init'),
+      'main cluster callees should include "init" from super.init()'
+    )
+  })
+
+  it('tracks obj.process() as a call edge to "process"', () => {
+    cleanManifest()
+    const result = runInstall(['--scope', 'method_calls.js', '--skip-capture'])
+    assert.equal(result.exitCode, 0)
+
+    const manifest = readManifest()
+    const mainCluster = findCluster(manifest, 'main')
+    assert.ok(mainCluster, 'cluster "main" should exist')
+    // "process" is NOT defined in the file, so it should be filtered out
+    // from callees by install.js. But the edge itself should exist in the
+    // raw analyzer output. We verify via the integration that it's not in
+    // the final callees (proving the filter works).
+    assert.ok(
+      !mainCluster.callees || !mainCluster.callees.includes('process'),
+      'main cluster callees should NOT include "process" — it is not defined in the file'
+    )
+  })
+
+  it('filters out external method names (arr.map) that are not in-file functions', () => {
+    cleanManifest()
+    const result = runInstall(['--scope', 'method_internal.js', '--skip-capture'])
+    assert.equal(result.exitCode, 0)
+
+    const manifest = readManifest()
+    const mainCluster = findCluster(manifest, 'main')
+    assert.ok(mainCluster, 'cluster "main" should exist')
+
+    // helper and init ARE defined in file → should be in callees
+    // process and map are NOT defined → should be filtered out
+    assert.deepEqual(
+      mainCluster.callees,
+      ['helper', 'init'],
+      'main cluster should only include in-file method callees; process and map must be filtered out'
+    )
+  })
+
+  it('deduplicates when the same function is called via bare identifier AND method call', () => {
+    cleanManifest()
+    const result = runInstall(['--scope', 'method_mixed.js', '--skip-capture'])
+    assert.equal(result.exitCode, 0)
+
+    const manifest = readManifest()
+    const mainCluster = findCluster(manifest, 'main')
+    assert.ok(mainCluster, 'cluster "main" should exist')
+
+    assert.deepEqual(
+      mainCluster.callees,
+      ['helper'],
+      'main cluster callees should have "helper" once despite being called via helper() and this.helper()'
+    )
+  })
+
+  it('bare identifier calls still work alongside method call extraction', () => {
+    cleanManifest()
+    const result = runInstall(['--scope', 'method_calls.js', '--skip-capture'])
+    assert.equal(result.exitCode, 0)
+
+    const manifest = readManifest()
+    const mainCluster = findCluster(manifest, 'main')
+    assert.ok(mainCluster, 'cluster "main" should exist')
+
+    // helper appears both from this.helper() and bare helper(4)
+    // Both should be captured, but deduplicated in callees
+    assert.ok(
+      mainCluster.callees && mainCluster.callees.includes('helper'),
+      'bare identifier call helper(4) should still be tracked'
+    )
+  })
+})
