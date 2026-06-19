@@ -1420,6 +1420,15 @@ for (const file of regretFiles) {
   const regret     = parseRegret(readFileSync(regretPath, 'utf8'))
   const def        = manifest.clusters.find(c => c.id === id)
   if (!def) {
+    // Phase 2 callee clusters (`<parent>.calls.<callee>`) are intentionally
+    // not declared in the manifest — they are emitted by capture.js as
+    // behavioral sub-contracts of their parent cluster. Validate skips
+    // them silently here; they are validated implicitly when the parent
+    // cluster is validated (the parent's call to the callee is part of
+    // the parent's fingerprint).
+    if (id.includes('.calls.')) {
+      continue
+    }
     if (!quiet && !jsonOutput) console.warn(`  ⚠️  ${id}: not in manifest — skipping`)
     continue
   }

@@ -146,6 +146,24 @@ HASH   3elv23o
 
 The `regrets/` folder is **sacred** — never edit `.regret` files after they are green. They are your source of truth.
 
+### Callee Wrapping (Phase 2 — opt-in)
+
+When a cluster declares `"callees": ["a", "b"]` in the manifest, capture also writes a separate `.regret` file for each callee that was actually called, using the cluster id `<parent>.calls.<callee>`. This makes inner-function contracts explicit — a refactor that changes a callee's behavior can no longer hide behind a compensating change in a sibling callee that preserves the parent's output.
+
+```json
+{
+  "id": "main",
+  "entry": "main",
+  "watches": ["main"],
+  "file": "src/api.cjs",
+  "callees": ["add", "mul"]
+}
+```
+
+Produces three files: `regrets/main.regret`, `regrets/main.calls.add.regret`, `regrets/main.calls.mul.regret`.
+
+Opt-in, depth 1, backward compatible. Callees must be reachable via `module.exports.foo(...)` (CJS) — closure-private functions are skipped with a warning. See [`SKILL.md`](SKILL.md#callee-wrapping-phase-2--opt-in) for full details.
+
 ## Links
 
 - **[SKILL.md](SKILL.md)** — full skill specification (ghost proxy pattern, fingerprint algorithm, manifest schema, all rules)

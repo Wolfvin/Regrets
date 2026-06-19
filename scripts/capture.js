@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, openSync, closeSync
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify, normalize as fpNormalize, stripFields } from './fingerprint.js'
-import { createGhost, deepClone, consumeIterator } from './ghost.js'
+import { createGhost, wrapCallees, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
 
@@ -234,7 +234,8 @@ for (const cluster of clusters) {
           materializeOutput = false, outputEncoding, resetState, deepCloneInput = true,
           seed, singletonMethod, singletonName, storeDispatch, initialState,
           adapter, sideEffectWatches = [], detectMode = false,
-          freezeTime = null, inputTransform = null, isolateGlobals = false } = cluster
+          freezeTime = null, inputTransform = null, isolateGlobals = false,
+          callees = [] } = cluster
 
   if (!quiet) {
     console.log(`\n📡 Capturing: ${id}`)
@@ -374,6 +375,10 @@ for (const cluster of clusters) {
   let origGetRandomValues = null
   let cryptoAvailable = false
   const sideEffectRestores = []  // original methods to restore after capture (declared outside try for finally access)
+  // Phase 2: callee-wrapping state — declared outside `try` so the `finally`
+  // block can call cleanupCallees() even if the try body threw before the
+  // wrapCallees() call ran. Default is a no-op.
+  let cleanupCallees = () => {}
 
   try {
     // Dynamic import of target module
@@ -460,6 +465,29 @@ for (const cluster of clusters) {
 
     const recorder = []
     const ghostModule = createGhost(rawModule, watches, recorder, instanceMethods)
+
+    // ─── Phase 2: callee wrapping (opt-in via "callees": [...] in manifest) ────
+    // When a cluster declares `callees`, we wrap each named function on the
+    // raw module so that every call made from inside the entry function
+    // records its args + result (or thrown error) into `calleeRecorder`.
+    // After all inputs run, each callee that was actually called gets its
+    // own `.regret` file at `<parentClusterId>.calls.<calleeName>.regret`,
+    // forming a separate behavioral contract for that callee.
+    //
+    // Backward compatibility: when `callees` is absent or empty, the
+    // wrapCallees call is a no-op (it accepts `[]` defensively) and no
+    // callee `.regret` files are written. Behavior is identical to the
+    // pre-Phase-2 Ghost Proxy.
+    const calleeRecorder = []
+    if (Array.isArray(callees) && callees.length > 0) {
+      cleanupCallees = wrapCallees(rawModule, callees, calleeRecorder, {
+        parentClusterId: id,
+        quiet,
+      })
+      if (!quiet) {
+        console.log(`   Callees: ${callees.join(', ')}`)
+      }
+    }
 
     // ─── sideEffectWatches: wrap side-effect methods with Proxy recorder ──────
     // Records calls to methods on objects resolved from rawModule by dot-notation
@@ -812,6 +840,7 @@ for (const cluster of clusters) {
       for (const input of testInputs) {
         recorder.length = 0
         sideEffectRecorder.length = 0
+        calleeRecorder.length = 0  // Phase 2: clear callee recordings between runs
 
         // Reset to initialState if provided
         if (initialState) {
@@ -910,6 +939,7 @@ for (const cluster of clusters) {
       for (const input of testInputs) {
         recorder.length = 0
         sideEffectRecorder.length = 0
+        calleeRecorder.length = 0  // Phase 2: clear callee recordings between runs
         const instance = new Cls(...cArgs)
 
         // Apply ghost proxy to instance methods for watch recording
@@ -1058,6 +1088,7 @@ for (const cluster of clusters) {
       for (const input of testInputs) {
         recorder.length = 0
         sideEffectRecorder.length = 0
+        calleeRecorder.length = 0  // Phase 2: clear callee recordings between runs
         const inputForRecord = deepClone(input)
         const actualInput = extractInputValue(input)
         const inputForArgs = deepClone(actualInput)
@@ -1166,6 +1197,7 @@ for (const cluster of clusters) {
       for (const input of testInputs) {
         recorder.length = 0
         sideEffectRecorder.length = 0  // clear between runs
+        calleeRecorder.length = 0  // Phase 2: clear callee recordings between runs
 
         // ─── isolateGlobals: re-import module with cache-busting for fresh state ──
         // When isolateGlobals is true, re-import the module before each input run
@@ -1446,6 +1478,7 @@ for (const cluster of clusters) {
       freezeTime ? `freezeTime: ${freezeTime}` : null,
       inputTransform ? `inputTransform: ${inputTransform}` : null,
       isolateGlobals ? `isolateGlobals: true` : null,
+      callees.length ? `callees: [${callees.map(c => `"${c}"`).join(', ')}]` : null,
       threw ? `expectThrow: true` : null,
       sideEffectWatches.length ? `sideEffectWatches: [${sideEffectWatches.map(s => `"${s}"`).join(', ')}]` : null,
       `env: ${JSON.stringify(getEnvSnapshot())}`,
@@ -1507,6 +1540,85 @@ for (const cluster of clusters) {
       }
     }
 
+    // ─── Phase 2: write callee `.regret` files for each wrapped callee ──────
+    // For each callee that was actually called during any input run, we
+    // emit a separate `.regret` file at
+    //   regrets/<parentClusterId>.calls.<calleeName>.regret
+    //
+    // The "golden" entry for each callee is the FIRST recorded call of
+    // that callee (matching the parent cluster's `golden = results[0]`
+    // convention). The file format mirrors the parent `.regret` so that
+    // existing tooling (validate.js diff, list, etc.) can parse it.
+    //
+    // If a declared callee was never called (e.g., the entry function's
+    // branch didn't reach it for any input), we emit a warning instead of
+    // an empty `.regret` file.
+    if (Array.isArray(callees) && callees.length > 0) {
+      // Group all callee recordings by function name. Each declared callee
+      // may have been called multiple times across multiple inputs — we
+      // only need the first call for the golden contract.
+      const callsByCallee = new Map()
+      for (const rec of calleeRecorder) {
+        if (!callsByCallee.has(rec.fn)) callsByCallee.set(rec.fn, rec)
+      }
+
+      for (const calleeName of callees) {
+        if (typeof calleeName !== 'string' || calleeName.length === 0) continue
+        const goldenCall = callsByCallee.get(calleeName)
+        if (!goldenCall) {
+          if (!quiet) {
+            console.warn(`   ⚠️  Callee "${calleeName}" was declared but never called during capture — no contract written (cluster: ${id})`)
+          }
+          continue
+        }
+
+        const calleeClusterId = `${id}.calls.${calleeName}`
+        const calleeRegretPath = join(outDir, `${calleeClusterId}.regret`)
+        const calleeTimestamp = new Date().toISOString()
+
+        // Callee fingerprint: hash of (args, result) or (args, error).
+        // We use the same fingerprint() function as the parent cluster so
+        // hash semantics are consistent across parent and callee contracts.
+        const calleeFpInput = goldenCall.args
+        const calleeFpOutput = goldenCall.error != null
+          ? { __error: goldenCall.error }
+          : (goldenCall.result ?? null)
+        const calleeFp = fingerprint(calleeFpInput, calleeFpOutput, fpConfig)
+
+        const calleeContent = [
+          `cluster: ${calleeClusterId}`,
+          `version: 1`,
+          `fingerprint: ${calleeFp}`,
+          `captured: ${calleeTimestamp}`,
+          `parent: ${id}`,
+          `callee: ${calleeName}`,
+          `entry: ${calleeName}`,
+          `stack: ${stack ?? 'js'}`,
+          `fingerprintLevel: entry`,
+          goldenCall.construct ? `construct: true` : null,
+          goldenCall.error != null ? `threw: true` : null,
+          `env: ${JSON.stringify(getEnvSnapshot())}`,
+          `---`,
+          `INPUT  ${JSON.stringify(goldenCall.args ?? null)}`,
+          goldenCall.error != null
+            ? `ERROR_CONTRACT ${JSON.stringify({ type: 'Error', message: goldenCall.error })}`
+            : `OUTPUT ${JSON.stringify(goldenCall.result ?? null)}`,
+          `HASH   ${calleeFp}`,
+        ].filter(Boolean).join('\n')
+
+        const _calleeLock = acquireLock(calleeRegretPath)
+        try {
+          writeFileSync(calleeRegretPath, calleeContent, 'utf8')
+        } finally {
+          releaseLock(_calleeLock)
+        }
+
+        if (!quiet) {
+          console.log(`   📄 Saved: regrets/${calleeClusterId}.regret (callee fingerprint: ${calleeFp})`)
+        }
+      }
+    }
+
     passed++
 
   } catch (err) {
@@ -1529,6 +1641,9 @@ for (const cluster of clusters) {
     for (const { obj, key, original } of sideEffectRestores) {
       obj[key] = original
     }
+    // Phase 2: restore original callee functions (idempotent — safe even
+    // if wrapCallees was never invoked, because cleanupCallees defaults to a no-op).
+    cleanupCallees()
   }
 }
 
