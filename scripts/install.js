@@ -25,6 +25,7 @@ import { execFileSync } from 'child_process'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { dirname } from 'path'
 import { mergeCjsModule } from './cjs-merge.js'
+import { analyzeScope } from './analyzer.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPTS_DIR = __dirname
@@ -614,6 +615,58 @@ async function installForScope({
     // Filter: skip functions starting with _
     const publicFns = fns.filter(fn => !fn.startsWith('_'))
 
+    // ── Phase 3: Auto-populate callees via static call-graph analysis ────────
+    //
+    // analyzeScope(filePath) returns { functions, edges } where:
+    //   - functions: [{ name, file, line }] — names defined in this file
+    //   - edges:     [{ from, to }]         — call edges (caller → callee)
+    //
+    // For each public function we discover, compute the list of callees:
+    //   1. Take every edge whose `from` === fnName → its `to` is a direct callee
+    //   2. Filter to only callees that ALSO appear in `functions` — this
+    //      drops external identifiers (readdirSync, join, npm imports, etc.)
+    //      which are not defined in the same file and therefore cannot be
+    //      wrapped as ghost callees anyway.
+    //
+    // Failure contract: analyzeScope returns { functions: [], edges: [] }
+    // for unknown languages, parse errors, missing WASM grammars, or I/O
+    // errors. In all those cases calleesByFn stays empty, no `callees`
+    // field is added to any cluster, and install proceeds exactly as it
+    // did in Phase 1/2 — backward compatible.
+    //
+    // We analyze the file once (not once per function) since the AST is
+    // shared across all functions in the file. analyzeScope is async
+    // (lazy WASM init), so this loop is awaited.
+    const calleesByFn = new Map()
+    try {
+      const { functions: analysisFns, edges } = await analyzeScope(filePath)
+      if (analysisFns.length > 0) {
+        const definedNames = new Set(analysisFns.map(f => f.name))
+        for (const fnName of publicFns) {
+          const callees = edges
+            .filter(e => e.from === fnName)
+            .map(e => e.to)
+            .filter(name => definedNames.has(name))
+          // Dedupe while preserving first-appearance order. Multiple call
+          // sites to the same callee are common; the manifest only needs
+          // the unique set.
+          const seen = new Set()
+          const unique = []
+          for (const c of callees) {
+            if (!seen.has(c)) {
+              seen.add(c)
+              unique.push(c)
+            }
+          }
+          if (unique.length > 0) calleesByFn.set(fnName, unique)
+        }
+      }
+    } catch {
+      // Silently skip — install proceeds without callees for this file.
+      // This matches analyzeScope's own no-throw contract; we double-guard
+      // here in case a future change breaks that invariant.
+    }
+
     for (const fnName of publicFns) {
       const stack = detectStack(ext)
       const clusterId = generateClusterId(fnName, relPath)
@@ -629,7 +682,7 @@ async function installForScope({
         }
       }
 
-      clusters.push({
+      const cluster = {
         id: clusterId,
         entry: fnName,
         watches: [],
@@ -637,7 +690,18 @@ async function installForScope({
         stack,
         fingerprintLevel: 'entry',
         inputs: [null, {}],
-      })
+      }
+
+      // Phase 3: attach the auto-computed callees list. Only add the
+      // field when non-empty — preserves backward compatibility with
+      // existing manifests (Phase 1/2 never had a `callees` key, and
+      // capture.js treats absent `callees` the same as `callees: []`).
+      const callees = calleesByFn.get(fnName)
+      if (callees && callees.length > 0) {
+        cluster.callees = callees
+      }
+
+      clusters.push(cluster)
 
       totalFunctions++
     }
