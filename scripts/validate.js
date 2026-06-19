@@ -157,6 +157,24 @@ if (isMainModule) {
     }
     process.exit(1)
   }
+
+  // Bug B (#284): reject direct update of a callee contract.
+  // Callee contracts are derived from the parent's inputs — they cannot be
+  // updated independently. Point the user to the parent or re-capture instead.
+  if (updateTarget && updateTarget.includes('.calls.')) {
+    const parentTarget = updateTarget.split('.calls.')[0]
+    if (jsonOutput) {
+      console.log(JSON.stringify({
+        error: `Cannot update callee contract "${updateTarget}" directly. Callee contracts are derived from the parent cluster's inputs. Update the parent instead: regret update ${parentTarget} --reason "..." — or re-capture: regret capture --cluster ${parentTarget}`,
+      }))
+    } else {
+      console.error(`❌ Cannot update callee contract "${updateTarget}" directly.`)
+      console.error(`   Callee contracts are derived from the parent cluster's inputs.`)
+      console.error(`   Update the parent instead:  regret update ${parentTarget} --reason "..."`)
+      console.error(`   Or re-capture:               regret capture --cluster ${parentTarget}`)
+    }
+    process.exit(1)
+  }
 }
 
 // ─── Parse a .regret file ─────────────────────────────────────────────────────
@@ -447,7 +465,22 @@ if (isMainModule) {
   try {
     regretFiles = readdirSync(regretDir)
       .filter(f => f.endsWith('.regret'))
-      .filter(f => !filterId || f === `${filterId}.regret`)
+      .filter(f => {
+        if (!filterId) return true
+        // Exact match: filterId === "main" → main.regret
+        if (f === `${filterId}.regret`) return true
+        // Bug C (#284): when filterId is a parent cluster, also include its
+        // callee contract files (main.calls.add.regret, main.calls.mul.regret,
+        // etc.) so that `regret validate --cluster main` re-validates callee
+        // regressions of that cluster too. Previously, the strict equality
+        // filter hid callee contracts, producing false GREEN for refactors
+        // that changed a callee but preserved the parent's output.
+        // We only apply this when filterId itself is NOT a callee (.calls.)
+        // — if the user explicitly targets `main.calls.add`, only that one
+        // file is loaded (handled by the exact-match branch above).
+        if (filterId.includes('.calls.')) return false
+        return f.startsWith(`${filterId}.calls.`) && f.endsWith('.regret')
+      })
   } catch {
     if (jsonOutput) {
       console.log(JSON.stringify({ error: 'regrets/ not found. Run capture.js first.' }))
@@ -1697,6 +1730,90 @@ for (const file of regretFiles) {
         const { oldHash, newHash } = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason, clusterLastSERecording)
         if (!jsonOutput && !quiet) console.log(`  ✅ ${id.padEnd(35)} ${oldHash} → ${newHash}  UPDATED`)
         results.push({ id, pass: true, updated: true, confidence: clusterConfidence.label })
+
+        // Bug A (#284): re-capture and update callee .regret files for this parent.
+        // When a parent's behavior changes (and the user confirmed via --reason),
+        // the callee contracts derived from that parent's inputs must also be
+        // refreshed — otherwise the next `regret validate` will report callee
+        // FAIL (golden callee hash vs new live callee behavior).
+        //
+        // For each declared callee:
+        //   - If `<parent>.calls.<callee>.regret` exists: re-run the callee with
+        //     the saved INPUT args, compute the new hash, and write it back.
+        //   - If the callee .regret file is MISSING: warn the user — we cannot
+        //     re-update a contract that doesn't exist. They should run
+        //     `regret capture --cluster <parent>` to generate it.
+        //   - If the callee was never declared in the manifest: nothing to do.
+        if (Array.isArray(def.callees) && def.callees.length > 0) {
+          let updatedCallees = 0
+          let missingCallees = 0
+          let failedCallees = 0
+          for (const calleeName of def.callees) {
+            if (typeof calleeName !== 'string' || calleeName.length === 0) continue
+            const calleeClusterId = `${id}.calls.${calleeName}`
+            const calleeRegretPath = join(regretDir, `${calleeClusterId}.regret`)
+            if (!existsSync(calleeRegretPath)) {
+              missingCallees++
+              if (!jsonOutput && !quiet) {
+                console.log(`  ⚠️  ${calleeClusterId.padEnd(33)} missing — run \`regret capture --cluster ${id}\` to generate`)
+              }
+              continue
+            }
+            try {
+              const calleeRegret = parseRegret(readFileSync(calleeRegretPath, 'utf8'))
+              // Re-run the callee with the saved args (same logic as
+              // runCalleeContract, but we want the live hash + output regardless
+              // of whether it matches the golden).
+              const calleeRun = await runCalleeContract(calleeRegret, def, {
+                normalize: def.normalize ?? [],
+                ignoreFields: def.ignoreFields ?? [],
+                ignorePaths: def.ignorePaths ?? [],
+              })
+              if (calleeRun.liveHash == null) {
+                // runCalleeContract returns liveHash=null when the parent file
+                // can't be imported or the callee isn't found — can't update.
+                failedCallees++
+                if (!jsonOutput && !quiet) {
+                  console.log(`  ❌ ${calleeClusterId.padEnd(33)} could not re-capture: ${calleeRun.error}`)
+                }
+                continue
+              }
+              // Only write if the hash actually changed — avoids needless
+              // audit.log churn when callee behavior is unchanged.
+              if (calleeRun.liveHash === calleeRegret.goldenHash) {
+                if (verbose && !jsonOutput && !quiet) {
+                  console.log(`  ℹ️  ${calleeClusterId.padEnd(33)} unchanged — no update needed`)
+                }
+                continue
+              }
+              const calleeLiveOutput = calleeRun.liveError != null ? null : calleeRun.liveOutput
+              const { oldHash: calleeOld, newHash: calleeNew } = updateRegret(
+                calleeRegretPath,
+                calleeRegret,
+                calleeRun.liveHash,
+                calleeLiveOutput,
+                updateReason,
+              )
+              updatedCallees++
+              if (!jsonOutput && !quiet) {
+                console.log(`  ✅ ${calleeClusterId.padEnd(33)} ${calleeOld} → ${calleeNew}  UPDATED (callee)`)
+              }
+            } catch (err) {
+              failedCallees++
+              if (!jsonOutput && !quiet) {
+                console.log(`  ❌ ${calleeClusterId.padEnd(33)} ERROR during re-capture: ${err.message}`)
+              }
+            }
+          }
+          // Track callee update stats on the parent's result entry so the
+          // summary line can mention how many callees were also updated.
+          const lastIdx = results.length - 1
+          if (lastIdx >= 0 && results[lastIdx].id === id) {
+            results[lastIdx].calleesUpdated = updatedCallees
+            results[lastIdx].calleesMissing = missingCallees
+            results[lastIdx].calleesFailed = failedCallees
+          }
+        }
       }
     } else if (driftMode) {
       if (isDrift) {
@@ -1746,6 +1863,57 @@ for (const file of regretFiles) {
     results.push({ id, pass: false, error: err.message, confidence: clusterConfidence.label })
   }
 
+  // ── #288: missing callee contract detection ──────────────────────────────
+  // If the parent cluster declares `callees` in the manifest, the user
+  // expects each declared callee to have a corresponding `.calls.<callee>.regret`
+  // file that gets re-validated in the callee phase. If any of those files
+  // are missing (e.g. capture was never run, or callee wrapping silently
+  // failed), validate used to silently PASS — false sense of security.
+  //
+  // We now FAIL the parent cluster with a clear message listing the missing
+  // callee contracts and pointing the user to `regret capture --cluster <id>`.
+  //
+  // Skipped when --skip-callees is set (user explicitly opted out of callee
+  // contract re-validation entirely).
+  //
+  // Skipped when --update mode is active (we are updating, not validating).
+  //
+  // Skipped for `.calls.*` ids themselves (they are callee files, not parents).
+  if (!skipCallees && !updateMode && !id.includes('.calls.') && Array.isArray(def.callees) && def.callees.length > 0) {
+    const missingCallees = []
+    for (const calleeName of def.callees) {
+      if (typeof calleeName !== 'string' || calleeName.length === 0) continue
+      const calleePath = join(regretDir, `${id}.calls.${calleeName}.regret`)
+      if (!existsSync(calleePath)) {
+        missingCallees.push(calleeName)
+      }
+    }
+    if (missingCallees.length > 0) {
+      const missingList = missingCallees.map(c => `${id}.calls.${c}.regret`).join(', ')
+      const errMsg = `callee contract missing for: ${missingList} — run \`regret capture --cluster ${id}\` to generate`
+      if (!jsonOutput && !quiet) {
+        console.log(`  ❌ ${id.padEnd(35)} CALLEE CONTRACT MISSING`)
+        console.log(`    Missing: ${missingList}`)
+        console.log(`    Run: regret capture --cluster ${id}`)
+      }
+      // Override the parent's previous result (which may have been PASS)
+      // — the callee regression detection is INACTIVE for this cluster,
+      // which is a real gap that the user must fix.
+      const lastIdx = results.length - 1
+      if (lastIdx >= 0 && results[lastIdx].id === id) {
+        results[lastIdx] = {
+          id,
+          pass: false,
+          error: errMsg,
+          missingCallees,
+          confidence: clusterConfidence.label,
+        }
+      } else {
+        results.push({ id, pass: false, error: errMsg, missingCallees, confidence: clusterConfidence.label })
+      }
+    }
+  }
+
   if (!results.at(-1).pass && failFast) {
     if (!jsonOutput && !quiet) console.log(`\n  --fail-fast: stopping.`)
     break
@@ -1763,20 +1931,22 @@ for (const file of regretFiles) {
 // Skipped when:
 //   - --skip-callees is set (user explicitly opts out)
 //   - --update mode is active (we're updating a single cluster, not validating)
-//   - --cluster filter is set (only one cluster is being looked at — its
-//     callees aren't in regretFiles either, so there's nothing to do)
+//     NOTE: --update DOES re-capture callees via a separate path
+//     (see `updateCalleeContractsForParent` below) — this phase is for
+//     the validate path only.
 //   - --drift-mode is active (drift detection is for non-determinism in the
 //     parent cluster's output across multiple runs; callee re-validation
 //     only runs once and isn't meaningful in drift mode)
 //
-// Callee results are tracked in `calleeResults` (separate from `results`)
-// so the summary line can report them as a distinct count:
-//   "✅ All 2 tests passed, 3 callee contracts verified."
-//   "❌ 1 callee contract failed: main.calls.add"
+// Bug C (#284): --cluster filter NO LONGER skips this phase. The
+// regretFiles filter (above) now includes the matching parent's
+// `<parent>.calls.*.regret` files when --cluster <parent> is set, so
+// re-validating them gives the user accurate callee regression status
+// for the cluster they explicitly asked about.
 
 const calleeResults = []
 
-const runCalleePhase = !skipCallees && !updateMode && !driftMode && !clusterFilter
+const runCalleePhase = !skipCallees && !updateMode && !driftMode
 
 if (runCalleePhase) {
   // Build a quick lookup of parent cluster defs by id.
@@ -1787,6 +1957,9 @@ if (runCalleePhase) {
 
   // Only iterate over `.calls.*` files — the main loop already handled the
   // parent clusters.
+  // When --cluster <parent> is set, regretFiles already contains only that
+  // parent's .regret plus its `.calls.*` children, so this filter naturally
+  // scopes to the requested cluster's callees.
   const calleeRegretFiles = regretFiles.filter(f => basename(f, '.regret').includes('.calls.'))
 
   if (calleeRegretFiles.length > 0 && !jsonOutput && !quiet) {
@@ -2003,7 +2176,15 @@ if (reporter === 'junit') {
   const failedIds = results.filter(r => !r.pass).map(r => r.id)
   const calleeFailedIds = calleeResults.filter(r => !r.pass && !r.skipped).map(r => r.id)
   if (updateMode) {
-    console.log(`✅ Update complete. ${results.filter(r => r.updated).length} updated.`)
+    const updatedCount = results.filter(r => r.updated).length
+    const totalCalleesUpdated = results.reduce((sum, r) => sum + (r.calleesUpdated || 0), 0)
+    const totalCalleesMissing = results.reduce((sum, r) => sum + (r.calleesMissing || 0), 0)
+    const totalCalleesFailed = results.reduce((sum, r) => sum + (r.calleesFailed || 0), 0)
+    let line = `✅ Update complete. ${updatedCount} updated`
+    if (totalCalleesUpdated > 0) line += `, ${totalCalleesUpdated} callee contract${totalCalleesUpdated === 1 ? '' : 's'} updated`
+    if (totalCalleesMissing > 0) line += `, ${totalCalleesMissing} callee contract${totalCalleesMissing === 1 ? '' : 's'} missing`
+    if (totalCalleesFailed > 0) line += `, ${totalCalleesFailed} callee re-capture${totalCalleesFailed === 1 ? '' : 's'} failed`
+    console.log(line + '.')
     process.exit(0)
   }
   if (driftMode && drifted > 0) {
@@ -2023,7 +2204,16 @@ if (reporter === 'junit') {
   console.log(`\n${'─'.repeat(60)}`)
 
   if (updateMode) {
-    console.log(`✅ Update complete. ${results.filter(r => r.updated).length} updated.\n   Audit: regrets/audit.log`)
+    const updatedCount = results.filter(r => r.updated).length
+    const totalCalleesUpdated = results.reduce((sum, r) => sum + (r.calleesUpdated || 0), 0)
+    const totalCalleesMissing = results.reduce((sum, r) => sum + (r.calleesMissing || 0), 0)
+    const totalCalleesFailed = results.reduce((sum, r) => sum + (r.calleesFailed || 0), 0)
+    let line = `✅ Update complete. ${updatedCount} updated.`
+    if (totalCalleesUpdated > 0) line += `\n   ${totalCalleesUpdated} callee contract${totalCalleesUpdated === 1 ? '' : 's'} also updated.`
+    if (totalCalleesMissing > 0) line += `\n   ⚠️  ${totalCalleesMissing} callee contract${totalCalleesMissing === 1 ? '' : 's'} missing — run \`regret capture\` to generate.`
+    if (totalCalleesFailed > 0) line += `\n   ⚠️  ${totalCalleesFailed} callee re-capture${totalCalleesFailed === 1 ? '' : 's'} failed — see output above.`
+    line += `\n   Audit: regrets/audit.log`
+    console.log(line)
     process.exit(0)
   }
   if (driftMode && drifted > 0) {
