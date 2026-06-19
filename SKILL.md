@@ -182,6 +182,18 @@ module.exports.main = function (x) {
 // calls route through a mutable `__regretsHolder` object that wrapCallees
 // can reassign. The original file is NEVER modified — the transformed
 // source lives only in a temp file (same directory, deleted after capture).
+//
+// Temp file lifecycle is managed by scripts/esm-temp-manager.js:
+//   - Filenames use crypto.randomUUID() for collision safety across
+//     concurrent capture processes.
+//   - Each temp file is registered immediately after creation so it can
+//     be cleaned up by signal handlers (SIGINT, SIGTERM) even if the
+//     normal finally block never runs.
+//   - On normal exit, the manager runs a final cleanup pass as a
+//     belt-and-suspenders guarantee.
+//   - SIGKILL (uncatchable) will still leak the temp file — this is an
+//     OS-level limitation, not a bug. The leaked file has a collision-safe
+//     UUID-based name so it's easy to identify and clean up manually.
 function add(a, b) { return a + b }
 function main(x) { return add(x, 1) }
 export { main, add }

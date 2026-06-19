@@ -21,6 +21,7 @@ import { createGhost, wrapCallees, deepClone, consumeIterator } from './ghost.js
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
 import { isEsmSource, transformEsmForCallees, HOLDER_NAME } from './esm-callee-transform.js'
+import { registerTempFile, unregisterTempFile, generateTempFilename, cleanupAllTempFiles } from './esm-temp-manager.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -392,6 +393,16 @@ for (const cluster of clusters) {
   // `esmTransformTempPath` is declared outside `try` so the finally block
   // can clean it up even if the body throws partway through. Null means
   // no temp file was created (CJS module, or transformation aborted).
+  //
+  // Temp file lifecycle is managed by `esm-temp-manager.js`:
+  //   - `registerTempFile(path)` is called immediately after writeFileSync
+  //     so the file is tracked for process-level cleanup.
+  //   - `unregisterTempFile(path)` is called after successful deletion in
+  //     the finally block so the Set doesn't grow unboundedly.
+  //   - If the process crashes or receives SIGINT/SIGTERM before the finally
+  //     block runs, the temp-manager's signal handlers will delete the file.
+  //   - Filenames use crypto.randomUUID() for collision safety across
+  //     concurrent capture processes (no reliance on Date.now()+Math.random()).
   let esmTransformTempPath = null
 
   try {
@@ -428,11 +439,19 @@ for (const cluster of clusters) {
           if (transformResult) {
             // Write transformed source to a temp file in the SAME directory
             // as the original so relative imports resolve unchanged. The temp
-            // file is deleted in the finally block below.
+            // file is deleted in the finally block below (and also by the
+            // process-level signal handlers in esm-temp-manager.js if the
+            // finally never runs due to a crash).
+            //
+            // Filename uses crypto.randomUUID() for collision safety across
+            // concurrent capture processes. The leading `.` makes it hidden.
             const dir = dirname(absPath)
-            const tempName = `.regrets-transform-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mjs`
+            const tempName = generateTempFilename(id)
             esmTransformTempPath = join(dir, tempName)
             writeFileSync(esmTransformTempPath, transformResult.transformedSource, 'utf8')
+            // Register with the temp manager IMMEDIATELY after creation —
+            // this is what guarantees cleanup even if the next line throws.
+            registerTempFile(esmTransformTempPath)
             moduleUrl = pathToFileURL(esmTransformTempPath).href
             if (!quiet) {
               console.log(`   🔄 ESM bare-name transform applied (callees: ${callees.join(', ')})`)
@@ -1726,16 +1745,30 @@ for (const cluster of clusters) {
     cleanupCallees()
     // ESM bare-name transform: delete the temp file (if any) that held the
     // transformed source. Best-effort — if deletion fails (rare race with
-    // another process), log and continue. The temp file is hidden (starts
-    // with `.`) and its name includes a timestamp + random suffix, so even
-    // if it leaks it's easy to identify and clean up.
+    // another process), log and continue. The temp file is also tracked by
+    // the process-level esm-temp-manager.js, so if the process crashes
+    // before this finally block runs, the signal handlers will clean it up.
+    //
+    // After successful deletion, call unregisterTempFile() so the Set in
+    // esm-temp-manager.js doesn't grow unboundedly across multiple clusters
+    // in the same process. (The exit handler would otherwise try to delete
+    // an already-deleted file — which is a no-op due to ENOENT handling,
+    // but it's cleaner to keep the Set small.)
     if (esmTransformTempPath) {
       try {
         unlinkSync(esmTransformTempPath)
+        unregisterTempFile(esmTransformTempPath)
       } catch (e) {
         if (e.code !== 'ENOENT' && !quiet) {
           // Don't fail the capture if temp file cleanup fails — just warn.
+          // The file is still registered with esm-temp-manager.js, so the
+          // exit handler will attempt deletion again at process termination.
           console.warn(`   ⚠️  Could not delete ESM transform temp file ${esmTransformTempPath}: ${e.message}`)
+        } else if (e.code === 'ENOENT') {
+          // File was already deleted (possibly by the signal handler during
+          // a concurrent cleanup). Unregister so the exit handler doesn't
+          // waste time on it.
+          unregisterTempFile(esmTransformTempPath)
         }
       }
       esmTransformTempPath = null
@@ -1744,9 +1777,16 @@ for (const cluster of clusters) {
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
+//
+// Explicit cleanup before exit: the esm-temp-manager's process.on('exit')
+// handler would also clean up, but calling cleanupAllTempFiles() here is
+// belt-and-suspenders — it guarantees no temp files survive even if a
+// future refactor removes the exit handler. The function is idempotent,
+// so the exit handler calling it again moments later is a no-op.
 
 if (quiet) {
   // ─── Quiet summary: only one line ─────────────────────────────────────────
+  cleanupAllTempFiles()
   if (failed > 0) {
     console.log(`❌ ${failed} cluster(s) failed`)
     process.exit(1)
@@ -1757,6 +1797,7 @@ if (quiet) {
   console.log(`\n${'─'.repeat(50)}`)
   console.log(`Capture complete: ${passed} captured, ${failed} failed`)
 
+  cleanupAllTempFiles()
   if (failed > 0) {
     console.log(`\n⚠️  Fix failed captures before proceeding to PHASE 2.`)
     console.log(`   Hint: Check that 'entry' and 'watches' names match exports in your file.`)
