@@ -11,8 +11,8 @@
 // error, malformed AST) returns { functions: [], edges: [] } so that
 // scan.js can fall through to its regex extractor. Nothing throws.
 
-import { extname, dirname, join } from 'path'
-import { readFileSync } from 'fs'
+import { extname, dirname, join, resolve } from 'path'
+import { readFileSync, statSync, readdirSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 
@@ -104,6 +104,45 @@ const LANG_CONFIG = {
   },
 }
 
+// ─── Directory traversal ─────────────────────────────────────────────────────
+//
+// Directories to skip when walking a directory tree in analyzeScope().
+// Matches the filter used by scan.js and install.js.
+
+const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', 'target', '__pycache__',
+  'regrets', '.next', '.nuxt', 'coverage', '.cache', '.turbo',
+])
+
+/**
+ * Recursively discover source files (JS/TS/Python) under a directory.
+ * Skips SKIP_DIRS entries and hidden directories (starting with '.').
+ *
+ * @param {string} dir - absolute path to a directory
+ * @returns {string[]} array of absolute file paths
+ */
+function discoverSourceFiles(dir) {
+  const files = []
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name)) continue
+        if (entry.name.startsWith('.')) continue
+        files.push(...discoverSourceFiles(join(dir, entry.name)))
+      } else if (entry.isFile()) {
+        const ext = extname(entry.name).toLowerCase()
+        if (['.js', '.mjs', '.cjs', '.ts', '.tsx', '.py'].includes(ext)) {
+          files.push(join(dir, entry.name))
+        }
+      }
+    }
+  } catch {
+    // unreadable dir → return what we have so far
+  }
+  return files
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -126,12 +165,15 @@ export async function detectLanguage(filePath) {
 }
 
 /**
- * Analyze a file for function definitions and call edges.
+ * Analyze a file or directory for function definitions and call edges.
  *
  * Behavior:
- *   - If scopePath is a directory, the function still operates on a single
- *     file today. Directory traversal is left to the caller (scan.js).
- *     For a directory input, returns empty arrays (TODO: walk the dir).
+ *   - If scopePath is a file → analyze that single file (original behavior).
+ *   - If scopePath is a directory → recursively discover all JS/TS/Python
+ *     files, analyze each one, and merge the results:
+ *       - functions: concat all, dedup by (name + file)
+ *       - edges: concat all (edges already carry file info via functions list)
+ *   - Skip node_modules/, .git/, dist/, build/ and other non-source dirs.
  *   - If the language is unknown or unsupported, returns empty arrays.
  *   - If the file cannot be read or parsed, returns empty arrays.
  *   - Method calls (obj.method(), this.helper(), super.init()) are
@@ -139,11 +181,50 @@ export async function detectLanguage(filePath) {
  *     child of the member_expression/attribute node. Receiver type is
  *     NOT resolved — only the method name is captured.
  *
- * @param {string} scopePath - absolute path to a file (or folder — folder
- *   input currently returns empty arrays)
+ * @param {string} scopePath - absolute path to a file or directory
  * @returns {Promise<{functions: Array<{name: string, file: string, line: number}>, edges: Array<{from: string, to: string}>}>}
  */
 export async function analyzeScope(scopePath) {
+  // ── Directory mode: recursively walk and merge ──────────────────────────
+  let isDir = false
+  try {
+    isDir = statSync(scopePath).isDirectory()
+  } catch {
+    // Cannot stat — treat as file; the file-read below will also fail
+    // and return empty arrays.
+  }
+
+  if (isDir) {
+    const sourceFiles = discoverSourceFiles(scopePath)
+    const allFunctions = []
+    const allEdges = []
+
+    for (const filePath of sourceFiles) {
+      const lang = await detectLanguage(filePath)
+      if (lang === 'unknown') continue
+
+      const result = await analyzeScope(filePath)
+      allFunctions.push(...result.functions)
+      allEdges.push(...result.edges)
+    }
+
+    // Dedup functions by (name + file) — same-named function in different
+    // files is fine, but duplicate entries from the same file should not
+    // appear (e.g. if discoverSourceFiles somehow lists a file twice).
+    const seen = new Set()
+    const dedupedFunctions = []
+    for (const fn of allFunctions) {
+      const key = `${fn.name}::${fn.file}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        dedupedFunctions.push(fn)
+      }
+    }
+
+    return { functions: dedupedFunctions, edges: allEdges }
+  }
+
+  // ── File mode: original single-file behavior ───────────────────────────
   const lang = await detectLanguage(scopePath)
   if (lang === 'unknown') return { functions: [], edges: [] }
 
