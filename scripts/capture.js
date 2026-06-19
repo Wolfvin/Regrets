@@ -20,7 +20,7 @@ import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stable
 import { createGhost, wrapCallees, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
-import { isEsmSource, transformEsmForCallees, HOLDER_NAME } from './esm-callee-transform.js'
+import { isEsmSource, transformEsmForCallees, HOLDER_NAME, registerEsmTempFile, deleteEsmTempFile, generateEsmTempFileName } from './esm-callee-transform.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -428,10 +428,19 @@ for (const cluster of clusters) {
           if (transformResult) {
             // Write transformed source to a temp file in the SAME directory
             // as the original so relative imports resolve unchanged. The temp
-            // file is deleted in the finally block below.
+            // file is deleted in the finally block below — and also by the
+            // process-wide signal handlers (SIGINT/SIGTERM/exit/uncaughtException)
+            // installed by esm-callee-transform.js, so it doesn't leak if the
+            // process is killed mid-capture.
+            //
+            // Register BEFORE write: ensures the signal handler catches the
+            // file even if SIGINT arrives between writeFileSync and register.
+            // Name is collision-safe (pid + UUID) so concurrent capture runs
+            // in CI cannot stomp on each other.
             const dir = dirname(absPath)
-            const tempName = `.regrets-transform-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mjs`
+            const tempName = generateEsmTempFileName()
             esmTransformTempPath = join(dir, tempName)
+            registerEsmTempFile(esmTransformTempPath)
             writeFileSync(esmTransformTempPath, transformResult.transformedSource, 'utf8')
             moduleUrl = pathToFileURL(esmTransformTempPath).href
             if (!quiet) {
@@ -1726,15 +1735,20 @@ for (const cluster of clusters) {
     cleanupCallees()
     // ESM bare-name transform: delete the temp file (if any) that held the
     // transformed source. Best-effort — if deletion fails (rare race with
-    // another process), log and continue. The temp file is hidden (starts
-    // with `.`) and its name includes a timestamp + random suffix, so even
-    // if it leaks it's easy to identify and clean up.
+    // another process, or unexpected filesystem error), log and continue.
+    //
+    // deleteEsmTempFile is idempotent (safe to call multiple times) and also
+    // removes the path from the process-wide registry, so the signal
+    // handlers installed by esm-callee-transform.js won't try to delete it
+    // again on exit. The temp file name is collision-safe (pid + UUID),
+    // so even if a leak does occur it's easy to identify and attribute.
     if (esmTransformTempPath) {
       try {
-        unlinkSync(esmTransformTempPath)
+        deleteEsmTempFile(esmTransformTempPath)
       } catch (e) {
-        if (e.code !== 'ENOENT' && !quiet) {
-          // Don't fail the capture if temp file cleanup fails — just warn.
+        // deleteEsmTempFile swallows ENOENT internally; anything else
+        // (e.g. EACCES) is unexpected — warn but don't fail the capture.
+        if (!quiet) {
           console.warn(`   ⚠️  Could not delete ESM transform temp file ${esmTransformTempPath}: ${e.message}`)
         }
       }

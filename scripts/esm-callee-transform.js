@@ -52,10 +52,11 @@
 // (so relative imports resolve correctly). The temp file is deleted in the
 // capture.js `finally` block.
 
-import { readFileSync } from 'fs'
+import { readFileSync, unlinkSync } from 'fs'
 import { extname, dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
+import { randomUUID } from 'crypto'
 
 // ─── Tree-sitter loader (duplicated from analyzer.js) ─────────────────────
 //
@@ -466,4 +467,188 @@ function doTransform(root, source, calleeNames) {
   transformed = transformed + trailer
 
   return { transformedSource: transformed, holderName: HOLDER_NAME }
+}
+
+// ─── ESM temp file lifecycle (process-wide) ───────────────────────────────
+//
+// When capture.js transforms an ESM source, it writes the transformed source
+// to a temp file in the SAME directory as the original (so relative imports
+// resolve unchanged). The temp file is normally deleted in the per-cluster
+// `finally` block — but if the process is killed (SIGINT, SIGTERM, crash)
+// between the write and the finally, the temp file is orphaned forever.
+//
+// This section maintains a process-wide registry of all ESM transform temp
+// files created by capture.js, and installs signal handlers that nuke them
+// on abnormal exit. The handlers are idempotent and safe to call multiple
+// times.
+//
+// Design notes:
+//   - We do NOT use vm.Module (experimental SourceTextModule) because it
+//     would require a custom linker to resolve relative imports, adding
+//     fragility. Temp-file-in-source-dir + robust cleanup is more stable.
+//   - We do NOT use a per-process temp directory under os.tmpdir() because
+//     relative imports (`./helper.mjs`) would resolve relative to that dir
+//     instead of the original source dir, breaking import resolution.
+//   - Collision safety: name = `.regrets-transform-<pid>-<uuid>.mjs`. The
+//     pid helps attribute leaks to a specific CI process; the UUID provides
+//     cryptographic collision resistance across concurrent captures.
+//   - Register-before-write ordering: capture.js registers the planned path
+//     BEFORE calling writeFileSync, so the signal handler catches the file
+//     even if SIGINT arrives between write and register.
+
+const _esmTempFiles = new Set()
+let _cleanupHandlersInstalled = false
+
+/**
+ * Idempotent cleanup of all registered temp files.
+ * Safe to call from signal handlers (synchronous — only uses unlinkSync).
+ *
+ * @returns {number} Number of files actually deleted (vs already-gone)
+ * @internal
+ */
+function _nukeAllTempFiles() {
+  let deleted = 0
+  for (const p of _esmTempFiles) {
+    try {
+      unlinkSync(p)
+      deleted++
+    } catch (e) {
+      // ENOENT: file already gone — fine.
+      // EACCES / other: best-effort, swallow to avoid masking the original
+      // signal/crash reason.
+    }
+  }
+  _esmTempFiles.clear()
+  return deleted
+}
+
+/**
+ * Install process-level cleanup handlers. Called once at module load.
+ * Idempotent — safe to call multiple times (no-op after first call).
+ *
+ * Handlers:
+ *   - SIGINT:  cleanup, then exit(130)  (default SIGINT exit code = 128+2)
+ *   - SIGTERM: cleanup, then exit(143)  (default SIGTERM exit code = 128+15)
+ *   - exit:    cleanup (must be synchronous; unlinkSync is sync, OK)
+ *   - uncaughtException: cleanup, then re-throw (preserves Node's default
+ *     crash behavior; the 'exit' handler will run next, idempotently)
+ *
+ * Note: adding a SIGINT/SIGTERM listener disables Node's default "exit on
+ * signal" behavior — we MUST call process.exit() ourselves to terminate.
+ * The 'exit' event then fires and runs the idempotent cleanup again.
+ */
+function installEsmTempFileCleanupHandlers() {
+  if (_cleanupHandlersInstalled) return
+  _cleanupHandlersInstalled = true
+
+  process.on('SIGINT', () => {
+    _nukeAllTempFiles()
+    process.exit(130)
+  })
+
+  process.on('SIGTERM', () => {
+    _nukeAllTempFiles()
+    process.exit(143)
+  })
+
+  process.on('exit', () => {
+    // 'exit' handler must be synchronous — unlinkSync is sync, OK.
+    // This fires on both normal exit (process.exit / event loop drain) and
+    // abnormal exit (SIGINT/SIGTERM → process.exit from our handler above,
+    // or uncaughtException re-throw crash). The _nukeAllTempFiles call is
+    // idempotent so re-entry is a no-op.
+    _nukeAllTempFiles()
+  })
+
+  process.on('uncaughtException', (err) => {
+    _nukeAllTempFiles()
+    // Re-throw to preserve Node's default crash behavior. Without this,
+    // the process would keep running (adding an uncaughtException listener
+    // disables the default "print stack + exit" behavior).
+    // The 'exit' handler will fire next, idempotently.
+    throw err
+  })
+}
+
+// Install eagerly at module load — guarantees handlers are in place before
+// any temp file is created by capture.js.
+installEsmTempFileCleanupHandlers()
+
+/**
+ * Register a temp file with the process-wide lifecycle manager.
+ * The file will be deleted on SIGINT/SIGTERM/exit/uncaughtException if not
+ * already removed via deleteEsmTempFile.
+ *
+ * capture.js should call this BEFORE writing the file, so the signal
+ * handler catches the file even if SIGINT arrives between write and
+ * register.
+ *
+ * @param {string} absPath - Absolute path to the temp file
+ */
+export function registerEsmTempFile(absPath) {
+  _esmTempFiles.add(absPath)
+}
+
+/**
+ * Delete a registered temp file and remove it from the registry.
+ *
+ * Safe to call multiple times for the same path (idempotent — the second
+ * call finds the path already removed from the registry and the file
+ * already unlinked, so it is a no-op).
+ * Safe to call for a path that was never registered (swallows ENOENT).
+ *
+ * @param {string} absPath - Absolute path to the temp file
+ * @returns {boolean} true if the file was deleted by THIS call (false if
+ *   it was already gone before this call)
+ * @throws {Error} Re-throws any non-ENOENT error from unlinkSync (e.g.
+ *   EACCES) so the caller can log/warn appropriately.
+ */
+export function deleteEsmTempFile(absPath) {
+  let deleted = false
+  try {
+    unlinkSync(absPath)
+    deleted = true
+  } catch (e) {
+    if (e.code !== 'ENOENT') {
+      // Unexpected error — unregister and re-throw so caller can log.
+      _esmTempFiles.delete(absPath)
+      throw e
+    }
+    // ENOENT is fine — file was already gone.
+  } finally {
+    _esmTempFiles.delete(absPath)
+  }
+  return deleted
+}
+
+/**
+ * Delete ALL registered temp files. Intended for signal handlers and tests.
+ * Idempotent — safe to call multiple times.
+ *
+ * @returns {number} Number of files actually deleted by THIS call
+ */
+export function cleanupAllEsmTempFiles() {
+  return _nukeAllTempFiles()
+}
+
+/**
+ * Generate a collision-safe temp file name for ESM transform output.
+ *
+ * Format: `.regrets-transform-<pid>-<uuid>.mjs`
+ *
+ * - `.regrets-transform-` prefix: keeps the existing convention so the
+ *   e2e test (which scans for this prefix) still works.
+ * - `<pid>`: helps attribute leaked files to a specific CI process and
+ *   adds an extra layer of collision resistance across concurrent captures.
+ * - `<uuid>`: cryptographically strong collision resistance (v4 UUID).
+ *
+ * The temp file is meant to be written in the same directory as the
+ * original source file (so relative imports resolve unchanged). This
+ * function returns just the file NAME — the caller is responsible for
+ * joining it with the source directory.
+ *
+ * @returns {string} Temp file name (no path)
+ */
+export function generateEsmTempFileName() {
+  return `.regrets-transform-${process.pid}-${randomUUID()}.mjs`
 }
