@@ -66,10 +66,11 @@ async function loadLanguage(langName) {
 //   - callKinds: AST node types that represent a function call
 //   - calleeField: field name on the call node pointing to the callee
 //
-// Method calls (obj.method()) are intentionally NOT handled here — the
-// callee field points to a member_expression whose text is "obj.method",
-// which is not a stable identifier across files. Tracking them would
-// require resolving the receiver type. Logged as TODO.
+// Method calls (obj.method()) are handled by extracting the property
+// name from member_expression (JS/TS) or attribute (Python). The
+// receiver object is not resolved — only the method name is captured.
+// External method names (e.g. arr.map, arr.filter) that don't match
+// any in-file function are filtered out by install.js automatically.
 
 const LANG_CONFIG = {
   javascript: {
@@ -80,6 +81,9 @@ const LANG_CONFIG = {
     declarationKinds: ['lexical_declaration', 'variable_declaration'],
     callKinds: ['call_expression'],
     calleeField: 'function',
+    // Method call extraction: when calleeField yields a member_expression,
+    // extract the method name from the `property` child.
+    methodCalleeInfo: { nodeType: 'member_expression', propertyField: 'property' },
   },
   typescript: {
     grammarName: 'typescript',
@@ -87,6 +91,7 @@ const LANG_CONFIG = {
     declarationKinds: ['lexical_declaration', 'variable_declaration'],
     callKinds: ['call_expression'],
     calleeField: 'function',
+    methodCalleeInfo: { nodeType: 'member_expression', propertyField: 'property' },
   },
   python: {
     grammarName: 'python',
@@ -94,6 +99,8 @@ const LANG_CONFIG = {
     declarationKinds: [], // Python has no `const fn = () => {}` equivalent at module scope
     callKinds: ['call'],
     calleeField: 'function',
+    // Python attribute access: obj.method() → (attribute object: (identifier) attribute: (identifier))
+    methodCalleeInfo: { nodeType: 'attribute', propertyField: 'attribute' },
   },
 }
 
@@ -127,8 +134,10 @@ export async function detectLanguage(filePath) {
  *     For a directory input, returns empty arrays (TODO: walk the dir).
  *   - If the language is unknown or unsupported, returns empty arrays.
  *   - If the file cannot be read or parsed, returns empty arrays.
- *   - Method calls (obj.method()) are skipped — callee is filtered to
- *     bare identifiers only.
+ *   - Method calls (obj.method(), this.helper(), super.init()) are
+ *     tracked by extracting the method name from the property/attribute
+ *     child of the member_expression/attribute node. Receiver type is
+ *     NOT resolved — only the method name is captured.
  *
  * @param {string} scopePath - absolute path to a file (or folder — folder
  *   input currently returns empty arrays)
@@ -233,13 +242,20 @@ export async function analyzeScope(scopePath) {
       const calleeNode = node.childForFieldName(config.calleeField)
       if (!calleeNode) return
 
-      // TODO: handle method calls. When the callee is a member_expression
-      // (e.g. `obj.method()`), the text is "obj.method" — not a stable
-      // identifier. We skip these until receiver-type resolution lands.
-      // For now, only bare identifier callees (`foo()`) are tracked.
-      if (calleeNode.type !== 'identifier') return
-
-      const calleeName = calleeNode.text
+      // Resolve callee name: bare identifier or method call.
+      // For bare calls like `foo()`, calleeNode.type === 'identifier'.
+      // For method calls like `obj.method()` or `this.helper()`,
+      // calleeNode is a member_expression (JS/TS) or attribute (Python).
+      // We extract the property/attribute name as the callee.
+      let calleeName
+      if (calleeNode.type === 'identifier') {
+        calleeName = calleeNode.text
+      } else if (config.methodCalleeInfo && calleeNode.type === config.methodCalleeInfo.nodeType) {
+        const propNode = calleeNode.childForFieldName(config.methodCalleeInfo.propertyField)
+        calleeName = propNode ? propNode.text : null
+      } else {
+        return
+      }
       if (!calleeName) return
 
       // Find enclosing function by walking up the parent chain.
