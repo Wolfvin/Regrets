@@ -25,6 +25,10 @@ import {
   isEsmSource,
   transformEsmForCallees,
   HOLDER_NAME,
+  registerEsmTempFile,
+  deleteEsmTempFile,
+  cleanupAllEsmTempFiles,
+  generateEsmTempFileName,
 } from '../scripts/esm-callee-transform.js'
 import { wrapCallees } from '../scripts/ghost.js'
 
@@ -538,5 +542,162 @@ module.exports = { main, add }
     } finally {
       cleanup()
     }
+  })
+})
+
+// ─── ESM temp file lifecycle ────────────────────────────────────────────────
+//
+// Tests for the process-wide temp file registry + signal handlers that
+// prevent temp file leaks when capture.js is killed mid-capture (SIGINT,
+// SIGTERM, crash). Closes issue #244.
+//
+// These tests exercise the API directly. End-to-end coverage (actual SIGINT
+// to a running capture.js child process) lives in tests/esm-callee-e2e.test.js.
+
+describe('ESM temp file lifecycle', () => {
+  let tmpDir
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'regrets-esm-lifecycle-'))
+  })
+
+  after(() => {
+    // Belt-and-suspenders: nuke anything still in the registry from this
+    // test process, then remove the temp dir.
+    cleanupAllEsmTempFiles()
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  // ─── generateEsmTempFileName ───────────────────────────────────────────────
+
+  describe('generateEsmTempFileName', () => {
+    it('produces name with the expected prefix (for e2e test compatibility)', () => {
+      const name = generateEsmTempFileName()
+      assert.ok(
+        name.startsWith('.regrets-transform-'),
+        `name should keep the existing prefix convention; got: ${name}`
+      )
+    })
+
+    it('produces name with .mjs extension', () => {
+      const name = generateEsmTempFileName()
+      assert.ok(name.endsWith('.mjs'), `name should end with .mjs; got: ${name}`)
+    })
+
+    it('includes the current process pid (for attribution)', () => {
+      const name = generateEsmTempFileName()
+      assert.ok(
+        name.includes(`-${process.pid}-`),
+        `name should include pid segment "-${process.pid}-"; got: ${name}`
+      )
+    })
+
+    it('produces unique names on repeated calls (UUID collision resistance)', () => {
+      const names = new Set()
+      for (let i = 0; i < 100; i++) {
+        names.add(generateEsmTempFileName())
+      }
+      assert.equal(names.size, 100, 'all 100 names should be unique')
+    })
+  })
+
+  // ─── registerEsmTempFile + deleteEsmTempFile ───────────────────────────────
+
+  describe('registerEsmTempFile + deleteEsmTempFile', () => {
+    it('deleteEsmTempFile removes a registered file from disk', () => {
+      const tmpPath = join(tmpDir, '.regrets-transform-test-delete.mjs')
+      writeFileSync(tmpPath, '// test', 'utf8')
+      registerEsmTempFile(tmpPath)
+
+      assert.ok(existsSync(tmpPath), 'precondition: file exists')
+      const deleted = deleteEsmTempFile(tmpPath)
+      assert.equal(deleted, true, 'deleteEsmTempFile should return true when it deleted the file')
+      assert.ok(!existsSync(tmpPath), 'file should be gone from disk')
+    })
+
+    it('deleteEsmTempFile is idempotent — second call is a no-op', () => {
+      const tmpPath = join(tmpDir, '.regrets-transform-test-idempotent.mjs')
+      writeFileSync(tmpPath, '// test', 'utf8')
+      registerEsmTempFile(tmpPath)
+
+      deleteEsmTempFile(tmpPath)
+      // Second call — should not throw, should return false (file already gone)
+      const deletedAgain = deleteEsmTempFile(tmpPath)
+      assert.equal(deletedAgain, false, 'second call should return false (file already gone)')
+    })
+
+    it('deleteEsmTempFile is safe for a path that was never registered (no throw)', () => {
+      const tmpPath = join(tmpDir, '.regrets-transform-test-unregistered.mjs')
+      // Don't register, don't create — should swallow ENOENT
+      const deleted = deleteEsmTempFile(tmpPath)
+      assert.equal(deleted, false, 'should return false since file does not exist')
+    })
+
+    it('deleteEsmTempFile swallows ENOENT for a registered-but-already-removed path', () => {
+      const tmpPath = join(tmpDir, '.regrets-transform-test-enoent.mjs')
+      // Register but don't create — deleteEsmTempFile should swallow ENOENT
+      registerEsmTempFile(tmpPath)
+      const deleted = deleteEsmTempFile(tmpPath)
+      assert.equal(deleted, false, 'should return false (file did not exist on disk)')
+    })
+  })
+
+  // ─── cleanupAllEsmTempFiles ────────────────────────────────────────────────
+
+  describe('cleanupAllEsmTempFiles', () => {
+    it('removes ALL registered files in one call', () => {
+      const path1 = join(tmpDir, '.regrets-transform-cleanup-1.mjs')
+      const path2 = join(tmpDir, '.regrets-transform-cleanup-2.mjs')
+      const path3 = join(tmpDir, '.regrets-transform-cleanup-3.mjs')
+      writeFileSync(path1, '// test', 'utf8')
+      writeFileSync(path2, '// test', 'utf8')
+      writeFileSync(path3, '// test', 'utf8')
+      registerEsmTempFile(path1)
+      registerEsmTempFile(path2)
+      registerEsmTempFile(path3)
+
+      const deleted = cleanupAllEsmTempFiles()
+      assert.equal(deleted, 3, 'all 3 files should be reported as deleted')
+      assert.ok(!existsSync(path1), 'path1 deleted from disk')
+      assert.ok(!existsSync(path2), 'path2 deleted from disk')
+      assert.ok(!existsSync(path3), 'path3 deleted from disk')
+    })
+
+    it('is idempotent — second call returns 0 (registry is empty)', () => {
+      const deleted = cleanupAllEsmTempFiles()
+      assert.equal(deleted, 0, 'no files should be left to delete')
+    })
+
+    it('handles mixed state (some files exist, some are already gone)', () => {
+      const existsPath = join(tmpDir, '.regrets-transform-mixed-exists.mjs')
+      const gonePath = join(tmpDir, '.regrets-transform-mixed-gone.mjs')
+      writeFileSync(existsPath, '// test', 'utf8')
+      // Register both, but only the first exists on disk
+      registerEsmTempFile(existsPath)
+      registerEsmTempFile(gonePath)
+
+      const deleted = cleanupAllEsmTempFiles()
+      assert.equal(deleted, 1, 'only the existing file should be reported as deleted')
+      assert.ok(!existsSync(existsPath), 'existing file should be removed')
+    })
+  })
+
+  // ─── Signal handler integration ────────────────────────────────────────────
+  //
+  // We cannot test SIGINT/SIGTERM directly in this process (it would kill
+  // the test runner). The end-to-end SIGINT behavior is covered in
+  // tests/esm-callee-e2e.test.js by spawning capture.js as a child process.
+  // Here we just verify the cleanup API that the signal handlers call.
+
+  describe('signal handler contract (verified via cleanupAllEsmTempFiles)', () => {
+    it('the function the signal handlers call is exported and idempotent', () => {
+      // Just verify the export exists and can be called repeatedly without
+      // throwing — this is the function wired into SIGINT/SIGTERM/exit/
+      // uncaughtException by installEsmTempFileCleanupHandlers().
+      assert.equal(typeof cleanupAllEsmTempFiles, 'function')
+      assert.doesNotThrow(() => cleanupAllEsmTempFiles())
+      assert.doesNotThrow(() => cleanupAllEsmTempFiles())
+      assert.doesNotThrow(() => cleanupAllEsmTempFiles())
+    })
   })
 })

@@ -21,7 +21,7 @@
 
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawnSync, spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
@@ -284,4 +284,192 @@ module.exports = { main, add }
     const tempFiles = listTempTransformFiles(tmpDir)
     assert.deepEqual(tempFiles, [], `no temp files for CJS; got: ${tempFiles.join(', ')}`)
   })
+})
+
+// ─── E2E: SIGINT mid-capture does not leak temp files ──────────────────────
+//
+// Closes issue #244. Before the fix, if capture.js received SIGINT between
+// writing the ESM transform temp file and running the finally block, the
+// temp file was orphaned forever. With the new process-wide lifecycle
+// registry + signal handlers, the temp file is deleted on SIGINT.
+//
+// Strategy:
+//   1. Write an ESM fixture whose entry function returns a never-resolving
+//      promise — capture.js will hang forever inside the cluster try block,
+//      AFTER the temp file has been written.
+//   2. Spawn capture.js as a child process.
+//   3. Watch stdout for the "ESM bare-name transform applied" message,
+//      which proves the temp file has been written.
+//   4. Send SIGINT to the child.
+//   5. Wait for the child to exit.
+//   6. Verify NO `.regrets-transform-*` files remain in the fixture dir.
+
+describe('E2E: SIGINT mid-capture does not leak temp files (#244)', () => {
+  const tmpDir = makeTmpDir('sigint')
+
+  before(() => {
+    // Fixture: entry function calls add() (so the ESM transformer finds a
+    // call site to rewrite and actually writes a temp file), then returns
+    // a promise that resolves after 30 seconds. This gives us a long
+    // window where capture.js is hung mid-capture (after temp file write,
+    // before finally block) — perfect for sending SIGINT/SIGTERM.
+    //
+    // We use a 30s timeout (rather than `new Promise(() => {})`) because
+    // Node 24+ exits with code 13 when a top-level await is detected to
+    // be unsettled for too long. A 30s timeout is "settled" (will resolve
+    // eventually) so Node doesn't kill the process — but we'll send
+    // SIGINT/SIGTERM within ~5s, well before the 30s elapses.
+    writeFileSync(join(tmpDir, 'hang.mjs'), `
+function add(a, b) { return a + b }
+function main(x) {
+  // Call add() so the transformer has a call site to rewrite — without
+  // this, the transformer would abort (no internal calls) and no temp
+  // file would be written, defeating the test's purpose.
+  const _ = add(x, 1)
+  return new Promise(resolve => setTimeout(() => resolve(x), 30000))
+}
+export { main, add }
+`)
+
+    writeManifest(tmpDir, [
+      {
+        id: 'main',
+        entry: 'main',
+        file: './hang.mjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [5],
+        watches: [],
+        callees: ['add'],
+      },
+    ])
+  })
+
+  after(() => {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('SIGINT mid-capture does not leave temp files behind', async () => {
+    const child = spawn('node', [CAPTURE_JS], {
+      cwd: tmpDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', d => { stdout += d.toString() })
+    child.stderr.on('data', d => { stderr += d.toString() })
+
+    // Wait for the temp file to appear on disk — proves capture.js has
+    // written it AND the registry has been populated. We poll the
+    // filesystem because Node's stdout is buffered when piped, so the
+    // "ESM bare-name transform applied" message may not flush until the
+    // process exits.
+    const tempFileAppeared = await new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(false)
+      }, 15_000)
+
+      const check = () => {
+        const tempFiles = listTempTransformFiles(tmpDir)
+        if (tempFiles.length > 0) {
+          clearTimeout(timeout)
+          resolve(true)
+        } else {
+          setTimeout(check, 25)
+        }
+      }
+      check()
+    })
+
+    assert.ok(
+      tempFileAppeared,
+      `should observe a temp file on disk before sending SIGINT\nstdout: ${stdout}\nstderr: ${stderr}`
+    )
+
+    // Snapshot the temp file names so we can verify they're gone after SIGINT.
+    const tempFilesBefore = listTempTransformFiles(tmpDir)
+    assert.ok(
+      tempFilesBefore.length > 0,
+      `precondition: at least one temp file should exist\nstdout: ${stdout}\nstderr: ${stderr}`
+    )
+
+    // Send SIGINT — the signal handler in capture.js should nuke the temp
+    // file, then call process.exit(130).
+    child.kill('SIGINT')
+
+    // Wait for the child to exit (with timeout — the handler should exit
+    // promptly because cleanup is synchronous).
+    const exitInfo = await new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        // Child didn't exit — kill it harder and fail
+        child.kill('SIGKILL')
+        resolve({ code: null, signal: 'TIMEOUT', timedOut: true })
+      }, 5_000)
+
+      child.on('exit', (code, signal) => {
+        clearTimeout(timeout)
+        resolve({ code, signal, timedOut: false })
+      })
+    })
+
+    assert.ok(!exitInfo.timedOut, `capture.js child should exit promptly after SIGINT\nstdout: ${stdout}\nstderr: ${stderr}`)
+
+    // Verify NO temp files remain in the fixture directory. This is the
+    // core assertion of issue #244 — without the signal handler cleanup,
+    // the temp file would still be on disk here.
+    const tempFiles = listTempTransformFiles(tmpDir)
+    assert.deepEqual(
+      tempFiles, [],
+      `no temp files should remain after SIGINT; got: ${tempFiles.join(', ')}\nstdout: ${stdout}\nstderr: ${stderr}`
+    )
+  }, 30_000)  // 30s test timeout (generous; first run may take ~5s for tree-sitter WASM init)
+
+  it('SIGTERM mid-capture does not leave temp files behind', async () => {
+    const child = spawn('node', [CAPTURE_JS], {
+      cwd: tmpDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', d => { stdout += d.toString() })
+    child.stderr.on('data', d => { stderr += d.toString() })
+
+    // Poll filesystem for temp file appearance (stdout is buffered when piped).
+    const tempFileAppeared = await new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(false), 15_000)
+      const check = () => {
+        if (listTempTransformFiles(tmpDir).length > 0) {
+          clearTimeout(timeout)
+          resolve(true)
+        } else {
+          setTimeout(check, 25)
+        }
+      }
+      check()
+    })
+    assert.ok(tempFileAppeared, `should observe temp file on disk before SIGTERM\nstdout: ${stdout}\nstderr: ${stderr}`)
+
+    // Send SIGTERM — same handler path as SIGINT, but with exit code 143.
+    child.kill('SIGTERM')
+
+    const exitInfo = await new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL')
+        resolve({ timedOut: true })
+      }, 5_000)
+      child.on('exit', () => {
+        clearTimeout(timeout)
+        resolve({ timedOut: false })
+      })
+    })
+    assert.ok(!exitInfo.timedOut, `capture.js child should exit promptly after SIGTERM\nstdout: ${stdout}\nstderr: ${stderr}`)
+
+    const tempFiles = listTempTransformFiles(tmpDir)
+    assert.deepEqual(
+      tempFiles, [],
+      `no temp files should remain after SIGTERM; got: ${tempFiles.join(', ')}\nstdout: ${stdout}\nstderr: ${stderr}`
+    )
+  }, 30_000)
 })
