@@ -154,24 +154,35 @@ export function createGhost(targetModule, watchList, recorder, instanceMethods =
         const effectiveThis = (thisArg && typeof thisArg === 'object' && fnName in thisArg)
           ? thisArg
           : ghostModule
+        // Issue #277: snapshot args BEFORE invoking the target. If the
+        // target mutates its arguments (e.g. `obj.flag = true`), a clone
+        // taken AFTER the call would capture the post-mutation state and
+        // the recorded contract would no longer represent the invocation-
+        // time input. Re-validation against such a contract would silently
+        // accept refactors that change mutation behavior.
+        //
+        // deepClone is cheap for primitives (returned as-is) so this only
+        // adds real cost for object/array args, which is exactly when it
+        // matters.
+        const argsSnapshot = deepClone(args)
         let result
         try {
           result = target.apply(effectiveThis, args)
         } catch (err) {
-          recorder.push({ fn: fnName, args: deepClone(args), error: String(err) })
+          recorder.push({ fn: fnName, args: argsSnapshot, error: String(err) })
           throw err
         }
         // Handle promises transparently
         if (result && typeof result.then === 'function') {
           return result.then(resolved => {
-            recorder.push({ fn: fnName, args: deepClone(args), result: deepClone(resolved) })
+            recorder.push({ fn: fnName, args: argsSnapshot, result: deepClone(resolved) })
             return resolved
           }).catch(err => {
-            recorder.push({ fn: fnName, args: deepClone(args), error: String(err) })
+            recorder.push({ fn: fnName, args: argsSnapshot, error: String(err) })
             throw err
           })
         }
-        recorder.push({ fn: fnName, args: deepClone(args), result: deepClone(result) })
+        recorder.push({ fn: fnName, args: argsSnapshot, result: deepClone(result) })
         return result
       },
 
@@ -187,11 +198,16 @@ export function createGhost(targetModule, watchList, recorder, instanceMethods =
        * those method calls and records them with instance state snapshots.
        */
       construct(target, args, newTarget) {
+        // Issue #277: snapshot constructor args BEFORE invoking the
+        // constructor. Constructors routinely mutate their argument
+        // objects (e.g. populate defaults, normalize shapes), and a
+        // post-construct clone would record the mutated state.
+        const argsSnapshot = deepClone(args)
         const instance = Reflect.construct(target, args, newTarget)
 
         // Record the construction with a snapshot of initial state
         const snapshot = snapshotInstance(instance)
-        recorder.push({ fn: fnName, args: deepClone(args), result: snapshot, construct: true })
+        recorder.push({ fn: fnName, args: argsSnapshot, result: snapshot, construct: true })
 
         // If instance methods are specified, wrap the instance in a proxy
         if (methodsToWatch.length > 0) {
@@ -202,26 +218,29 @@ export function createGhost(targetModule, watchList, recorder, instanceMethods =
               if (methodsToWatch.includes(prop) && typeof value === 'function') {
                 return new Proxy(value.bind(obj), {
                   apply(method, thisArg, callArgs) {
+                    // Issue #277: snapshot call args BEFORE invoking the
+                    // method. Same rationale as the outer apply trap.
+                    const callArgsSnapshot = deepClone(callArgs)
                     let methodResult
                     try {
                       methodResult = method(...callArgs)
                     } catch (err) {
-                      recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), error: String(err) })
+                      recorder.push({ fn: `${fnName}.${prop}`, args: callArgsSnapshot, error: String(err) })
                       throw err
                     }
                     // Handle async methods
                     if (methodResult && typeof methodResult.then === 'function') {
                       return methodResult.then(resolved => {
                         const postSnapshot = snapshotInstance(obj)
-                        recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), result: deepClone(resolved), instanceSnapshot: postSnapshot })
+                        recorder.push({ fn: `${fnName}.${prop}`, args: callArgsSnapshot, result: deepClone(resolved), instanceSnapshot: postSnapshot })
                         return resolved
                       }).catch(err => {
-                        recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), error: String(err) })
+                        recorder.push({ fn: `${fnName}.${prop}`, args: callArgsSnapshot, error: String(err) })
                         throw err
                       })
                     }
                     const postSnapshot = snapshotInstance(obj)
-                    recorder.push({ fn: `${fnName}.${prop}`, args: deepClone(callArgs), result: deepClone(methodResult), instanceSnapshot: postSnapshot })
+                    recorder.push({ fn: `${fnName}.${prop}`, args: callArgsSnapshot, result: deepClone(methodResult), instanceSnapshot: postSnapshot })
                     return methodResult
                   }
                 })
@@ -355,13 +374,18 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
 
     const proxy = new Proxy(original, {
       apply(target, thisArg, args) {
+        // Issue #277: snapshot args BEFORE invoking the callee. Same
+        // rationale as createGhost — if the callee mutates its args,
+        // a post-call clone would record the mutated state, corrupting
+        // the .regret contract and breaking re-validation.
+        const argsSnapshot = deepClone(args)
         let result
         try {
           result = target.apply(thisArg, args)
         } catch (err) {
           calleeRecorder.push({
             fn: calleeName,
-            args: deepClone(args),
+            args: argsSnapshot,
             error: String(err),
             parentClusterId,
           })
@@ -372,7 +396,7 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
           return result.then(resolved => {
             calleeRecorder.push({
               fn: calleeName,
-              args: deepClone(args),
+              args: argsSnapshot,
               result: deepClone(resolved),
               parentClusterId,
             })
@@ -380,7 +404,7 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
           }).catch(err => {
             calleeRecorder.push({
               fn: calleeName,
-              args: deepClone(args),
+              args: argsSnapshot,
               error: String(err),
               parentClusterId,
             })
@@ -389,7 +413,7 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
         }
         calleeRecorder.push({
           fn: calleeName,
-          args: deepClone(args),
+          args: argsSnapshot,
           result: deepClone(result),
           parentClusterId,
         })
@@ -400,11 +424,14 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
       // Callee recordings under `new` capture the constructed instance
       // snapshot (data properties only, mirroring createGhost's construct).
       construct(target, args, newTarget) {
+        // Issue #277: snapshot constructor args BEFORE invoking the
+        // constructor.
+        const argsSnapshot = deepClone(args)
         const instance = Reflect.construct(target, args, newTarget)
         const snapshot = snapshotInstance(instance)
         calleeRecorder.push({
           fn: calleeName,
-          args: deepClone(args),
+          args: argsSnapshot,
           result: snapshot,
           construct: true,
           parentClusterId,

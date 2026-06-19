@@ -576,3 +576,276 @@ describe('wrapCallees', () => {
     }
   })
 })
+
+// ─── Issue #277: argument snapshot must be taken BEFORE invocation ──────────
+//
+// Regression tests for the bug where deepClone(args) was called AFTER the
+// wrapped function/callee had already run. If the callee mutated its
+// argument object, the recorded .regret file stored the post-mutation
+// state instead of the invocation-time state — silently corrupting the
+// contract and breaking re-validation.
+//
+// All tests below pass an object to a wrapped function that mutates it,
+// then assert the recorder captured the PRE-mutation state.
+
+describe('Issue #277 — createGhost records pre-mutation args', () => {
+  it('createGhost apply trap: records args BEFORE the wrapped fn mutates them', () => {
+    const mod = {
+      mutate: (obj) => { obj.mutated = true; return obj.value },
+    }
+    const recorder = []
+    const ghost = createGhost(mod, ['mutate'], recorder)
+    const input = { value: 42 }
+    const result = ghost.mutate(input)
+
+    assert.equal(result, 42, 'return value passes through unchanged')
+    assert.equal(input.mutated, true, 'mutation still happens on the live input')
+    assert.deepEqual(recorder[0].args, [{ value: 42 }],
+      'recorded args must be the PRE-mutation snapshot — no `mutated: true`')
+  })
+
+  it('createGhost apply trap: records args BEFORE an async wrapped fn mutates them', async () => {
+    const mod = {
+      asyncMutate: async (obj) => {
+        obj.mutated = true
+        return obj.value
+      },
+    }
+    const recorder = []
+    const ghost = createGhost(mod, ['asyncMutate'], recorder)
+    const input = { value: 7 }
+    const result = await ghost.asyncMutate(input)
+
+    assert.equal(result, 7)
+    assert.equal(input.mutated, true)
+    assert.deepEqual(recorder[0].args, [{ value: 7 }],
+      'async path must also record PRE-mutation args')
+  })
+
+  it('createGhost apply trap: records args BEFORE the wrapped fn throws after mutating', () => {
+    const mod = {
+      boomAfterMutate: (obj) => {
+        obj.mutated = true
+        throw new Error('after-mutation')
+      },
+    }
+    const recorder = []
+    const ghost = createGhost(mod, ['boomAfterMutate'], recorder)
+    const input = { value: 99 }
+
+    assert.throws(() => ghost.boomAfterMutate(input), { message: 'after-mutation' })
+    assert.equal(input.mutated, true)
+    assert.deepEqual(recorder[0].args, [{ value: 99 }],
+      'error path must also record PRE-mutation args')
+    assert.ok(recorder[0].error.includes('after-mutation'))
+  })
+
+  it('createGhost construct trap: records constructor args BEFORE the constructor mutates them', () => {
+    class Builder {
+      constructor(opts) {
+        opts.normalized = true
+        this.name = opts.name
+      }
+    }
+    const mod = { Builder }
+    const recorder = []
+    const ghost = createGhost(mod, ['Builder'], recorder)
+    const input = { name: 'widget' }
+    const instance = new ghost.Builder(input)
+
+    assert.equal(instance.name, 'widget')
+    assert.equal(input.normalized, true, 'constructor still mutates the live arg')
+    assert.deepEqual(recorder[0].args, [{ name: 'widget' }],
+      'construct trap must record PRE-mutation args')
+    assert.equal(recorder[0].construct, true)
+  })
+
+  it('createGhost instance method trap: records method args BEFORE the method mutates them', () => {
+    class Service {
+      constructor() { this.calls = [] }
+      process(payload) {
+        payload.processed = true
+        this.calls.push(payload.id)
+        return payload.id
+      }
+    }
+    const mod = { Service }
+    const recorder = []
+    const ghost = createGhost(mod, ['Service'], recorder, {
+      Service: ['process'],
+    })
+    const svc = new ghost.Service()
+    const input = { id: 'abc' }
+    const result = svc.process(input)
+
+    assert.equal(result, 'abc')
+    assert.equal(input.processed, true, 'method still mutates the live arg')
+    // recorder[0] is the construct record; recorder[1] is the process() record
+    assert.equal(recorder.length, 2)
+    assert.deepEqual(recorder[1].args, [{ id: 'abc' }],
+      'instance method trap must record PRE-mutation args')
+    assert.equal(recorder[1].fn, 'Service.process')
+  })
+
+  it('createGhost instance method trap: records args BEFORE async method mutates them', async () => {
+    class Service {
+      constructor() { this.log = [] }
+      async process(payload) {
+        payload.processed = true
+        this.log.push(payload.id)
+        return payload.id
+      }
+    }
+    const mod = { Service }
+    const recorder = []
+    const ghost = createGhost(mod, ['Service'], recorder, {
+      Service: ['process'],
+    })
+    const svc = new ghost.Service()
+    const input = { id: 'xyz' }
+    const result = await svc.process(input)
+
+    assert.equal(result, 'xyz')
+    assert.equal(input.processed, true)
+    assert.deepEqual(recorder[1].args, [{ id: 'xyz' }],
+      'async instance method must also record PRE-mutation args')
+  })
+
+  it('createGhost: primitive args are not affected (no mutation possible)', () => {
+    const mod = { double: (x) => x * 2 }
+    const recorder = []
+    const ghost = createGhost(mod, ['double'], recorder)
+    const result = ghost.double(21)
+
+    assert.equal(result, 42)
+    assert.deepEqual(recorder[0].args, [21], 'primitive args pass through unchanged')
+  })
+})
+
+describe('Issue #277 — wrapCallees records pre-mutation args', () => {
+  it('wrapCallees apply trap: records callee args BEFORE the callee mutates them', () => {
+    const mod = {
+      mutate: (obj) => { obj.mutated = true; return obj.value },
+      main: (x) => mod.mutate(x),
+    }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['mutate'], recorder, { quiet: true })
+    try {
+      const input = { value: 42 }
+      const result = mod.main(input)
+
+      assert.equal(result, 42)
+      assert.equal(input.mutated, true, 'callee still mutates the live arg')
+      assert.deepEqual(recorder[0].args, [{ value: 42 }],
+        'wrapCallees must record PRE-mutation callee args')
+      assert.equal(recorder[0].fn, 'mutate')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('wrapCallees apply trap: records callee args BEFORE an async callee mutates them', async () => {
+    const mod = {
+      asyncMutate: async (obj) => {
+        obj.mutated = true
+        return obj.value
+      },
+      main: async (x) => mod.asyncMutate(x),
+    }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['asyncMutate'], recorder, { quiet: true })
+    try {
+      const input = { value: 7 }
+      const result = await mod.main(input)
+
+      assert.equal(result, 7)
+      assert.equal(input.mutated, true)
+      assert.deepEqual(recorder[0].args, [{ value: 7 }],
+        'async callee path must also record PRE-mutation args')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('wrapCallees apply trap: records callee args BEFORE the callee throws after mutating', () => {
+    const mod = {
+      boomAfterMutate: (obj) => {
+        obj.mutated = true
+        throw new Error('callee-boom')
+      },
+      main: (x) => mod.boomAfterMutate(x),
+    }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['boomAfterMutate'], recorder, { quiet: true })
+    try {
+      const input = { value: 99 }
+      assert.throws(() => mod.main(input), { message: 'callee-boom' })
+      assert.equal(input.mutated, true)
+      assert.deepEqual(recorder[0].args, [{ value: 99 }],
+        'callee error path must also record PRE-mutation args')
+      assert.ok(recorder[0].error.includes('callee-boom'))
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('wrapCallees construct trap: records constructor args BEFORE the constructor mutates them', () => {
+    class Thing {
+      constructor(opts) {
+        opts.normalized = true
+        this.name = opts.name
+      }
+    }
+    const mod = { Thing, makeThing: (n) => new mod.Thing(n) }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['Thing'], recorder, { quiet: true })
+    try {
+      const input = { name: 'widget' }
+      const instance = mod.makeThing(input)
+
+      assert.equal(instance.name, 'widget')
+      assert.equal(input.normalized, true, 'constructor still mutates the live arg')
+      assert.deepEqual(recorder[0].args, [{ name: 'widget' }],
+        'wrapCallees construct trap must record PRE-mutation args')
+      assert.equal(recorder[0].construct, true)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('wrapCallees: primitive args are not affected (no mutation possible)', () => {
+    const mod = { add: (a, b) => a + b, main: (x) => mod.add(x, 1) }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['add'], recorder, { quiet: true })
+    try {
+      const result = mod.main(41)
+      assert.equal(result, 42)
+      assert.deepEqual(recorder[0].args, [41, 1], 'primitive args pass through unchanged')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('wrapCallees: nested mutation inside arrays is captured pre-mutation', () => {
+    const mod = {
+      pushTag: (items) => {
+        items.push({ tag: 'processed' })
+        return items.length
+      },
+      main: (arr) => mod.pushTag(arr),
+    }
+    const recorder = []
+    const cleanup = wrapCallees(mod, ['pushTag'], recorder, { quiet: true })
+    try {
+      const input = [{ id: 1 }, { id: 2 }]
+      const result = mod.main(input)
+
+      assert.equal(result, 3, 'callee return value unchanged')
+      assert.equal(input.length, 3, 'array mutation still applies to live arg')
+      assert.deepEqual(recorder[0].args, [[{ id: 1 }, { id: 2 }]],
+        'recorded args must be the PRE-mutation 2-element array, not the 3-element post-mutation array')
+    } finally {
+      cleanup()
+    }
+  })
+})

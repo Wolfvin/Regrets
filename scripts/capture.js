@@ -225,6 +225,11 @@ mkdirSync(outDir, { recursive: true })
 
 let passed = 0
 let failed = 0
+// Clusters skipped because their stack is not supported by capture.js
+// (python/rust/go/etc). Tracked separately from `failed` so the exit code
+// can distinguish "unsupported stack — use the stack-specific capture
+// script" from genuine runtime errors. See issue #264.
+let skippedStack = 0
 
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
@@ -280,13 +285,24 @@ for (const cluster of clusters) {
       rust: 'bash scripts/capture_rust.sh capture',
       go: 'bash scripts/capture_go.sh capture',
     }
+    // Emit a clear, machine-parseable message to BOTH stdout (user-visible)
+    // and stderr (so callers like install.js can detect via exit code).
+    // Issue #264: previously this branch printed a skip message and
+    // `continue`d, leaving `passed`/`failed` unchanged. The process then
+    // exited 0, and install.js reported "captured" — a silent false
+    // success, because no .regret file was actually written.
+    const hint = stackScripts[stack]
+      ? `use: ${stackScripts[stack]}`
+      : 'see references/ for available stacks'
+    const msg = `Stack "${stack}" is not supported by capture.js — ${hint}`
     if (!quiet) {
-      if (stackScripts[stack]) {
-        console.log(`   ⏭️  Stack "${stack}" — use: ${stackScripts[stack]}`)
-      } else {
-        console.log(`   ⚠️  Stack "${stack}" is not supported — see references/ for available stacks`)
-      }
+      console.log(`   ⏭️  ${msg}`)
     }
+    // Always emit to stderr so install.js (which pipes stderr) can detect
+    // the unsupported-stack case via the "not supported by capture.js"
+    // marker, regardless of the --quiet flag.
+    console.error(`regrets-unsupported-stack: ${stack} — ${msg}`)
+    skippedStack++
     continue
   }
 
@@ -1758,6 +1774,19 @@ for (const cluster of clusters) {
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
+//
+// Exit code semantics (issue #264):
+//   0 — at least one cluster captured, no failures
+//   1 — one or more clusters failed at runtime (caller should fix and retry)
+//   2 — no cluster was captured, but none failed either: every selected
+//       cluster was skipped because its stack is not supported by
+//       capture.js (python / rust / go / etc). The caller (install.js)
+//       must NOT interpret this as success — no .regret file was written.
+//       The user should run the stack-specific capture script directly
+//       (e.g. `python3 scripts/capture.py`).
+//   3 — mixed: some clusters captured AND some skipped due to unsupported
+//       stack. Still flagged non-zero so the caller knows not every
+//       requested cluster produced a .regret file.
 
 if (quiet) {
   // ─── Quiet summary: only one line ─────────────────────────────────────────
@@ -1765,16 +1794,43 @@ if (quiet) {
     console.log(`❌ ${failed} cluster(s) failed`)
     process.exit(1)
   }
+  if (passed === 0 && skippedStack > 0) {
+    console.log(`⏭️  ${skippedStack} cluster(s) skipped — unsupported stack (see stderr)`)
+    process.exit(2)
+  }
+  if (skippedStack > 0) {
+    // Some captured, some skipped — surface the partial skip but don't
+    // hide the captures that did happen.
+    console.log(`⚠️  Captured ${passed}, skipped ${skippedStack} (unsupported stack — see stderr)`)
+    process.exit(3)
+  }
   console.log(`✅ Captured ${passed} cluster(s)`)
   process.exit(0)
 } else {
   console.log(`\n${'─'.repeat(50)}`)
-  console.log(`Capture complete: ${passed} captured, ${failed} failed`)
+  console.log(`Capture complete: ${passed} captured, ${failed} failed${skippedStack > 0 ? `, ${skippedStack} skipped (unsupported stack)` : ''}`)
 
   if (failed > 0) {
     console.log(`\n⚠️  Fix failed captures before proceeding to PHASE 2.`)
     console.log(`   Hint: Check that 'entry' and 'watches' names match exports in your file.`)
     process.exit(1)
+  }
+
+  if (passed === 0 && skippedStack > 0) {
+    // Issue #264: explicitly tell the user no .regret files were written.
+    console.log(`\n⏭️  No clusters were captured — all were skipped because their stack is not supported by capture.js.`)
+    console.log(`   No .regret files were written. Run the stack-specific capture script directly:`)
+    console.log(`     • Python:  python3 scripts/capture.py`)
+    console.log(`     • Rust:    bash scripts/capture_rust.sh capture`)
+    console.log(`     • Go:      bash scripts/capture_go.sh capture`)
+    console.log(`     • React:   node scripts/capture_react.mjs`)
+    process.exit(2)
+  }
+
+  if (skippedStack > 0) {
+    console.log(`\n⚠️  ${skippedStack} cluster(s) skipped due to unsupported stack — no .regret files written for those.`)
+    console.log(`   Re-run them with the stack-specific capture script (see messages above).`)
+    process.exit(3)
   }
 
   console.log(`\nNext: node scripts/validate.js`)
