@@ -131,6 +131,139 @@ export const HOLDER_NAME = '__regretsHolder'
 // ─── Public API ───────────────────────────────────────────────────────────
 
 /**
+ * Detect ESM imported bindings in source code (issue #301).
+ *
+ * Returns a Map<bindingName, { from: string, kind: 'named'|'default'|'namespace' }>
+ * for each `import ... from '...'` statement in the source.
+ *
+ * Handled import forms:
+ *   - `import { foo } from 'mod'`              → binding `foo`, kind 'named'
+ *   - `import { foo as bar } from 'mod'`       → binding `bar`, kind 'named' (aliased)
+ *   - `import { foo, bar } from 'mod'`         → bindings `foo`, `bar`, both 'named'
+ *   - `import defaultExport from 'mod'`        → binding `defaultExport`, kind 'default'
+ *   - `import foo, { bar } from 'mod'`         → both `foo` (default) and `bar` (named)
+ *   - `import * as ns from 'mod'`              → binding `ns`, kind 'namespace'
+ *     (callees called as `ns.foo()` are not bare-name callees; the entry is
+ *     included for completeness/debugging only)
+ *
+ * Used to give accurate warnings when a declared `callees: [...]` entry matches
+ * an imported binding (issue #301). The source transformer cannot rewrite
+ * imported bindings (they're not top-level `function_declaration` nodes in
+ * this file), and `wrapCallees` cannot install a proxy because ESM imported
+ * bindings are NOT exposed as properties on the module namespace object
+ * accessible via `mod[name]` — they are live bindings to external modules.
+ *
+ * Pure regex-based — fast and dependency-free. Robust against multi-line
+ * import statements (uses [\s\S] for the binding-spec body) and against
+ * either single- or double-quoted module paths. Block and line comments are
+ * stripped first to avoid false positives (e.g., a commented-out import).
+ *
+ * Edge cases NOT handled (accepted limitations):
+ *   - String literals containing the substring `import ... from` — extremely
+ *     rare in practice; would require a full parser to disambiguate.
+ *   - Dynamic `import("mod")` — these don't create bindings, so they're
+ *     correctly ignored.
+ *
+ * @param {string} source - ESM (or CJS) source code; for CJS sources the
+ *   result is always an empty Map (no ESM import statements).
+ * @returns {Map<string, { from: string, kind: 'named'|'default'|'namespace', importedAs?: string }>}
+ */
+export function detectImportedBindings(source) {
+  const bindings = new Map()
+  if (typeof source !== 'string' || source.length === 0) return bindings
+
+  // Strip comments to avoid false positives from commented-out imports.
+  // Block comments first (so a `//` inside a block comment doesn't start a
+  // line comment), then line comments.
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+
+  // Match: import <binding-spec> from "module-path"
+  // binding-spec is captured non-greedily up to ` from ` followed by a quote.
+  // The `m` flag makes `^` match line starts (so we only match imports at the
+  // start of a line, ignoring mid-line text). The `g` flag iterates all.
+  const importRegex = /^\s*import\s+([\s\S]+?)\s+from\s+['"]([^'"]+)['"]/gm
+
+  let match
+  while ((match = importRegex.exec(stripped)) !== null) {
+    const [, spec, fromMod] = match
+    _parseImportSpec(spec.trim(), fromMod, bindings)
+  }
+
+  return bindings
+}
+
+/**
+ * Parse a single import binding spec into the `bindings` Map.
+ *
+ * Spec forms (after trimming):
+ *   - `foo`                         → default only
+ *   - `* as ns`                     → namespace only
+ *   - `{ foo }`                     → named only
+ *   - `{ foo, bar as baz }`         → named with alias
+ *   - `foo, { bar }`                → default + named
+ *   - `foo, * as ns`                → default + namespace
+ *
+ * @param {string} spec - Binding spec (the part between `import` and `from`)
+ * @param {string} fromMod - Module path (the string after `from`)
+ * @param {Map} bindings - Map to populate
+ * @private
+ */
+function _parseImportSpec(spec, fromMod, bindings) {
+  if (!spec) return
+
+  let defaultPart = ''
+  let restPart = spec
+
+  // Check for combined "default, rest" form.
+  // We need to find the first comma that's NOT inside braces.
+  // Simple approach: if the spec starts with an identifier followed by a comma,
+  // peel off the default binding.
+  const defaultWithRest = restPart.match(/^(\w+)\s*,\s*([\s\S]+)$/)
+  if (defaultWithRest) {
+    defaultPart = defaultWithRest[1]
+    restPart = defaultWithRest[2].trim()
+  } else if (/^\w+$/.test(restPart)) {
+    // Pure default: "import foo from 'mod'"
+    defaultPart = restPart
+    restPart = ''
+  }
+  // Otherwise: spec starts with `{` or `*` — no default binding.
+
+  if (defaultPart) {
+    bindings.set(defaultPart, { from: fromMod, kind: 'default' })
+  }
+
+  if (!restPart) return
+
+  // Namespace: * as ns
+  const nsMatch = restPart.match(/^\*\s+as\s+(\w+)$/)
+  if (nsMatch) {
+    bindings.set(nsMatch[1], { from: fromMod, kind: 'namespace' })
+    return
+  }
+
+  // Named: { ... }
+  const namedMatch = restPart.match(/^\{([^}]*)\}$/)
+  if (namedMatch) {
+    const inner = namedMatch[1]
+    for (const part of inner.split(',')) {
+      const trimmed = part.trim()
+      if (!trimmed) continue
+      // "foo as bar" — binding name is `bar` (the local alias)
+      const asMatch = trimmed.match(/^(\w+)\s+as\s+(\w+)$/)
+      if (asMatch) {
+        const [, originalName, localName] = asMatch
+        bindings.set(localName, { from: fromMod, kind: 'named', importedAs: originalName })
+      } else if (/^\w+$/.test(trimmed)) {
+        bindings.set(trimmed, { from: fromMod, kind: 'named' })
+      }
+    }
+  }
+}
+
+/**
  * Detect if a source file is ESM (vs CJS).
  *
  *   .mjs → always ESM

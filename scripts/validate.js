@@ -250,6 +250,23 @@ export function parseRegret(content) {
   if (sideEffectsLine) {
     try { goldenSideEffects = JSON.parse(sideEffectsLine.replace(/^SIDE_EFFECTS\s+/, '')) } catch { goldenSideEffects = null }
   }
+  // Issue #298: parse the CALLS line (multi-call callee contract).
+  // Format: `CALLS   <json-array>` where each element is
+  //   { args, result?, error?, threw, hash, construct? }
+  // Absent on old .regret files (pre-#298) and on new files where the
+  // callee was only called with a single unique arg set (the common case).
+  // When present, runCalleeContract re-runs the callee with EACH saved
+  // args and FAILs if any call's live hash differs from its golden.
+  const callsLine = lines.find(l => l.startsWith('CALLS '))
+  let goldenCalls = null
+  if (callsLine) {
+    try {
+      const parsed = JSON.parse(callsLine.replace(/^CALLS\s+/, ''))
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        goldenCalls = parsed
+      }
+    } catch { goldenCalls = null }
+  }
   return {
     ...meta,
     input:      parsedInput,
@@ -259,6 +276,7 @@ export function parseRegret(content) {
     mutationBefore: mutationBeforeLine ? (() => { try { return JSON.parse(mutationBeforeLine.replace(/^MUTATION_BEFORE\s+/, '')) } catch { return null } })() : null,
     mutationAfter:  mutationAfterLine  ? (() => { try { return JSON.parse(mutationAfterLine.replace(/^MUTATION_AFTER\s+/, '')) } catch { return null } })()   : null,
     goldenSideEffects,
+    goldenCalls,
     raw:        content
   }
 }
@@ -1252,6 +1270,21 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason, liveSideE
 
   const structure = parseRegretStructure(regret.raw)
 
+  // Issue #298: when --update is invoked on a callee .regret file that has
+  // a multi-call CALLS line, the per-call hashes in that line become stale
+  // (we only re-ran the FIRST call's args to compute `newHash`).
+  // Rather than silently leaving stale data that would cause the next
+  // `validate` to FAIL on multi-call entries (confusing the user, who just
+  // explicitly accepted the new behavior), we drop the CALLS line entirely.
+  // The next `validate` then falls back to the single-call contract (from
+  // INPUT/OUTPUT/HASH), which `--update` just refreshed. The user can
+  // re-capture (`regret capture --cluster <parent>`) to regenerate the
+  // full multi-call contract.
+  //
+  // This is a no-op for parent cluster .regret files (they never have a
+  // CALLS line) and for callee files without multi-call contracts.
+  structure.dataLines = structure.dataLines.filter(l => !l.startsWith('CALLS '))
+
   // Build update object
   const updates = {
     meta: {
@@ -1556,8 +1589,77 @@ export async function runCalleeContract(calleeRegret, parentClusterDef, options 
     expectThrowViolated = true
   }
 
+  // ── Issue #298: multi-call re-validation ────────────────────────────────
+  // When the .regret file has a CALLS line, the callee was captured with
+  // multiple unique arg sets. Re-run EACH saved args and FAIL if any call's
+  // live hash differs from its golden. This catches refactors that break
+  // the callee for args that weren't the first call's args — previously
+  // such refactors PASSed as false negatives.
+  //
+  // The first call's hash always equals `goldenHash` (backward compat with
+  // the top-level HASH line), so we skip re-running it here — `liveHash`
+  // above already covers it. We only re-run calls 2..N.
+  //
+  // Backward compat: when `goldenCalls` is null (old .regret files without
+  // a CALLS line, OR new files where the callee was only called once), this
+  // block is skipped entirely and behavior is identical to the old
+  // single-call contract.
+  const multiCallFailures = []
+  if (Array.isArray(calleeRegret.goldenCalls) && calleeRegret.goldenCalls.length > 1) {
+    for (let i = 1; i < calleeRegret.goldenCalls.length; i++) {
+      const callEntry = calleeRegret.goldenCalls[i]
+      if (!callEntry || !Array.isArray(callEntry.args)) continue
+
+      const callArgs = deepClone(callEntry.args)
+      let callResult
+      let callError = null
+      try {
+        // Use Reflect.apply for construct-aware dispatch — if the original
+        // call was a `new` invocation, the saved args are constructor args
+        // and we should re-invoke with `new` to match the semantics.
+        if (callEntry.construct === true) {
+          callResult = Reflect.construct(entryFn, callArgs)
+        } else {
+          callResult = await entryFn(...callArgs)
+        }
+      } catch (err) {
+        callError = err
+      }
+
+      let callFpOutput
+      if (callError != null) {
+        callFpOutput = { __error: String(callError) }
+      } else {
+        callFpOutput = callResult ?? null
+      }
+      const callLiveHash = fingerprint(deepClone(callArgs), callFpOutput, fpConfig)
+      const callGoldenHash = callEntry.hash
+      if (callLiveHash !== callGoldenHash) {
+        multiCallFailures.push({
+          callIndex: i,
+          args: callArgs,
+          goldenHash: callGoldenHash,
+          liveHash: callLiveHash,
+          // Track expectThrow mismatch per-call too — a call that previously
+          // returned a value and now throws (or vice versa) is a behavioral
+          // change worth surfacing.
+          expectThrowViolated:
+            (callEntry.threw === true && callError == null) ||
+            (callEntry.threw !== true && callError != null),
+        })
+      }
+    }
+  }
+
+  // If any multi-call entry failed, the overall callee contract FAILs.
+  // Preserve the first-call's liveHash/goldenHash for the top-level result
+  // (so existing tooling that reads `liveHash`/`goldenHash` continues to
+  // work), but also report the multi-call failures so the user can see
+  // WHICH args broke.
+  const multiCallFailed = multiCallFailures.length > 0
+
   return {
-    pass: isMatch && !expectThrowViolated,
+    pass: isMatch && !expectThrowViolated && !multiCallFailed,
     liveHash,
     goldenHash,
     expectThrowViolated,
@@ -1567,6 +1669,9 @@ export async function runCalleeContract(calleeRegret, parentClusterDef, options 
     liveOutput: liveError == null ? liveResult : null,
     goldenOutput: calleeRegret.output ?? null,
     goldenErrorContract: calleeRegret.errorContract ?? null,
+    // Issue #298: expose multi-call failure details for the caller to render.
+    // Empty array when no multi-call contract existed or all calls matched.
+    multiCallFailures,
   }
 }
 
@@ -2030,6 +2135,27 @@ if (runCalleePhase) {
             const diff = formatDiffOutput(result.goldenOutput, result.liveOutput, { verbose })
             if (diff) console.log(diff)
           }
+          // Issue #298: when the callee has a multi-call contract and one
+          // of the non-first calls failed, surface which args broke so the
+          // user can reproduce the failure locally. The first call's status
+          // is already covered by the line above.
+          if (result.multiCallFailures && result.multiCallFailures.length > 0) {
+            console.log(`    Multi-call contract failures (issue #298):`)
+            for (const f of result.multiCallFailures) {
+              const argsStr = JSON.stringify(f.args)
+              const truncated = argsStr.length > 80 ? argsStr.slice(0, 77) + '...' : argsStr
+              // Display 1-based call index (call #1 = first call, validated
+              // via the top-level HASH line above; call #2 = first multi-call
+              // entry, etc.) so the user can correlate with their mental model
+              // of "the Nth time the callee was invoked".
+              const humanCallNum = f.callIndex + 1
+              console.log(`      call #${humanCallNum} args=${truncated}`)
+              console.log(`        expected: ${f.goldenHash}  got: ${f.liveHash}`)
+              if (f.expectThrowViolated) {
+                console.log(`        (expectThrow violated for this call's args)`)
+              }
+            }
+          }
         }
         calleeResults.push({
           id: calleeId,
@@ -2041,6 +2167,7 @@ if (runCalleePhase) {
           liveOutput: result.liveOutput,
           liveError: result.liveError,
           goldenErrorContract: result.goldenErrorContract,
+          multiCallFailures: result.multiCallFailures ?? [],
         })
       }
     } catch (err) {
