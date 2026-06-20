@@ -310,6 +310,20 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
     // reach it. The callee WILL still execute normally during capture; it
     // just won't get a `.calls.<name>.regret` contract.
     importedBindings = new Map(),
+    // Issue #326: Set<string> populated with the names of callees that
+    // were SUCCESSFULLY wrapped (proxy installed on at least one holder).
+    // The caller (capture.js) uses this to distinguish two cases when a
+    // declared callee produced no recordings:
+    //   - Callee IN wrappedNames → proxy was installed, but the execution
+    //     path didn't reach the callee for any input. This is the VALID
+    //     case (conditional logic) — capture.js emits a clear "not called
+    //     for these inputs" warning.
+    //   - Callee NOT IN wrappedNames → wrapCallees couldn't install the
+    //     proxy (not found, frozen namespace, transform aborted). This is
+    //     the BUG case — capture.js emits the existing "transform aborted"
+    //     warning.
+    // Optional: if not provided, wrapCallees behaves as before (no tracking).
+    wrappedNames = null,
   } = options
 
   const restores = []
@@ -494,6 +508,12 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
       try {
         holder[calleeName] = proxy
         reassignedAnywhere = true
+        // Issue #326: track that this callee was successfully wrapped.
+        // capture.js uses this to distinguish "never called (valid)" from
+        // "transform aborted (bug)" when the callee produces no recordings.
+        if (wrappedNames && typeof wrappedNames.add === 'function') {
+          wrappedNames.add(calleeName)
+        }
         restores.push({ obj: holder, key: calleeName, original })
       } catch {
         // ESM namespace objects are frozen — silently skip.
