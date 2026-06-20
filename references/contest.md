@@ -44,6 +44,54 @@ captured and fingerprinted automatically.
 If any step's output changes, the chain hash changes — catching regressions
 across the entire flow.
 
+### Sort Key / Ordering Guarantee (determinism spec — issue #254)
+
+The chain hash is **only** reproducible across runs if the order of steps in
+the combined string is deterministic. The sort key is:
+
+> **Steps appear in the combined string in the exact order they are listed
+> in the `steps` array of the chain definition in `chains.json`.**
+
+There is no alphabetical sorting, no sort by cluster id, no sort by
+fingerprint. The user-defined `steps` array order IS the canonical order.
+
+Concretely, given:
+
+```json
+{
+  "chains": [{
+    "id": "login-flow",
+    "steps": [
+      {"cluster": "validate-credentials", "input": {"user": "test"}},
+      {"cluster": "build-session",        "input": {"userId": 1}},
+      {"cluster": "generate-token",       "input": {"sessionId": "abc"}}
+    ]
+  }]
+}
+```
+
+The combined string is always:
+
+```
+validate-credentials:<hash1>|build-session:<hash2>|generate-token:<hash3>
+```
+
+— never any permutation. Reordering the `steps` array in `chains.json`
+changes the chain hash, which is the intended behavior (a reordered flow
+is a different behavioral contract).
+
+**Runtime enforcement.** `contest.mjs` and `contest.py` both iterate the
+`steps` array sequentially (no `Promise.all`, no parallel execution) so
+the order in `stepResults` always matches the order in `chains.json`. If
+you refactor either runner to parallelize step execution, you MUST sort
+`stepResults` back into `steps`-array order before calling
+`computeChainHash` — otherwise the hash becomes nondeterministic.
+
+**Why this matters.** A nondeterministic chain hash means the same code
+with the same inputs produces different `.chain` files on different runs,
+causing false REDs in CI. Documenting the sort key here makes the
+determinism guarantee explicit and testable.
+
 ## Capturing Chains
 
 ```bash

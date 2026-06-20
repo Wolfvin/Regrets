@@ -1025,6 +1025,8 @@ Chain fingerprints are stored as `.chain` files in `regrets/chains/`.
 
 **Python chains:** When the manifest contains Python clusters, `regret chain` automatically uses the Python chain runner (`scripts/contest.py`) instead of the JS runner (`scripts/contest.mjs`). This handles `module` (dot notation) imports correctly for Python stacks.
 
+**Chain hash ordering (#254).** The chain hash is deterministic ONLY if step order is deterministic. The sort key is the order steps appear in the `steps` array of `chains.json` — no alphabetical sorting, no sort by cluster id. Reordering `steps` changes the hash (intentionally — a reordered flow is a different behavioral contract). `contest.mjs` and `contest.py` both process steps sequentially; if you refactor either to parallelize, you MUST re-sort `stepResults` back into `steps`-array order before computing the hash. See `references/contest.md` for the full spec.
+
 Read `references/contest.md` for the full specification.
 
 ---
