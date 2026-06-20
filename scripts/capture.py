@@ -146,6 +146,113 @@ from fingerprint import (
 from ghost import create_ghost, create_instance_ghost, restore_instance
 
 
+# ─── Manifest path resolution ─────────────────────────────────────────────────
+#
+# Issue #274: capture.py previously called `importlib.import_module(module_path)`
+# where `module_path` was read directly from `cluster['module']` (or, as a
+# fallback, `cluster['file']`). When install.js emitted `file: "src/foo.py"`
+# for a Python cluster (issue #279), capture.py fell through to the fallback
+# and tried `import_module("src/foo.py")` → ModuleNotFoundError, because
+# `importlib.import_module` expects a dotted module path, not a file path.
+#
+# `resolve_module_path()` is the single source of truth that turns a cluster
+# dict into the dotted import path capture.py actually uses. It:
+#
+#   1. Prefers `cluster['module']` when present (correct dotted path).
+#   2. Falls back to `cluster['file']` for backward compatibility with
+#      manifests written before the #279 fix — but ONLY after converting
+#      the file path to a dotted module path AND auto-adding the parent
+#      directory to `python_paths` so the import can succeed.
+#   3. Returns a 2-tuple (module_path, extra_python_paths) so the caller
+#      can inject the auto-discovered paths into sys.path before importing.
+#
+# This function does NOT mutate sys.path itself — the caller decides whether
+# to apply the suggestions (e.g. only when the user didn't already set a
+# pythonPath). Keeping it pure makes it testable in isolation.
+
+def _file_path_to_module(rel_path):
+    """Convert a filesystem path to a (module_path, parent_dir) pair.
+
+    Examples:
+        "transforms.py"            → ("transforms", "")
+        "src/invoice/processor.py" → ("invoice.processor", "src")
+        "pkg/mod.py"               → ("pkg.mod", "")
+        "src/utils/__init__.py"    → ("utils", "src")
+        "tests/conftest.py"        → ("conftest", "tests")
+
+    The parent_dir is the directory component that must be added to
+    sys.path so the dotted module path can be imported. Empty string means
+    the module lives at the project root (cwd is on sys.path already).
+
+    Mirrors `filePathToPythonModule()` in scripts/install.js so that an
+    install.js-generated manifest and a capture.py auto-conversion of a
+    legacy `file`-based manifest produce identical import paths.
+    """
+    # Normalize Windows-style backslashes to forward slashes
+    norm = rel_path.replace('\\', '/')
+    # Strip .py extension
+    if norm.lower().endswith('.py'):
+        norm = norm[:-3]
+    parts = [p for p in norm.split('/') if p != '' and p != '.']
+
+    # Drop __init__ segments — the package itself is importable without it
+    cleaned = [p for p in parts if p != '__init__']
+
+    if not cleaned:
+        return ('', '')
+
+    if len(cleaned) == 1:
+        # File at project root → no parent_dir needed (cwd is on sys.path)
+        return (cleaned[0], '')
+
+    # File in a subdirectory: first segment is the parent_dir (package root),
+    # the rest is the dotted module path inside it.
+    return ('.'.join(cleaned[1:]), cleaned[0])
+
+
+def resolve_module_path(cluster):
+    """Resolve a cluster's import path + any extra sys.path entries needed.
+
+    Returns a tuple (module_path, extra_python_paths) where:
+      - module_path: dotted module path suitable for importlib.import_module
+      - extra_python_paths: list of relative paths (relative to cwd) that
+        must be added to sys.path before the import can succeed. May be
+        empty when no extra entries are needed.
+
+    Behavior:
+      - If `cluster['module']` is present and non-empty, use it as-is.
+        The caller is still expected to honor any `pythonPath` declared
+        on the cluster or manifest.
+      - Otherwise, fall back to `cluster['file']` (legacy manifests from
+        before the #279 fix). Convert it to a dotted module path and
+        return the auto-discovered parent directory as an extra path.
+
+    Raises ValueError when neither `module` nor `file` is present.
+    """
+    module_path = cluster.get('module', '').strip() if isinstance(cluster.get('module'), str) else (cluster.get('module') or '')
+    if module_path:
+        return (module_path, [])
+
+    file_path = cluster.get('file', '').strip() if isinstance(cluster.get('file'), str) else (cluster.get('file') or '')
+    if not file_path:
+        raise ValueError(
+            f"Cluster \"{cluster.get('id', '<unknown>')}\" has neither 'module' nor 'file' "
+            f"field — cannot import. Update regrets/manifest.json to include "
+            f"\"module\": \"<dotted.path>\" (and optionally \"pythonPath\": \"<dir>\")."
+        )
+
+    mod, parent_dir = _file_path_to_module(file_path)
+    if not mod:
+        raise ValueError(
+            f"Cluster \"{cluster.get('id', '<unknown>')}\" has 'file': \"{file_path}\" "
+            f"which could not be converted to a module path. Update the manifest "
+            f"to use \"module\": \"<dotted.path>\" instead."
+        )
+
+    extra = [parent_dir] if parent_dir else []
+    return (mod, extra)
+
+
 # ─── Seeded RNG support ───────────────────────────────────────────────────────
 # When a cluster config includes `seed: N`, we seed Python's random module
 # (and numpy if available) before each input run, then restore the previous
@@ -824,6 +931,25 @@ def main():
     out_dir = os.path.join(os.getcwd(), 'regrets')
     os.makedirs(out_dir, exist_ok=True)
 
+    # ── Issue #274: ensure cwd is on sys.path BEFORE any import ──────────────
+    #
+    # When the user runs `python scripts/capture.py` from the project root,
+    # Python sets sys.path[0] to `scripts/` (the script's own directory) —
+    # NOT the cwd. That means modules declared at the project root (e.g.
+    # `module: "transforms"` with no pythonPath) cannot be imported because
+    # the cwd isn't searched. This is the root cause of #274: even with
+    # `pythonPath` correctly set on the manifest, root-level modules would
+    # fail because Python's default sys.path didn't include the cwd.
+    #
+    # Fix: unconditionally insert cwd at the front of sys.path. This is
+    # idempotent (we check membership first) and matches the convention
+    # that the project root is the import root for any Python cluster
+    # whose `module` doesn't begin with a `pythonPath`-declared prefix.
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
+        print(f"   📂 Added cwd to sys.path: {cwd}")
+
     # Add pythonPath to sys.path if specified
     # Supports both single string ("src") and array of strings (["src", "lib"])
     # Also supports manifest-level pythonPath as default for all clusters
@@ -835,6 +961,13 @@ def main():
     else:
         manifest_python_paths = []
 
+    # Per-cluster pythonPath resolution. We ALSO collect any auto-discovered
+    # extra paths produced by `resolve_module_path()` (issue #279 backward
+    # compat: a legacy manifest with `file: "src/foo.py"` but no `module`
+    # field needs `src/` added to sys.path so the converted dotted path can
+    # be imported). Auto-discovered paths are only added when the cluster
+    # does NOT already declare its own pythonPath — we don't want to
+    # shadow an explicit user setting.
     for cluster in python_clusters:
         # Cluster-level pythonPath overrides manifest-level
         raw_python_path = cluster.get('pythonPath', '')
@@ -844,9 +977,26 @@ def main():
             python_paths = raw_python_path
         else:
             python_paths = []
-        # If no cluster-level pythonPath, fall back to manifest-level
+
+        # If the cluster has no explicit pythonPath, ask resolve_module_path
+        # whether it discovered one (e.g. from a legacy `file` field). This
+        # keeps backward compatibility with manifests written before the
+        # #279 install.js fix without silently overriding explicit user
+        # configuration.
+        if not python_paths:
+            try:
+                _, extra_paths = resolve_module_path(cluster)
+                python_paths = list(extra_paths)
+            except ValueError:
+                # resolve_module_path will raise again when we try to import;
+                # for now, leave python_paths empty so the manifest-level
+                # fallback below can still apply.
+                python_paths = []
+
+        # If still no pythonPath, fall back to manifest-level
         if not python_paths:
             python_paths = manifest_python_paths
+
         for python_path in python_paths:
             if python_path:
                 abs_python_path = os.path.join(os.getcwd(), python_path)
@@ -861,7 +1011,22 @@ def main():
         cid = cluster['id']
         entry = cluster['entry']
         watches = cluster.get('watches', [])
-        module_path = cluster.get('module', cluster.get('file', ''))
+        # Issue #274: use the centralized resolver instead of reading the
+        # field directly. This handles both `module` (preferred) and legacy
+        # `file` (auto-converted) forms, and surfaces a clear error when
+        # neither is present.
+        try:
+            module_path, _ = resolve_module_path(cluster)
+        except ValueError as e:
+            print(f"\n📡 Capturing: {cid}")
+            print(f"   ❌ {e}")
+            failed += 1
+            continue
+        if not module_path:
+            print(f"\n📡 Capturing: {cid}")
+            print(f"   ❌ Resolved module path is empty — check manifest.")
+            failed += 1
+            continue
         normalize_rules = cluster.get('normalize', [])
         ignore_fields = cluster.get('ignoreFields', [])
         fingerprint_level = cluster.get('fingerprintLevel', 'entry')
@@ -919,7 +1084,41 @@ def main():
 
             # Dynamic import of target module
             # module uses dot notation: "src.invoice.processor"
-            mod = importlib.import_module(module_path)
+            #
+            # Issue #274: wrap importlib.import_module in a try/except so we
+            # can surface a clear, actionable error message instead of a raw
+            # traceback. The most common failure is ModuleNotFoundError when
+            # either:
+            #   - The manifest declares `file: "src/foo.py"` instead of
+            #     `module: "foo"` (issue #279 backward-compat scenario —
+            #     resolve_module_path already converts this, but the user
+            #     may have a hand-edited manifest that doesn't match).
+            #   - The pythonPath is missing or wrong — sys.path doesn't
+            #     include the directory containing the module's package.
+            #
+            # The diagnostics below print the resolved module_path, the
+            # current sys.path, and the cluster's pythonPath so the user
+            # can quickly identify which piece is misconfigured.
+            try:
+                mod = importlib.import_module(module_path)
+            except ModuleNotFoundError as mnfe:
+                print(f"   ❌ ModuleNotFoundError: {mnfe}")
+                print(f"      Resolved module path: {module_path!r}")
+                print(f"      Cluster pythonPath:   {cluster.get('pythonPath', '<not set>')!r}")
+                print(f"      Manifest pythonPath:  {manifest.get('pythonPath', '<not set>')!r}")
+                print(f"      Cluster 'file' field: {cluster.get('file', '<not set>')!r}")
+                print(f"      Cluster 'module' field: {cluster.get('module', '<not set>')!r}")
+                print(f"      sys.path (first 5):")
+                for p in sys.path[:5]:
+                    print(f"        - {p}")
+                if len(sys.path) > 5:
+                    print(f"        ... ({len(sys.path) - 5} more)")
+                print(f"      Hint: ensure the directory containing the package root is on sys.path.")
+                print(f"        Add \"pythonPath\": \"<dir>\" to the cluster (or manifest top-level)")
+                print(f"        in regrets/manifest.json. For a file at `src/invoice/processor.py`,")
+                print(f"        the cluster should declare:")
+                print(f"          {{ \"module\": \"invoice.processor\", \"pythonPath\": \"src\" }}")
+                raise
 
             # ── CWD shadowing detection ────────────────────────────────────
             # When the project directory name matches the package name,
