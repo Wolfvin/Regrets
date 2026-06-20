@@ -1653,3 +1653,66 @@ with all exports as a misleading "module map" was never intended. Users who
 need a list of all module exports should use `regret scan` or `regret
 discover --static` instead.
 
+### `regret install` — scope handling, export verification, probes, summary (#317 #320 #323 #319 #327)
+
+**#317 — only exported functions become clusters (BREAKING for `--scope`).**
+Previously, `install --scope <dir>` used the tree-sitter analyzer's function
+list as the source of truth, which included internal/private helpers,
+closure-private inner functions, and non-exported top-level functions. On
+real-world CJS repos like Express, this meant ~90 % of auto-discovered
+clusters failed capture with "Entry X not found or not a function". Now the
+analyzer's function list is intersected with the regex-extracted export list
+(`module.exports`, `export`, `exports.X`, `export default { ... }`) — only
+actually-exported functions become clusters.
+
+**#320 — single-file `--scope` ignores `.gitignore`.**
+Previously, `install --scope <file.js>` applied the `.gitignore` filter to
+the explicitly-requested file. A `.gitignore` entry like `*.js` or `test.js`
+would silently filter it out, producing "Found 0 functions across 0 files".
+Now single-file mode skips the `.gitignore` filter entirely — the user
+explicitly pointed at this file, so it is always scanned.
+
+**#323 — `--scope <dir>` recursive by default (BREAKING).**
+Previously, `install --scope <dir>` scanned only the top level
+(`maxDepth: 0`), silently skipping subdirectories. On axios `lib/`, this
+meant only 2 of 65+ files were scanned. Now `--scope <dir>` is recursive by
+default (`maxDepth: 3`, adjustable via `--depth`). Use the new `--flat` flag
+to restore the old top-level-only behavior:
+
+```bash
+regret install --scope lib/           # recursive (default)
+regret install --scope lib/ --flat    # top level only (old behavior)
+regret install --scope lib/ --depth 5 # recursive, deeper
+```
+
+**#319 — expanded default probe inputs.**
+Previously, the trivial-output guard probed with `[null, {}]`, which almost
+never exercises string-first / numeric APIs — 87 % of validator.js clusters
+were trivial-skipped. The default probe set is now
+`['', 'test', 0, 1, {}, [], null]` and a cluster is skipped only if ALL
+inputs produce trivial output (null / undefined / NaN / throws). If ANY
+input produces a meaningful result, the cluster is captured. This
+dramatically reduces the false-skip rate for string-validation, parser, and
+formatter libraries.
+
+**#327 — install summary shows callee-coverage breakdown.**
+Previously, the summary reported a single `Clusters captured: N` count that
+overstated actual safety-net coverage — `regret validate` immediately
+failed many of those "captured" clusters with "CALLEE CONTRACT MISSING".
+The summary now breaks down the captured count:
+
+```
+📊 Install Summary
+   Files scanned: 2
+   Functions found: 43
+   Clusters captured: 17
+     ↳ fully verified (all declared callees contracted):  11
+     ↳ partial (some callees not contracted):              1
+     ↳ parent only (no callees declared):                  5
+   ⚠️  1 cluster(s) have partial callee coverage — run `regret validate` for details.
+```
+
+This lets the user see at a glance whether captured clusters are
+immediately usable (fully verified / parent only) or need callee contracts
+captured first (partial).
+

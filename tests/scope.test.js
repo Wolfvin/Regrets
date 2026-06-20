@@ -165,7 +165,7 @@ describe('--scope Mode 2: flat directory', () => {
     assert.ok(result.stdout.includes('Files scanned: 2'), 'should show 2 files scanned')
   })
 
-  it('does not recurse into subdirectories', () => {
+  it('does not recurse into subdirectories with --flat', () => {
     // Add a subdirectory with JS files inside src/utils/
     mkdirSync(join(TMP, 'src', 'utils', 'inner'), { recursive: true })
     writeFileSync(join(TMP, 'src', 'utils', 'inner', 'deep.js'), `
@@ -176,13 +176,35 @@ export function deepFn() { return 'deep' }
     // Remove existing to get fresh scan
     rmSync(join(TMP, 'src', 'utils', 'regrets'), { recursive: true, force: true })
 
+    // #323: --flat restores the pre-recursive behavior (top level only)
+    const result = runInstall(['--scope', 'src/utils/', '--flat', '--skip-capture'])
+    assert.equal(result.exitCode, 0)
+
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const entries = manifest.clusters.map(c => c.entry)
+    // deepFn should NOT be included because --flat scans only the top level
+    assert.ok(!entries.includes('deepFn'), 'should NOT include functions from subdirectories with --flat')
+  })
+
+  it('recurses into subdirectories by default (#323)', () => {
+    // Ensure the inner subdir exists (created by the --flat test above,
+    // but re-create in case test order changes)
+    mkdirSync(join(TMP, 'src', 'utils', 'inner'), { recursive: true })
+    writeFileSync(join(TMP, 'src', 'utils', 'inner', 'deep.js'), `
+export function deepFn() { return 'deep' }
+`)
+
+    const manifestPath = join(TMP, 'src', 'utils', 'regrets', 'manifest.json')
+    rmSync(join(TMP, 'src', 'utils', 'regrets'), { recursive: true, force: true })
+
+    // #323: --scope <dir> is recursive by default now
     const result = runInstall(['--scope', 'src/utils/', '--skip-capture'])
     assert.equal(result.exitCode, 0)
 
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     const entries = manifest.clusters.map(c => c.entry)
-    // deepFn should NOT be included because Mode 2 is non-recursive (1 level)
-    assert.ok(!entries.includes('deepFn'), 'should NOT include functions from subdirectories (1 level only)')
+    // deepFn SHOULD be included because recursive is the default
+    assert.ok(entries.includes('deepFn'), 'should include functions from subdirectories (recursive by default)')
   })
 })
 

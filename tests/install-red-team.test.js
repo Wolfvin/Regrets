@@ -76,19 +76,25 @@ function readManifest(dir, relPath = 'regrets/manifest.json') {
 describe('#265 — workspace mode applies trivial-input guard (no NaN/null captures)', () => {
   beforeEach(() => {
     cleanupAll()
-    // Workspace: pkg-a/index.js with two functions that produce NaN with
-    // [null, {}] inputs. Before the fix, probeTrivialOutputs() resolved
-    // `cluster.file = 'index.js'` against projectRoot (the workspace root)
-    // — that path didn't exist, so the probe returned `{trivial: false}`
-    // and the cluster was "captured" with a meaningless NaN fingerprint.
+    // Workspace: pkg-a/index.js with two functions that produce NaN for
+    // ALL probe inputs (expanded default set in #319). Before the fix,
+    // probeTrivialOutputs() resolved `cluster.file = 'index.js'` against
+    // projectRoot (the workspace root) — that path didn't exist, so the
+    // probe returned `{trivial: false}` and the cluster was "captured" with
+    // a meaningless NaN fingerprint.
+    //
+    // #319: The default probe inputs are now ['', 'test', 0, 1, {}, [], null]
+    // and a cluster is skipped only if ALL inputs produce trivial output.
+    // These functions return NaN regardless of input, so they are still
+    // trivial-skipped under the new policy.
     const dir = makeTmpDir('issue-265')
     mkdirSync(join(dir, 'pkg-a'), { recursive: true })
     writeFileSync(join(dir, 'pkg-a', 'package.json'), JSON.stringify({
       name: 'pkg-a', version: '1.0.0',
     }))
     writeFileSync(join(dir, 'pkg-a', 'index.js'), `
-function add(a, b) { return a + b }
-function subtract(a, b) { return a - b }
+function add(a, b) { return NaN }
+function subtract(a, b) { return NaN }
 module.exports = { add, subtract }
 `)
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
@@ -149,17 +155,23 @@ describe('#294 — flat-directory --scope mode applies trivial-input guard', () 
   beforeEach(() => {
     cleanupAll()
     // Project layout: <root>/src/greetings.mjs with two functions.
-    // `shout(null)` throws (null.toUpperCase is not a function) → trivial.
-    // `formatGreeting(null)` returns 'Hello, null!' → meaningful.
+    // `shout` always throws (regardless of input) → trivial for ALL probes.
+    // `formatGreeting` returns a meaningful string for all inputs → kept.
     //
-    // Before the fix, probeTrivialOutputs() resolved `cluster.file` against
-    // projectRoot (cwd), but the file lives at <root>/src/greetings.mjs —
-    // so the probe returned false and `shout` was "captured" only to fail
-    // at capture.js time with a runtime error.
+    // #319: With the expanded default probe set ('', 'test', 0, 1, {}, [],
+    // null), a function is trivial-skipped only if ALL inputs produce
+    // trivial output. `shout` throws for every input, so it is still
+    // skipped. `formatGreeting` produces 'Hello, !', 'Hello, test!', etc.
+    // — all meaningful — so it is kept.
+    //
+    // Before the fix (#294), probeTrivialOutputs() resolved `cluster.file`
+    // against projectRoot (cwd), but the file lives at
+    // <root>/src/greetings.mjs — so the probe returned false and `shout`
+    // was "captured" only to fail at capture.js time with a runtime error.
     const dir = makeTmpDir('issue-294')
     mkdirSync(join(dir, 'src'), { recursive: true })
     writeFileSync(join(dir, 'src', 'greetings.mjs'), `
-export function shout(text) { return text.toUpperCase() + '!!!' }
+export function shout(text) { throw new Error('shout requires a valid string') }
 export function formatGreeting(name) { return \`Hello, \${name}!\` }
 `)
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
@@ -215,11 +227,12 @@ describe('#268 — all clusters trivial-skipped: no empty manifest, callees pres
   beforeEach(() => {
     cleanupAll()
     const dir = makeTmpDir('issue-268')
-    // math.js: 3 functions all producing NaN with [null, {}] inputs.
-    // main calls add + multiply internally — auto-detected callees!
+    // math.js: 3 functions all producing NaN for ALL probe inputs (#319
+    // expanded default set). main calls add + multiply internally —
+    // auto-detected callees!
     writeFileSync(join(dir, 'math.js'), `
-function add(a, b) { return a + b }
-function multiply(a, b) { return a * b }
+function add(a, b) { return NaN }
+function multiply(a, b) { return NaN }
 function main(a, b) { return add(a, b) + multiply(a, b) }
 module.exports = { add, multiply, main }
 `)

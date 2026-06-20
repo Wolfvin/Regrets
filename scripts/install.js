@@ -16,7 +16,8 @@
 //   node scripts/install.js --dry-run     (preview only, no write/capture)
 //   node scripts/install.js --skip-capture (write manifest but skip capture)
 //   node scripts/install.js --scope src/utils/math.js   (single file)
-//   node scripts/install.js --scope src/utils/          (flat directory)
+//   node scripts/install.js --scope src/utils/          (directory, recursive by default)
+//   node scripts/install.js --scope src/utils/ --flat   (directory, flat — no recursion)
 //   node scripts/install.js --scope packages/           (workspace/monorepo)
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
@@ -53,12 +54,15 @@ OPTIONS:
                          File:       --scope src/utils/math.js
                                      Only scan that file, manifest at regrets/
                          Directory:  --scope src/utils/
-                                     Scan all JS/TS/PY files in that dir (1 level)
+                                     Scan all JS/TS/PY files in that dir RECURSIVELY
                                      Manifest at <dir>/regrets/
+                                     Use --flat to scan only the top level (no recursion)
                          Workspace:  --scope packages/
                                      Each subfolder with package.json gets its own
                                      manifest at <subfolder>/regrets/
                        Cannot be used together with --dir
+  --flat               With --scope <dir>: scan only the top level (no recursion).
+                       Restores the pre-#323 flat-directory behavior.
   --stack <stack>      Only scan files for this stack (js, ts, python)
   --depth <n>          Max directory depth (default: 3)
   --dry-run            Preview only — no files written, no capture
@@ -72,7 +76,8 @@ EXAMPLES:
   regret install                              Scan cwd, capture all
   regret install --dir src/                   Scan src/ recursively
   regret install --scope src/utils/math.js    Only math.js
-  regret install --scope src/utils/           All files in utils/ (1 level)
+  regret install --scope src/utils/           All files in utils/ (recursive)
+  regret install --scope src/utils/ --flat    All files in utils/ (top level only)
   regret install --scope packages/            Monorepo: each package gets its own manifest
   regret install --dry-run                    Preview what would be installed
 `)
@@ -88,6 +93,9 @@ const skipCapture = args.includes('--skip-capture')
 const skipBuild = args.includes('--skip-build')
 const quiet = args.includes('--quiet')
 const jsonOutput = args.includes('--json')
+// #323: --flat restores the pre-recursive flat-directory behavior for --scope <dir>.
+// By default, --scope <dir> now scans recursively (matching user expectations).
+const flatScope = args.includes('--flat')
 
 // --json is currently only meaningful in --dry-run mode (manifest preview).
 // In other modes it is accepted but ignored, to keep CLI parsing permissive.
@@ -133,6 +141,14 @@ const SKIP_DIRS = new Set([
 
 const CAPTURE_TIMEOUT_MS = 10_000
 const PROBE_TIMEOUT_MS = 5_000
+
+// #319: Default probe inputs for the trivial-output guard. Previously just
+// [null, {}], which almost never exercises string-first / numeric APIs.
+// The expanded set covers strings, numbers, objects, arrays, and null —
+// a cluster is trivial-skipped only if ALL of these produce trivial output
+// (null / undefined / NaN / throws). If ANY input produces meaningful output,
+// the cluster is kept.
+const DEFAULT_PROBE_INPUTS = ['', 'test', 0, 1, {}, [], null]
 
 // ─── File discovery (with depth limit) ─────────────────────────────────────────
 
@@ -357,6 +373,26 @@ function extractExportedFunctions(source, ext) {
 
   const defaultExportClass = strippedSource.matchAll(/export\s+default\s+class\s+(\w+)/g)
   for (const m of defaultExportClass) fns.push(m[1])
+
+  // #317: export default { foo, bar } — named exports via default export object.
+  // Each property name in the object literal is an exported function name.
+  // (Distinct from `export { foo, bar }` named-export list below — the
+  // `default` keyword sits between `export` and `{`, so the namedExportList
+  // regex does not match this pattern.)
+  const defaultExportObj = strippedSource.matchAll(/export\s+default\s+\{([^}]*)\}/g)
+  for (const m of defaultExportObj) {
+    const body = m[1]
+    const properties = splitObjectProperties(body)
+    for (const prop of properties) {
+      const trimmed = prop.trim()
+      if (!trimmed) continue
+      if (trimmed.startsWith('...')) continue
+      const explicitMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)\s*:/)
+      if (explicitMatch) { fns.push(explicitMatch[1]); continue }
+      const shorthandMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)$/)
+      if (shorthandMatch) { fns.push(shorthandMatch[1]); continue }
+    }
+  }
 
   // #271: Named export list: export { foo, bar }
   // This pattern exports previously declared names. We extract each
@@ -644,16 +680,16 @@ function generateClusterId(fnName, relPath) {
 // for this function. Skip it and ask the user to provide real inputs.
 
 /**
- * Check if inputs are the auto-generated default [null, {}].
+ * Check if inputs are the auto-generated default probe set (#319).
+ *
+ * The default is DEFAULT_PROBE_INPUTS = ['', 'test', 0, 1, {}, [], null].
+ * We compare by JSON serialization so empty objects and arrays match
+ * correctly (=== would fail for distinct {} / [] instances).
  */
+const _DEFAULT_PROBE_SERIALIZED = JSON.stringify(DEFAULT_PROBE_INPUTS)
 function isAutoGeneratedInputs(inputs) {
   return Array.isArray(inputs)
-    && inputs.length === 2
-    && inputs[0] === null
-    && inputs !== null
-    && typeof inputs[1] === 'object'
-    && inputs[1] !== null
-    && Object.keys(inputs[1]).length === 0
+    && JSON.stringify(inputs) === _DEFAULT_PROBE_SERIALIZED
 }
 
 /**
@@ -833,12 +869,23 @@ async function probeTrivialOutputs(cluster, baseDir = projectRoot) {
   // Need at least 2 probe results to analyze
   if (probeResults.length < 2) return { trivial: false }
 
-  // New policy: if ANY output is null/undefined/NaN/throws → trivial
+  // #319: Skip only if ALL inputs produce trivial output. If ANY input
+  // produces a meaningful (non-null / non-undefined / non-NaN / non-throw)
+  // output, the cluster is worth capturing — the expanded default probe set
+  // ('', 'test', 0, 1, {}, [], null) covers string-first, numeric, and
+  // object-first APIs, so a function that produces meaningful output for
+  // ANY of these inputs has a testable contract.
+  let trivialCount = 0
+  let lastReason = null
   for (const { output, threw } of probeResults) {
     const reason = trivialOutputReason(output, threw)
     if (reason) {
-      return { trivial: true, reason }
+      trivialCount++
+      lastReason = reason
     }
+  }
+  if (trivialCount === probeResults.length) {
+    return { trivial: true, reason: lastReason }
   }
 
   return { trivial: false }
@@ -965,11 +1012,17 @@ async function installForScope({
     allFiles = discoverFiles(scopeDir, extensions, maxDepth)
   }
 
-  // Filter out gitignored files
-  allFiles = allFiles.filter(f => {
-    const rel = relative(scopeRoot, f)
-    return !isGitignored(rel, gitignorePatterns)
-  })
+  // Filter out gitignored files.
+  // #320: In single-file mode (--scope <file.js>), the user explicitly
+  // pointed at one file — do NOT apply the .gitignore filter. A .gitignore
+  // entry like `*.js` or `test.js` would otherwise silently filter out the
+  // explicitly-requested file, producing "Found 0 functions across 0 files".
+  if (!isSingleFile) {
+    allFiles = allFiles.filter(f => {
+      const rel = relative(scopeRoot, f)
+      return !isGitignored(rel, gitignorePatterns)
+    })
+  }
 
   // Group by stack for display
   const jsFiles = allFiles.filter(f => [...EXTENSIONS.js, ...EXTENSIONS.ts].includes(extname(f)))
@@ -1021,11 +1074,22 @@ async function installForScope({
       const scopeFns = scope.functions.map(f => f.name)
       const regexFns = extractExportedFunctions(source, ext)
       if (classMethodsMap.size > 0 && regexFns.length > 0) {
+        // Class-based file: regex returns class names (the exported entities).
+        // Use regex result so the class becomes the cluster, and its methods
+        // are tracked as callees via classMethodsMap downstream.
         fns = regexFns
-      } else if (scopeFns.length > 0) {
-        fns = scopeFns
       } else {
-        fns = regexFns
+        // #317: Only include functions that are actually exported. The
+        // analyzer (analyzeScope) returns ALL function definitions in the
+        // AST — including internal/private helpers, closure-private inner
+        // functions, and non-exported top-level functions. Filter scopeFns
+        // to only those whose names appear in the regex-extracted export
+        // list (which checks module.exports, export, exports.X patterns).
+        // If the filter produces an empty list (e.g. export pattern the
+        // regex doesn't cover but the analyzer found), fall back to regexFns.
+        const exportedSet = new Set(regexFns)
+        const filtered = scopeFns.filter(name => exportedSet.has(name))
+        fns = filtered.length > 0 ? filtered : regexFns
       }
     } else {
       fns = extractExportedFunctions(source, ext)
@@ -1152,7 +1216,9 @@ async function installForScope({
         watches: [],
         stack,
         fingerprintLevel: 'entry',
-        inputs: [null, {}],
+        inputs: DEFAULT_PROBE_INPUTS.map(v =>
+          Array.isArray(v) ? [...v] : (v !== null && typeof v === 'object' ? { ...v } : v)
+        ),
       }
 
       // #279 / #309: For Python clusters, emit `module` (dotted import path)
@@ -1309,14 +1375,14 @@ async function installForScope({
       `Date: ${new Date().toISOString()}`,
       `Scope: ${scopeLabel}`,
       `Functions found: ${totalFunctions}`,
-      `All ${trivialSkipped} cluster(s) skipped — auto-generated inputs [null, {}]`,
-      'produced trivial outputs (null/undefined/NaN/throws).',
+      `All ${trivialSkipped} cluster(s) skipped — auto-generated probe inputs`,
+      `(${JSON.stringify(DEFAULT_PROBE_INPUTS)}) produced trivial outputs (null/undefined/NaN/throws).`,
       '',
       'The cluster definitions below are preserved WITH their auto-detected',
       'callees so you can manually edit inputs and re-run. To proceed:',
       '',
       '  1. Pick a cluster definition from below.',
-      '  2. Edit "inputs": [null, {}] to meaningful values for that function.',
+      `  2. Edit "inputs": ${JSON.stringify(DEFAULT_PROBE_INPUTS)} to meaningful values for that function.`,
       '  3. Paste the edited cluster into regrets/manifest.json (create the',
       '     file if needed, with format: { "clusters": [ <cluster>, ... ] }).',
       '  4. Run: regret capture --cluster <cluster-id>',
@@ -1422,7 +1488,7 @@ async function installForScope({
       `Scope: ${scopeLabel}`,
       '',
       'The following clusters were skipped because auto-generated inputs',
-      '[null, {}] produced trivial outputs (null/undefined/NaN/throws).',
+      `Default probe inputs (${JSON.stringify(DEFAULT_PROBE_INPUTS)}) produced trivial outputs (null/undefined/NaN/throws).`,
       'Other clusters from this scope WERE captured — check manifest.json.',
       '',
       'Cluster definitions are preserved below with auto-detected callees',
@@ -1487,6 +1553,8 @@ async function installForScope({
   let captured = 0
   let skipped = 0
   const skippedDetails = []
+  // #327: Track captured clusters to compute callee-coverage breakdown.
+  const capturedClusters = []
 
   for (const cluster of newClusters) {
     // Display label: prefer `file` for JS/TS clusters (filesystem path),
@@ -1499,6 +1567,7 @@ async function installForScope({
 
     if (result.ok) {
       captured++
+      capturedClusters.push(cluster)
       console.log(`✅ ${cluster.id} [${relPath}] captured`)
     } else {
       skipped++
@@ -1569,7 +1638,41 @@ async function installForScope({
     writeFileSync(skipLogPath, lines.join('\n'), 'utf8')
   }
 
-  return { totalFunctions, captured, skipped, trivialSkipped, skippedDetails, totalFiles }
+  // #327: Compute callee-coverage breakdown for the install summary.
+  // For each captured cluster, check whether its declared callees have
+  // corresponding .regret files on disk. Install only captures the parent
+  // cluster — callee .regret files are created later by `regret capture` /
+  // `regret update`. So clusters with callees will typically be "partial"
+  // right after install, transitioning to "fully verified" as callee
+  // contracts are captured.
+  let fullyVerified = 0
+  let partialCallees = 0
+  let parentOnly = 0
+  const partialClusterDetails = []
+
+  for (const cluster of capturedClusters) {
+    const callees = cluster.callees || []
+    if (callees.length === 0) {
+      parentOnly++
+    } else {
+      let contracted = 0
+      for (const callee of callees) {
+        const calleeRegretPath = join(cwdForCapture, 'regrets', `${cluster.id}.calls.${callee}.regret`)
+        if (existsSync(calleeRegretPath)) contracted++
+      }
+      if (contracted === callees.length) {
+        fullyVerified++
+      } else {
+        partialCallees++
+        partialClusterDetails.push({ id: cluster.id, contracted, total: callees.length })
+      }
+    }
+  }
+
+  return {
+    totalFunctions, captured, skipped, trivialSkipped, skippedDetails, totalFiles,
+    fullyVerified, partialCallees, parentOnly, partialClusterDetails,
+  }
 }
 
 // ─── Print summary for a single scope ────────────────────────────────────────
@@ -1584,6 +1687,9 @@ function printScopeSummary(result, scopeLabel) {
     skippedDetails,
     noFiles,
     allTrivialSkipped,
+    fullyVerified = 0,
+    partialCallees = 0,
+    parentOnly = 0,
   } = result
 
   console.log('')
@@ -1591,6 +1697,15 @@ function printScopeSummary(result, scopeLabel) {
   console.log(`   Files scanned: ${totalFiles}`)
   console.log(`   Functions found: ${totalFunctions}`)
   console.log(`   Clusters captured: ${captured}`)
+  // #327: Breakdown of captured clusters by callee-coverage status.
+  if (captured > 0) {
+    console.log(`     ↳ fully verified (all declared callees contracted):  ${fullyVerified}`)
+    console.log(`     ↳ partial (some callees not contracted):             ${partialCallees}`)
+    console.log(`     ↳ parent only (no callees declared):                 ${parentOnly}`)
+    if (partialCallees > 0) {
+      console.log(`   ⚠️  ${partialCallees} cluster(s) have partial callee coverage — run \`regret validate\` for details.`)
+    }
+  }
   const totalSkipped = skipped + trivialSkipped
   if (totalSkipped > 0) {
     console.log(`   Skipped: ${totalSkipped}`)
@@ -1773,6 +1888,10 @@ async function main() {
         let grandTotalFiles = 0
         let packagesWithNoFiles = 0
         let packagesAllTrivialSkipped = 0
+        // #327: aggregate callee-coverage breakdown across packages
+        let totalFullyVerified = 0
+        let totalPartialCallees = 0
+        let totalParentOnly = 0
 
         for (const { name, result } of allResults) {
           // Issue #296 — distinguish "no files in this package" from
@@ -1804,6 +1923,9 @@ async function main() {
           totalTrivial += result.trivialSkipped
           totalFunctions += result.totalFunctions
           grandTotalFiles += result.totalFiles
+          totalFullyVerified += result.fullyVerified || 0
+          totalPartialCallees += result.partialCallees || 0
+          totalParentOnly += result.parentOnly || 0
           if (result.captured > 0) packagesWithCaptures++
         }
 
@@ -1813,6 +1935,14 @@ async function main() {
         console.log(`   Files scanned: ${grandTotalFiles}`)
         console.log(`   Functions found: ${totalFunctions}`)
         console.log(`   Clusters captured: ${totalCaptured}`)
+        if (totalCaptured > 0) {
+          console.log(`     ↳ fully verified (all declared callees contracted):  ${totalFullyVerified}`)
+          console.log(`     ↳ partial (some callees not contracted):             ${totalPartialCallees}`)
+          console.log(`     ↳ parent only (no callees declared):                 ${totalParentOnly}`)
+          if (totalPartialCallees > 0) {
+            console.log(`   ⚠️  ${totalPartialCallees} cluster(s) have partial callee coverage — run \`regret validate\` for details.`)
+          }
+        }
         const allSkipped = totalSkipped + totalTrivial
         if (allSkipped > 0) {
           console.log(`   Skipped: ${allSkipped}`)
@@ -1847,8 +1977,13 @@ async function main() {
         }
 
       } else {
-        // ── Mode 2: flat directory ──────────────────────────────────────────
-        console.log(`Scope: directory — ${scopePath}\n`)
+        // ── Mode 2: directory (recursive by default, --flat for old behavior) ─
+        // #323: --scope <dir> now scans recursively by default (maxDepth = depth).
+        // Use --flat to restore the pre-#323 flat-directory behavior (maxDepth = 0).
+        const dirModeLabel = flatScope
+          ? `directory (flat — no recursion) — ${scopePath}`
+          : `directory (recursive) — ${scopePath}`
+        console.log(`Scope: ${dirModeLabel}\n`)
 
         const result = await installForScope({
           scopeDir: absScopePath,
@@ -1858,9 +1993,9 @@ async function main() {
           scopeLabel: scopePath,
           isSingleFile: false,
           singleFilePath: null,
-          flatDirMode: true,
+          flatDirMode: flatScope,
           extensions,
-          maxDepth: 0,
+          maxDepth: flatScope ? 0 : depth,
         })
 
         printScopeSummary(result, scopePath)
