@@ -449,9 +449,9 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `version` | ❌ | `.regret` file format version (currently `1`) |
 | `entry` | ✅ | Function name to call. For JS/TS: exported from `file`. For Python: defined in `module`. |
 | `watches` | ✅ | Array of function names to monitor via Ghost Proxy |
-| `file` | JS/TS only | Path to compiled JS module (relative to project root). Required for `js`/`ts`/`react` stacks. **Do NOT use for Python** — use `module` instead. |
+| `file` | JS/TS/Ruby/PHP | Path to source file (relative to project root). Required for `js`/`ts`/`react`/`ruby`/`php` stacks. **Do NOT use for Python** — use `module` instead. |
 | `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
-| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `rust`, `react`, or `extension` |
+| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `ruby`, `rust`, `react`, `go`, or `extension` |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)
@@ -1224,6 +1224,7 @@ regression-testing/
     ├── python.md               ← Python stack — full implementation
     ├── rust.md                 ← Rust stack — trait wrapping + cargo test
     ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
+    ├── ruby.md                 ← Ruby stack — top-level fn / class method / instance method
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant

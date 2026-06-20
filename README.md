@@ -111,6 +111,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **JavaScript / TypeScript** | `js` or `ts` | `capture.js` | `validate.js` | CJS, ESM, React components. TS projects: add `"preBuild": "npm run build"` to manifest |
 | **Python** | `python` | `capture.py` | `validate.py` | Pure functions, class methods, multi-module. See [`references/python.md`](references/python.md) |
 | **PHP** | `php` | `capture_php.php` | `validate_php.php` | Pure functions, class-based output |
+| **Ruby** | `ruby` | `capture_ruby.rb` | `validate_ruby.rb` | Top-level functions, class methods, instance methods. See [`references/ruby.md`](references/ruby.md) and [`proof/ruby_slugify/`](proof/ruby_slugify/) |
 | **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
@@ -124,11 +125,14 @@ node scripts/regret.js capture    # auto-detects python from manifest
 # JS/React — component rendering
 node scripts/regret.js capture    # stack: "react" in manifest
 
+# Ruby — slugify (2 clusters, pure string transforms)
+ruby scripts/capture_ruby.rb      # or: node scripts/regret.js capture (auto-detects ruby)
+
 # Go
 node scripts/regret.js capture    # stack: "go" → dispatches to capture_go.sh
 ```
 
-> Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions.
+> Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions. [`proof/ruby_slugify/`](proof/ruby_slugify/) — 2 Ruby clusters for URL slug generation, all green; demo script walks through baseline → valid refactor (still PASS) → breaking refactor (FAIL).
 
 ## The `.regret` File
 
