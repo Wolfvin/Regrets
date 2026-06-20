@@ -1,0 +1,8 @@
+{
+  "add": [
+    { "input": [3, 4], "output": 7 }
+  ],
+  "format-greeting": [
+    { "input": ["World"], "output": "Hello, World!" }
+  ]
+}

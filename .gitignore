@@ -56,3 +56,5 @@ Desktop.ini
 .vscode/
 .idea/
 *.sublime-*
+regrets/RegretCapture.cs
+regrets/*.regret

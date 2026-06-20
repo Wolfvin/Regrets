@@ -1,0 +1,26 @@
+{
+  "clusters": [
+    {
+      "id": "add",
+      "entry": "Add",
+      "file": "examples/csharp/Calculator.cs",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [[3, 4]],
+      "className": "Calculator",
+      "namespace": "ExampleApp"
+    },
+    {
+      "id": "format-greeting",
+      "entry": "FormatGreeting",
+      "file": "examples/csharp/Calculator.cs",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": ["World"],
+      "className": "Calculator",
+      "namespace": "ExampleApp"
+    }
+  ]
+}
