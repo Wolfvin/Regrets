@@ -65,6 +65,8 @@ OPTIONS:
   --skip-capture       Write manifest but skip the capture step
   --skip-build         Skip preBuild step
   --quiet              Only print summary line
+  --json               With --dry-run: emit ONLY the proposed manifest as JSON to
+                         stdout (no human-readable text). Useful for CI review.
 
 EXAMPLES:
   regret install                              Scan cwd, capture all
@@ -85,6 +87,26 @@ const dryRun = args.includes('--dry-run')
 const skipCapture = args.includes('--skip-capture')
 const skipBuild = args.includes('--skip-build')
 const quiet = args.includes('--quiet')
+const jsonOutput = args.includes('--json')
+
+// --json is currently only meaningful in --dry-run mode (manifest preview).
+// In other modes it is accepted but ignored, to keep CLI parsing permissive.
+if (jsonOutput && !dryRun) {
+  console.error('⚠️  --json is currently only supported with --dry-run. Ignoring --json.')
+}
+
+// In --dry-run --json mode, suppress all human-readable stdout so the JSON
+// manifest is the ONLY thing on stdout — making it safe to pipe to `jq` or
+// capture from CI. console.error stays untouched so warnings/errors still
+// surface on stderr. We restore the original console.log right before we
+// emit the JSON payload (see "Step 6: Dry-run preview" below).
+const _originalConsoleLog = console.log
+const _originalConsoleInfo = console.info
+if (dryRun && jsonOutput) {
+  console.log = () => {}
+  console.info = () => {}
+}
+
 const projectRoot = process.cwd()
 
 // --scope and --dir are mutually exclusive
@@ -964,6 +986,19 @@ async function installForScope({
 
   // ── Step 6: Dry-run preview ─────────────────────────────────────────────────
   if (dryRun) {
+    // --json mode (CI-friendly): emit ONLY the proposed manifest as JSON to
+    // stdout. No human-readable text, so the output can be piped to `jq` or
+    // captured by CI for review. New clusters only — existing clusters are
+    // omitted to keep the output focused on what install would add.
+    if (jsonOutput) {
+      // We use process.stdout.write directly here. console.log stays
+      // suppressed (set near the top of the file) for the entire run so
+      // downstream code (e.g. printScopeSummary in main()) cannot pollute
+      // stdout with human-readable text. console.error is untouched so
+      // warnings/errors still surface on stderr.
+      process.stdout.write(JSON.stringify({ clusters: newClusters }, null, 2) + '\n')
+      return { totalFunctions, captured: 0, skipped: 0, trivialSkipped, skippedDetails: [], totalFiles }
+    }
     console.log('📋 DRY RUN — preview only (no files written, no capture)\n')
     console.log('Manifest that would be generated:')
     console.log(JSON.stringify({ clusters: newClusters }, null, 2))
