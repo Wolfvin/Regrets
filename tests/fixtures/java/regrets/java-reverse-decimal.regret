@@ -1,0 +1,12 @@
+cluster: java-reverse-decimal
+version: 1
+fingerprint: 6d1afhl
+captured: 2026-06-20T17:54:46.716374867Z
+watches: [reverseDecimal]
+entry: reverseDecimal
+stack: java
+fingerprintLevel: entry
+---
+INPUT  1234
+OUTPUT 4321
+HASH   6d1afhl

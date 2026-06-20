@@ -1,0 +1,129 @@
+{
+  "clusters": [
+    {
+      "id": "java-square",
+      "entry": "square",
+      "watches": ["square"],
+      "file": "tests/fixtures/java/src/com/example/MathUtils.java",
+      "stack": "java",
+      "className": "com.example.MathUtils",
+      "classPath": "build/classes",
+      "fingerprintLevel": "entry",
+      "description": "Square an integer (static method)",
+      "inputs": [5, 10, 0, -3, 100]
+    },
+    {
+      "id": "java-factorial",
+      "entry": "factorial",
+      "watches": ["factorial"],
+      "file": "tests/fixtures/java/src/com/example/MathUtils.java",
+      "stack": "java",
+      "className": "com.example.MathUtils",
+      "classPath": "build/classes",
+      "fingerprintLevel": "entry",
+      "description": "Factorial of n (static method, returns long)",
+      "inputs": [0, 1, 5, 10]
+    },
+    {
+      "id": "java-reverse-decimal",
+      "entry": "reverseDecimal",
+      "watches": ["reverseDecimal"],
+      "file": "tests/fixtures/java/src/com/example/MathUtils.java",
+      "stack": "java",
+      "className": "com.example.MathUtils",
+      "classPath": "build/classes",
+      "fingerprintLevel": "entry",
+      "description": "Reverse decimal digits of an integer",
+      "inputs": [1234, 100, 0, -567]
+    },
+    {
+      "id": "java-to-upper",
+      "entry": "toUpper",
+      "watches": ["toUpper"],
+      "file": "tests/fixtures/java/src/com/example/MathUtils.java",
+      "stack": "java",
+      "className": "com.example.MathUtils",
+      "classPath": "build/classes",
+      "fingerprintLevel": "entry",
+      "description": "ASCII uppercase a string",
+      "inputs": ["hello", "MixedCase", "with spaces 123"]
+    },
+    {
+      "id": "java-reverse-string",
+      "entry": "reverse",
+      "watches": ["reverse"],
+      "file": "tests/fixtures/java/src/com/example/MathUtils.java",
+      "stack": "java",
+      "className": "com.example.MathUtils",
+      "classPath": "build/classes",
+      "fingerprintLevel": "entry",
+      "description": "Reverse a string character-by-character",
+      "inputs": ["abc", "racecar", "Mixed 123"]
+    },
+    {
+      "id": "java-join-multiargs",
+      "entry": "join",
+      "watches": ["join"],
+      "file": "tests/fixtures/java/src/com/example/MathUtils.java",
+      "stack": "java",
+      "className": "com.example.MathUtils",
+      "classPath": "build/classes",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Join two strings with a separator (multiArgs)",
+      "inputs": [
+        ["a", "b", "-"],
+        ["hello", "world", " "],
+        ["x", "y", ", "]
+      ]
+    },
+    {
+      "id": "java-add-multiargs",
+      "entry": "add",
+      "watches": ["add"],
+      "file": "tests/fixtures/java/src/com/example/MathUtils.java",
+      "stack": "java",
+      "className": "com.example.MathUtils",
+      "classPath": "build/classes",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Add two integers (multiArgs)",
+      "inputs": [
+        [3, 4],
+        [0, 0],
+        [-5, 10],
+        [100, 200]
+      ]
+    },
+    {
+      "id": "java-formatter-format",
+      "entry": "format",
+      "watches": ["format"],
+      "file": "tests/fixtures/java/src/com/example/Formatter.java",
+      "stack": "java",
+      "className": "com.example.Formatter",
+      "classPath": "build/classes",
+      "classMethod": "format",
+      "constructor": "Formatter",
+      "constructorArgs": [],
+      "fingerprintLevel": "entry",
+      "description": "Formatter.format() — instance method, no-arg ctor",
+      "inputs": ["2025_05", "2024_01", "2026_12"]
+    },
+    {
+      "id": "java-formatter-allformats",
+      "entry": "allFormats",
+      "watches": ["allFormats"],
+      "file": "tests/fixtures/java/src/com/example/Formatter.java",
+      "stack": "java",
+      "className": "com.example.Formatter",
+      "classPath": "build/classes",
+      "classMethod": "allFormats",
+      "constructor": "Formatter",
+      "constructorArgs": [],
+      "fingerprintLevel": "entry",
+      "description": "Formatter.allFormats() — Map<String,String> output",
+      "inputs": ["2025_05", "2024_01"]
+    }
+  ]
+}

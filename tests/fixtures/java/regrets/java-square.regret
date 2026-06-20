@@ -1,0 +1,12 @@
+cluster: java-square
+version: 1
+fingerprint: 2uf6a6s
+captured: 2026-06-20T17:54:46.702012605Z
+watches: [square]
+entry: square
+stack: java
+fingerprintLevel: entry
+---
+INPUT  5
+OUTPUT 25
+HASH   2uf6a6s

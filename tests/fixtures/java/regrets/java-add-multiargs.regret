@@ -1,0 +1,12 @@
+cluster: java-add-multiargs
+version: 1
+fingerprint: 60h7e34
+captured: 2026-06-20T17:54:46.730068148Z
+watches: [add]
+entry: add
+stack: java
+fingerprintLevel: entry
+---
+INPUT  [3,4]
+OUTPUT 7
+HASH   60h7e34

@@ -1,0 +1,12 @@
+cluster: java-factorial
+version: 1
+fingerprint: 6dnasqq
+captured: 2026-06-20T17:54:46.714046146Z
+watches: [factorial]
+entry: factorial
+stack: java
+fingerprintLevel: entry
+---
+INPUT  0
+OUTPUT 1
+HASH   6dnasqq

@@ -1,0 +1,12 @@
+cluster: java-to-upper
+version: 1
+fingerprint: 67q5v7m
+captured: 2026-06-20T17:54:46.718943484Z
+watches: [toUpper]
+entry: toUpper
+stack: java
+fingerprintLevel: entry
+---
+INPUT  "hello"
+OUTPUT "HELLO"
+HASH   67q5v7m

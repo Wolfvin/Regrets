@@ -1,0 +1,12 @@
+cluster: java-formatter-allformats
+version: 1
+fingerprint: 3xvs0e7
+captured: 2026-06-20T17:54:46.734564021Z
+watches: [allFormats]
+entry: allFormats
+stack: java
+fingerprintLevel: entry
+---
+INPUT  "2025_05"
+OUTPUT {"iso":"2025-05","mmyyyy":"052025"}
+HASH   3xvs0e7

@@ -1,0 +1,12 @@
+cluster: java-join-multiargs
+version: 1
+fingerprint: 40e88au
+captured: 2026-06-20T17:54:46.726797694Z
+watches: [join]
+entry: join
+stack: java
+fingerprintLevel: entry
+---
+INPUT  ["a","b","-"]
+OUTPUT "a-b"
+HASH   40e88au

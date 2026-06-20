@@ -1,0 +1,12 @@
+cluster: java-reverse-string
+version: 1
+fingerprint: 28wkqqp
+captured: 2026-06-20T17:54:46.720534314Z
+watches: [reverse]
+entry: reverse
+stack: java
+fingerprintLevel: entry
+---
+INPUT  "abc"
+OUTPUT "cba"
+HASH   28wkqqp

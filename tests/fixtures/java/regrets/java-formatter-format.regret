@@ -1,0 +1,12 @@
+cluster: java-formatter-format
+version: 1
+fingerprint: 12d5tvu
+captured: 2026-06-20T17:54:46.733189859Z
+watches: [format]
+entry: format
+stack: java
+fingerprintLevel: entry
+---
+INPUT  "2025_05"
+OUTPUT "052025"
+HASH   12d5tvu
