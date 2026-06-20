@@ -1,0 +1,60 @@
+{
+  "clusters": [
+    {
+      "id": "add",
+      "entry": "add",
+      "method": "add",
+      "class": "DemoMathUtils",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["add"],
+      "multiArgs": true,
+      "inputs": [[2, 3]],
+      "description": "Integer addition — two-arg static method"
+    },
+    {
+      "id": "fibonacci",
+      "entry": "fibonacci",
+      "method": "fibonacci",
+      "class": "DemoMathUtils",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["fibonacci"],
+      "inputs": [10],
+      "description": "10th Fibonacci number (single-arg static method)"
+    },
+    {
+      "id": "reverse",
+      "entry": "reverse",
+      "method": "reverse",
+      "class": "DemoMathUtils",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["reverse"],
+      "inputs": ["Hello, World!"],
+      "description": "Reverse a string by code point"
+    },
+    {
+      "id": "parse-csv-line",
+      "entry": "parseCsvLine",
+      "method": "parseCsvLine",
+      "class": "DemoMathUtils",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["parseCsvLine"],
+      "inputs": ["\"hello, world\",42,\"quoted, field\""],
+      "description": "CSV line parser with quoted-field handling"
+    },
+    {
+      "id": "format-bytes",
+      "entry": "formatBytes",
+      "method": "formatBytes",
+      "class": "DemoMathUtils",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["formatBytes"],
+      "inputs": [1073741824],
+      "description": "Format 1 GiB in binary units"
+    }
+  ]
+}

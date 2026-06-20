@@ -1,0 +1,14 @@
+cluster: add
+version: 1
+fingerprint: 13mxb0z
+captured: 2026-06-20T17:50:58.006183794Z
+watches: [add]
+entry: add
+stack: java
+class: DemoMathUtils
+fingerprintLevel: entry
+multiArgs: True
+---
+INPUT  [2,3]
+OUTPUT 5
+HASH   13mxb0z
