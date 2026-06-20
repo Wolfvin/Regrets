@@ -1652,6 +1652,46 @@ for (const cluster of clusters) {
       ? computeSideEffectSignature(goldenSideEffects)
       : null
 
+    // ─── Issue #315: capture ALL input/output/hash triples ──────────────────
+    //
+    // Previously capture.js stored only `results[0]` as the golden (the
+    // INPUT/OUTPUT/HASH lines below), and validate.js compared only that
+    // first hash. Breaking changes that affected inputs[1+] were invisible
+    // — validate reported GREEN even when a real regression existed.
+    //
+    // Now we ALSO serialize the full per-input contract as an `INPUTS`
+    // line. Each element is { input, output, hash, threw? } — the same
+    // fields as the top-level INPUT/OUTPUT/HASH lines, but for inputs 1+.
+    // The first input is intentionally OMITTED from this array (it's
+    // already represented by the top-level lines) to avoid duplicating
+    // data and to keep the format readable.
+    //
+    // Backward compatibility:
+    //   - Old .regret files (no INPUTS line): validate.js falls back to
+    //     comparing only hashes[0]. Old captures still work — they just
+    //     don't get the multi-input protection. Re-capture to opt in.
+    //   - New .regret files with a single input: INPUTS line is OMITTED
+    //     (results.length <= 1) — no overhead for the common case.
+    //   - New .regret files with multiple inputs: INPUTS line contains
+    //     results.slice(1) — validate.js compares every hash.
+    //
+    // The `outputEncoding: 'base64'` path is mirrored here for byte-array
+    // outputs (same logic as `outputForFile` above).
+    let inputsLine = null
+    if (results.length > 1) {
+      const inputsPayload = results.slice(1).map(r => {
+        let rOutput = r.output
+        if (outputEncoding === 'base64' && Array.isArray(rOutput) && rOutput.every(v => typeof v === 'number' && v >= 0 && v <= 255)) {
+          try { rOutput = Buffer.from(rOutput).toString('base64') } catch { /* keep as array */ }
+        }
+        const entry = { input: r.input, output: rOutput, hash: r.fp }
+        if (r.threw) entry.threw = true
+        if (r.error != null) entry.error = r.error
+        return entry
+      })
+      inputsLine = `INPUTS ${JSON.stringify(inputsPayload)}`
+    }
+
     // Write .regret file
     const regretPath = join(outDir, `${id}.regret`)
     const timestamp  = new Date().toISOString()
@@ -1730,6 +1770,11 @@ for (const cluster of clusters) {
         ? `ERROR_CONTRACT ${JSON.stringify(errorContract)}`
         : `OUTPUT ${JSON.stringify(outputForFile)}`,
       `HASH   ${fp}`,
+      // Issue #315: per-input contracts for inputs 1+. Omitted when only
+      // one input was captured (backward-compatible with old files).
+      // validate.js parses this into `goldenInputs` and compares EVERY
+      // hash against the live re-run; any mismatch FAILs the cluster.
+      inputsLine,
       goldenSideEffects.length > 0 ? `SIDE_EFFECTS ${JSON.stringify(sideEffectSignature)}` : null,
       mutationBefore !== undefined ? `MUTATION_BEFORE ${JSON.stringify(mutationBefore)}` : null,
       mutationAfter !== undefined ? `MUTATION_AFTER ${JSON.stringify(mutationAfter)}` : null,
