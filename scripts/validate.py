@@ -1095,7 +1095,12 @@ def main():
         if not cluster_def:
             if not json_output:
                 print(f"  ⚠️  {cluster_id}: not in manifest — skipping")
-            results.append({'id': cluster_id, 'pass': False, 'skipped': True})
+            # Skipped clusters must NOT be counted as failures — the user
+            # may be mid-refactor on the manifest, or this validator may be
+            # the wrong stack for this cluster (e.g. JS cluster seen by
+            # validate.py). Mirror validate.js semantics: skipped = pass:true.
+            # Closes #290.
+            results.append({'id': cluster_id, 'pass': True, 'skipped': True})
             continue
 
         # Compute effective runs for this cluster:
@@ -1106,7 +1111,10 @@ def main():
         if cluster_def.get('stack') != 'python':
             if not json_output:
                 print(f"  ⏭️  {cluster_id}: stack={cluster_def.get('stack', 'js')} — use JS validator")
-            results.append({'id': cluster_id, 'pass': False, 'skipped': True})
+            # Stack-mismatch skips are NOT failures — the cluster belongs
+            # to a different validator. Mirror validate.js (which sets
+            # pass:true, skipped:true for these). Closes #290.
+            results.append({'id': cluster_id, 'pass': True, 'skipped': True})
             continue
 
         try:

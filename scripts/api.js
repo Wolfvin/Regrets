@@ -8,7 +8,7 @@
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'fs'
 import { resolve, join, basename, relative, dirname } from 'path'
-import { pathToFileURL } from 'url'
+import { pathToFileURL, fileURLToPath } from 'url'
 import { execFile } from 'child_process'
 import { parseRegret, runCluster, runReactCluster, formatDiffOutput, formatSideEffectDiff, jsonDiff, generateJUnitXml } from './validate.js'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify } from './fingerprint.js'
@@ -962,7 +962,16 @@ export async function chain(options = {}) {
     args.push('--chain', chain)
   }
 
-  const stdout = await new Promise((resolve, reject) => {
+  // #285: Capture stderr too. Previously this Promise resolved with only
+  // `stdout`, which meant any error message contest.mjs wrote to stderr
+  // (e.g. `console.error(`❌ Chain failed: ${err.message}`)` for an
+  // uncaught exception, or Node's own stack traces) was discarded by
+  // `resolve(stdout || '')`. When stdout parsing then failed to find a
+  // result line for the current chain, the user got the unhelpful
+  // "no result line found in output" reason with no way to see the real
+  // error. We now resolve with `{ stdout, stderr }` so the parser can
+  // include the actual stderr content in the failure reason. Closes #285.
+  const { stdout, stderr } = await new Promise((resolve, reject) => {
     execFile('node', args, {
       cwd: workDir,
       maxBuffer: 10 * 1024 * 1024,
@@ -974,7 +983,7 @@ export async function chain(options = {}) {
         reject(new Error(`chain() failed: ${err.message}\n${stderr}`))
         return
       }
-      resolve(stdout || '')
+      resolve({ stdout: stdout || '', stderr: stderr || '' })
     })
   })
 
@@ -1052,13 +1061,24 @@ export async function chain(options = {}) {
     }
   }
 
-  // If a chain was started but never concluded (edge case), mark it failed
+  // If a chain was started but never concluded (edge case), mark it failed.
+  // #285: when this happens, include the captured stderr in the failure
+  // reason so the user can see the actual error message that contest.mjs
+  // wrote to stderr (e.g. an uncaught exception's stack trace, or a
+  // Python subprocess error). Previously this branch always returned the
+  // opaque "no result line found in output" string with no diagnostic
+  // value. Closes #285.
   if (currentChainId) {
+    const stderrTrimmed = (stderr || '').trim()
+    const reason = stderrTrimmed
+      ? `no result line found in output — stderr: ${stderrTrimmed}`
+      : 'no result line found in output'
     chains.push({
       id: currentChainId,
       status: 'failed',
-      reason: 'no result line found in output',
+      reason,
       ...(currentChainHash ? { chainHash: currentChainHash } : {}),
+      ...(stderrTrimmed ? { stderr: stderrTrimmed } : {}),
     })
   }
 

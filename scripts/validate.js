@@ -14,7 +14,7 @@
 
 import { readFileSync, writeFileSync, readdirSync, appendFileSync, existsSync, openSync, closeSync, unlinkSync, statSync } from 'fs'
 import { createHash } from 'crypto'
-import { resolve, join, basename } from 'path'
+import { resolve, join, basename, dirname, extname } from 'path'
 import { pathToFileURL, fileURLToPath } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stableStringify, normalize as fpNormalize, stripFields } from './fingerprint.js'
 import { createGhost, deepClone, normalizeHtml, consumeIterator } from './ghost.js'
@@ -23,6 +23,8 @@ import { applyOutputTransformAsync } from './outputTransform.js'
 import { constants as _fsConstants } from 'fs'
 import { execSync as _execSync } from 'child_process'
 import { computeConfidence, parseAuditForDrift } from './confidence.js'
+import { isEsmSource, transformEsmForCallees, HOLDER_NAME, registerEsmTempFile, deleteEsmTempFile, generateEsmTempFileName } from './esm-callee-transform.js'
+import { isCjsSource, transformCjsForCallees } from './cjs-callee-transform.js'
 
 // ─── Lightweight file locking (lockfile pattern) ────────────────────────────────
 // Uses O_EXCL atomic create for lock acquisition.  Retries with exponential
@@ -608,17 +610,13 @@ export async function runCluster(clusterDef, regret, options = {}) {
     effectiveFingerprintLevel = 'entry'
   }
 
-  // Check environment snapshot if present in .regret file
-  if (regret.env && typeof regret.env === 'object') {
-    const currentEnv = getEnvSnapshot()
-    for (const [k, v] of Object.entries(regret.env)) {
-      if (currentEnv[k] !== v) {
-        console.warn(`  ⚠️  ${clusterDef.id}: environment changed: ${k} was ${v}, now ${currentEnv[k]}`)
-      }
-    }
-  }
-
-  // Skip stacks not handled by this validator
+  // Skip stacks not handled by this validator. The env-snapshot comparison
+  // (below) is intentionally scoped to this validator's own stack: a Python
+  // cluster's `env` block was captured by validate.py using
+  // `fingerprint.get_env_snapshot()` (which records `python_version` /
+  // `python_impl`), while JS `getEnvSnapshot()` records `node_version` /
+  // `platform` / `arch`. Comparing the two produces false "environment
+  // changed" warnings for every mixed-stack cluster. Closes #291.
   if (stack === 'python') {
     console.log(`  ⏭️  ${clusterDef.id}: stack=python — use validate.py`)
     return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
@@ -630,6 +628,19 @@ export async function runCluster(clusterDef, regret, options = {}) {
   if (stack === 'go') {
     console.log(`  ⏭️  ${clusterDef.id}: stack=go — use capture_go.sh validate`)
     return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
+  }
+
+  // Check environment snapshot if present in .regret file — but ONLY for
+  // clusters this validator actually runs (js/react). The stack-skip block
+  // above has already returned for python/rust/go, so by this point we know
+  // the regret was captured by a JS-stack validator. Closes #291.
+  if (regret.env && typeof regret.env === 'object') {
+    const currentEnv = getEnvSnapshot()
+    for (const [k, v] of Object.entries(regret.env)) {
+      if (currentEnv[k] !== v) {
+        console.warn(`  ⚠️  ${clusterDef.id}: environment changed: ${k} was ${v}, now ${currentEnv[k]}`)
+      }
+    }
   }
 
   // React stack: re-render component and compare
@@ -1497,10 +1508,75 @@ export async function runCalleeContract(calleeRegret, parentClusterDef, options 
   mod = mergeCjsModule(mod)
 
   // Resolve the callee function — check mod, mod.default, then `module.exports = function` shape
-  const entryFn =
+  let entryFn =
     mod[calleeName] ??
     mod.default?.[calleeName] ??
     ((calleeName === 'default' || calleeName === 'module.exports') && typeof mod.default === 'function' ? mod.default : null)
+
+  // ── #299: ESM/CJS transform fallback ───────────────────────────────────
+  // For non-exported top-level function callees (e.g. `function _add() {}`
+  // without a corresponding `export { _add }`), capture.js applies the same
+  // ESM/CJS source transform (esm-callee-transform.js / cjs-callee-transform.js)
+  // to expose the callee via a mutable `__regretsHolder` object. Without that
+  // transform, `mod[calleeName]` is undefined here, and re-validation
+  // produces a false FAIL for a pattern capture.js handled fine.
+  //
+  // We mirror capture.js: when the direct lookup fails AND the parent
+  // declares `callees` AND the file is ESM/CJS, apply the same transform,
+  // load the transformed source from a temp file in the same directory
+  // (so relative imports still resolve), and look up the callee via the
+  // holder. Original source file is never modified. Temp file is deleted
+  // in the finally block below.
+  //
+  // Closes #299.
+  let esmTransformTempPath = null
+  if (typeof entryFn !== 'function' &&
+      Array.isArray(parentClusterDef.callees) && parentClusterDef.callees.length > 0) {
+    const absPath = resolve(process.cwd(), parentFile)
+    const fileExt = extname(absPath).toLowerCase()
+    if (['.mjs', '.cjs', '.js', '.ts', '.tsx'].includes(fileExt)) {
+      try {
+        const source = readFileSync(absPath, 'utf8')
+        const isEsm = isEsmSource(source, fileExt)
+        const isCjs = !isEsm && isCjsSource(source, fileExt)
+        let transformResult = null
+        let holderName = HOLDER_NAME
+        if (isEsm) {
+          transformResult = await transformEsmForCallees(source, parentClusterDef.callees, fileExt)
+        } else if (isCjs) {
+          transformResult = await transformCjsForCallees(source, parentClusterDef.callees, fileExt)
+        }
+        if (transformResult) {
+          const dir = dirname(absPath)
+          const tempExt = isCjs ? '.cjs' : '.mjs'
+          const tempName = generateEsmTempFileName().replace(/\.mjs$/, tempExt)
+          esmTransformTempPath = join(dir, tempName)
+          registerEsmTempFile(esmTransformTempPath)
+          writeFileSync(esmTransformTempPath, transformResult.transformedSource, 'utf8')
+          const transformedMod = mergeCjsModule(await import(pathToFileURL(esmTransformTempPath).href))
+          // Look up the callee on the holder first (the canonical place
+          // capture.js populates), then fall back to the transformed module
+          // namespace + default export for symmetry with the direct path.
+          entryFn =
+            (transformedMod[holderName] && typeof transformedMod[holderName][calleeName] === 'function'
+              ? transformedMod[holderName][calleeName]
+              : null) ??
+            transformedMod[calleeName] ??
+            transformedMod.default?.[calleeName] ??
+            ((calleeName === 'default' || calleeName === 'module.exports') && typeof transformedMod.default === 'function' ? transformedMod.default : null)
+        }
+      } catch {
+        // Transform or transformed-import failed — fall through to the
+        // "not found" error below. We deliberately swallow the error to
+        // keep the user-facing message focused on the callee lookup.
+      } finally {
+        if (esmTransformTempPath) {
+          try { deleteEsmTempFile(esmTransformTempPath) } catch { /* best-effort cleanup */ }
+          esmTransformTempPath = null
+        }
+      }
+    }
+  }
 
   if (typeof entryFn !== 'function') {
     return {

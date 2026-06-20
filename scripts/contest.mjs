@@ -3,17 +3,20 @@
 // Executes multi-step flows (chains) and fingerprints the combined output.
 //
 // Usage:
-//   node scripts/contest.mjs --capture [--chain <id>]
-//   node scripts/contest.mjs --validate [--chain <id>]
+//   node scripts/contest.mjs --capture [--chain <id>] [--skip-callees]
+//   node scripts/contest.mjs --validate [--chain <id>] [--skip-callees]
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
-import { resolve, dirname, join } from 'path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs'
+import { resolve, dirname, join, basename } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { fingerprint, stableStringify, normalize, stripFields } from './fingerprint.js'
+import { fingerprint, extractSchema, stableStringify } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { createHash } from 'crypto'
 import { execFileSync } from 'child_process'
+// Shared with validate.js — keeps callee re-validation logic consistent
+// between the cluster validator and the chain runner. Closes #272.
+import { parseRegret, runCalleeContract } from './validate.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -28,6 +31,11 @@ const args = process.argv.slice(2)
 const captureMode = args.includes('--capture')
 const validateMode = args.includes('--validate') || !captureMode
 const chainFilter = getArg(args, '--chain')
+// --skip-callees: opt out of callee contract re-validation. Mirrors the
+// same flag on validate.js so chain validation can be run in environments
+// where callee .regret files are not yet captured (or where the user
+// explicitly only cares about the top-level chain hash). Closes #272.
+const skipCallees = args.includes('--skip-callees')
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
@@ -35,6 +43,176 @@ const CWD = process.cwd()
 const CHAINS_DIR = resolve(CWD, 'regrets', 'chains')
 const CHAIN_FILE = resolve(CWD, 'regrets', 'chains.json')
 const MANIFEST_PATH = resolve(CWD, 'regrets', 'manifest.json')
+const REGRET_DIR = resolve(CWD, 'regrets')
+
+// ─── Fingerprint config helpers (#283) ──────────────────────────────────────
+//
+// capture.js / validate.js read a broad set of cluster config fields that
+// affect the resulting fingerprint: `ignorePaths`, `fingerprintLevel`,
+// `fingerprintMode`, `valuePaths`. contest.mjs used to pass ONLY `normalize`
+// + `ignoreFields` to `fingerprint()`, which meant chain hashes diverged
+// from capture.js hashes for the same cluster + input — chains would
+// falsely MISMATCH (or falsely Match) when the cluster relied on any of
+// the ignored config. These helpers centralise the config reading so all
+// three step-execution paths (classMethod / singletonMethod / plain entry)
+// produce fingerprints consistent with capture.js. Closes #283.
+
+/**
+ * Build the `fingerprint()` options object from a cluster definition.
+ * Mirrors the field set used by capture.js / validate.js.
+ */
+function buildFingerprintOptions(cluster) {
+  return {
+    normalize: cluster.normalize || [],
+    ignoreFields: cluster.ignoreFields || [],
+    ignorePaths: cluster.ignorePaths || [],
+  }
+}
+
+/**
+ * Reduce a call recorder (array of { fn, args, result }) to sorted
+ * { fn, count } pairs — mirrors capture.js's reduceToCallCounts() so
+ * `fingerprintLevel: "calls"` produces the same hash in chain steps as
+ * in capture.js. Closes #283.
+ */
+function reduceToCallCounts(recorder) {
+  const counts = {}
+  for (const call of recorder) {
+    counts[call.fn] = (counts[call.fn] || 0) + 1
+  }
+  return Object.entries(counts)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([fn, count]) => ({ fn, count }))
+}
+
+/**
+ * Compute a fingerprint for a (input, output, recorder) triple using the
+ * cluster's `fingerprintLevel` / `fingerprintMode` / `valuePaths` config.
+ *
+ * This mirrors the dispatch logic in capture.js (lines ~1143-1170) so a
+ * chain step's fingerprint matches what `regret capture` would have
+ * produced for the same input on the same cluster. Without this parity,
+ * `fingerprintMode: "schema"` / `fingerprintLevel: "calls"` clusters
+ * would always mismatch in chain validation. Closes #283.
+ */
+function computeStepFingerprint(cluster, input, output, recorder) {
+  const fpConfig = buildFingerprintOptions(cluster)
+  const fingerprintLevel = cluster.fingerprintLevel || 'entry'
+  const fingerprintMode = cluster.fingerprintMode || 'value'
+  const valuePaths = cluster.valuePaths || []
+
+  if (fingerprintMode === 'schema') {
+    const schema = extractSchema(output)
+    return fingerprint(input, schema, fpConfig)
+  }
+  if (fingerprintMode === 'mixed') {
+    const schema = extractSchema(output)
+    const selectedValues = {}
+    for (const p of valuePaths) {
+      const key = p.replace(/^\$\./, '')
+      const parts = key.split('.')
+      let val = output
+      for (const part of parts) { val = val?.[part] }
+      if (val !== undefined) selectedValues[p] = val
+    }
+    return fingerprint(input, { schema, values: selectedValues }, fpConfig)
+  }
+  if (fingerprintLevel === 'calls') {
+    const callCounts = reduceToCallCounts(recorder)
+    return fingerprint(input, callCounts, fpConfig)
+  }
+  return fingerprint(input, output, fpConfig)
+}
+
+// ─── Callee re-validation (#272) ────────────────────────────────────────────
+//
+// validate.js (post PR #258/#303) re-validates each `.calls.*` callee
+// contract after running the parent cluster. contest.mjs used to skip this
+// step entirely, which meant a chain could pass while a callee had
+// regressed — inconsistent with `regret validate`. We now run the same
+// `runCalleeContract` (imported from validate.js) against every declared
+// callee of every step's cluster, and surface per-callee PASS/FAIL. A
+// failing callee fails the chain (mirrors validate.js exit-code semantics).
+//
+// `--skip-callees` disables this phase entirely, matching validate.js.
+// Closes #272.
+
+/**
+ * Re-validate every declared callee for a step's cluster.
+ *
+ * @param {object} cluster - Cluster definition from the manifest.
+ * @returns {Promise<Array<{id: string, pass: boolean, expected?: string, actual?: string, error?: string, skipped?: boolean}>>}
+ *   Per-callee results. Empty array when the cluster has no `callees`, when
+ *   `--skip-callees` is set, or when the cluster's stack is not JS (Python
+ *   clusters have their own callee validator inside validate.py).
+ */
+async function revalidateStepCallees(cluster) {
+  if (skipCallees) return []
+  if (!Array.isArray(cluster.callees) || cluster.callees.length === 0) return []
+  // Callee re-validation in validate.js is JS-only — Python/Rust/Go clusters
+  // return skipped:true from runCalleeContract. We mirror that here and
+  // don't even attempt to look up callee .regret files for non-JS stacks.
+  const stack = cluster.stack || 'js'
+  if (stack === 'python' || stack === 'rust' || stack === 'go') return []
+
+  const calleeResults = []
+  for (const calleeName of cluster.callees) {
+    if (typeof calleeName !== 'string' || calleeName.length === 0) continue
+    const calleeId = `${cluster.id}.calls.${calleeName}`
+    const calleeRegretPath = join(REGRET_DIR, `${calleeId}.regret`)
+    if (!existsSync(calleeRegretPath)) {
+      // Missing callee contract — surface as a failure so the user knows
+      // they need to run `regret capture --cluster <id>` to generate it.
+      // Mirrors validate.js's #288 missing-callee detection.
+      calleeResults.push({
+        id: calleeId,
+        pass: false,
+        error: `callee contract missing — run \`regret capture --cluster ${cluster.id}\` to generate`,
+      })
+      continue
+    }
+    try {
+      const calleeRegret = parseRegret(readFileSync(calleeRegretPath, 'utf8'))
+      const result = await runCalleeContract(calleeRegret, cluster, {
+        normalize: cluster.normalize ?? [],
+        ignoreFields: cluster.ignoreFields ?? [],
+        ignorePaths: cluster.ignorePaths ?? [],
+      })
+      if (result.skipped) {
+        calleeResults.push({
+          id: calleeId,
+          pass: true,
+          skipped: true,
+          error: result.error,
+        })
+      } else if (result.pass) {
+        calleeResults.push({
+          id: calleeId,
+          pass: true,
+          expected: result.goldenHash,
+          actual: result.liveHash,
+        })
+      } else {
+        calleeResults.push({
+          id: calleeId,
+          pass: false,
+          expected: result.goldenHash,
+          actual: result.liveHash,
+          error: result.error,
+          expectThrowViolated: result.expectThrowViolated,
+          liveError: result.liveError,
+        })
+      }
+    } catch (err) {
+      calleeResults.push({
+        id: calleeId,
+        pass: false,
+        error: err.message,
+      })
+    }
+  }
+  return calleeResults
+}
 
 // ─── ContestRunner ──────────────────────────────────────────────────────────
 
@@ -102,7 +280,13 @@ class ContestRunner {
 
     // Python stack: delegate to a Python subprocess for chain step execution
     if (cluster.stack === 'python') {
-      return await this.runPythonStep(step, cluster, stepIndex, chainId)
+      const pyResult = await this.runPythonStep(step, cluster, stepIndex, chainId)
+      // Callee re-validation for Python clusters happens inside the Python
+      // subprocess (validate.py owns the Python callee contract logic).
+      // We attach an empty callees array so the step result shape stays
+      // consistent across stacks.
+      pyResult.callees = []
+      return pyResult
     }
 
     // JS/TS stack: use dynamic import + Ghost Proxy
@@ -134,10 +318,11 @@ class ContestRunner {
       const input = step.input
       const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
       const output = await instance[cluster.classMethod](...args_)
-      const fp = fingerprint(input, output, {
-        normalize: cluster.normalize || [], ignoreFields: cluster.ignoreFields || []
-      })
-      return { cluster: step.cluster, input, output, fingerprint: fp, calls: [] }
+      // #283: route through computeStepFingerprint so fingerprintLevel /
+      // fingerprintMode / valuePaths / ignorePaths are honoured.
+      const fp = computeStepFingerprint(cluster, input, output, [])
+      const callees = await revalidateStepCallees(cluster)
+      return { cluster: step.cluster, input, output, fingerprint: fp, calls: [], callees }
     }
 
     // Support singletonMethod clusters in chains
@@ -157,10 +342,9 @@ class ContestRunner {
       const input = step.input
       const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
       const output = await singleton[cluster.singletonMethod](...args_)
-      const fp = fingerprint(input, output, {
-        normalize: cluster.normalize || [], ignoreFields: cluster.ignoreFields || []
-      })
-      return { cluster: step.cluster, input, output, fingerprint: fp, calls: [] }
+      const fp = computeStepFingerprint(cluster, input, output, [])
+      const callees = await revalidateStepCallees(cluster)
+      return { cluster: step.cluster, input, output, fingerprint: fp, calls: [], callees }
     }
 
     const recorder = []
@@ -171,10 +355,9 @@ class ContestRunner {
     const input = step.input
     const args_ = cluster.multiArgs && Array.isArray(input) ? input : [input]
     const output = await entryFn(...args_)
-    const fp = fingerprint(input, output, {
-      normalize: cluster.normalize || [], ignoreFields: cluster.ignoreFields || []
-    })
-    return { cluster: step.cluster, input, output, fingerprint: fp, calls: [...recorder] }
+    const fp = computeStepFingerprint(cluster, input, output, recorder)
+    const callees = await revalidateStepCallees(cluster)
+    return { cluster: step.cluster, input, output, fingerprint: fp, calls: [...recorder], callees }
   }
 
   async runPythonStep(step, cluster, stepIndex, chainId) {
@@ -189,6 +372,10 @@ class ContestRunner {
       input: step.input,
       normalize: cluster.normalize || [],
       ignore_fields: cluster.ignoreFields || [],
+      ignore_paths: cluster.ignorePaths || [],
+      fingerprint_level: cluster.fingerprintLevel || 'entry',
+      fingerprint_mode: cluster.fingerprintMode || 'value',
+      value_paths: cluster.valuePaths || [],
       class_method: cluster.classMethod || null,
       constructor: cluster.constructor || cluster.entry,
       constructor_args: cluster.constructorArgs || [],
@@ -232,16 +419,35 @@ class ContestRunner {
     for (let i = 0; i < chain.steps.length; i++) {
       const step = chain.steps[i]
       try {
-        stepResults.push(await this.runStep(step, i, chainId))
+        const stepResult = await this.runStep(step, i, chainId)
+        stepResults.push(stepResult)
+        // ── #272: callee failure fails the chain ──
+        // A failing callee means the cluster's behavioral sub-contract has
+        // drifted. We DON'T throw here — we let runChain finish collecting
+        // all step results (so main() can print the full per-step +
+        // per-callee breakdown for the user), and instead mark the chain
+        // as failed via the `calleeFailures` field. main() then exits 1
+        // if any callee failure is present. Throwing here would skip the
+        // per-callee PASS/FAIL printing in main(), leaving the user with
+        // an opaque "Chain failed" message and no idea WHICH callee
+        // regressed.
       } catch (err) {
         // ── Mid-chain failure: do NOT produce a chain hash — re-throw with context ──
         throw new Error(
           `Chain "${chainId}" failed at step ${i + 1}/${chain.steps.length} (cluster "${step.cluster}"): ${err.message}` +
           (i > 0 ? ` — ${i} preceding step(s) completed OK.` : '')
         )
-      }      }
+      }
     }
-    return { id: chainId, steps: stepResults, chainHash: this.computeChainHash(stepResults) }
+    // Collect any callee failures across all steps so main() can both
+    // print them AND exit non-zero. Closes #272.
+    const calleeFailures = []
+    for (const r of stepResults) {
+      for (const c of (r.callees || [])) {
+        if (!c.pass && !c.skipped) calleeFailures.push({ step: r.cluster, ...c })
+      }
+    }
+    return { id: chainId, steps: stepResults, chainHash: this.computeChainHash(stepResults), calleeFailures }
   }
 
   computeChainHash(stepResults) {
@@ -309,6 +515,7 @@ async function main() {
   }
 
   console.log(captureMode ? '📡 CHAIN CAPTURE MODE\n' : '🔍 CHAIN VALIDATE MODE\n')
+  if (skipCallees) console.log('⏭️  --skip-callees: callee contract re-validation disabled\n')
 
   let passed = 0
   let failed = 0
@@ -322,20 +529,53 @@ async function main() {
       for (let i = 0; i < result.steps.length; i++) {
         const s = result.steps[i]
         console.log(`   Step ${i + 1}: ${s.cluster} → ${s.fingerprint}`)
+        // Print per-step callee re-validation results so users see WHICH
+        // callee contracts were verified (mirrors validate.js's per-callee
+        // PASS lines). When --skip-callees is set, s.callees is empty and
+        // nothing is printed.
+        for (const c of (s.callees || [])) {
+          if (c.skipped) {
+            console.log(`     ⏭  ${c.id} skipped${c.error ? ` — ${c.error}` : ''}`)
+          } else if (c.pass) {
+            console.log(`     ✅ ${c.id}  PASS (callee)`)
+          } else {
+            console.log(`     ❌ ${c.id}  FAIL (callee)`)
+          }
+        }
       }
       console.log(`   Chain hash: ${result.chainHash}`)
 
       if (captureMode) {
         const outPath = runner.writeChainFile(result)
         console.log(`   ✅ Captured → ${outPath}`)
-        passed++
+        // #272: even in capture mode, a callee regression means the chain
+        // is being captured against a drifted sub-contract — surface it
+        // as a failure so the user knows to re-capture the callee before
+        // treating this chain file as golden.
+        if (result.calleeFailures && result.calleeFailures.length > 0) {
+          console.log(`   ❌ ${result.calleeFailures.length} callee contract regression(s) detected — see FAIL lines above`)
+          failed++
+        } else {
+          passed++
+        }
       } else {
         const comparison = runner.compareChains(chainDef.id, result)
+        const hasCalleeFailures = result.calleeFailures && result.calleeFailures.length > 0
+        // Always print the chain match/mismatch line so the user knows
+        // whether the top-level chain hash aligned — independent of
+        // whether any callee contract regressed.
         if (comparison.match) {
           console.log('   ✅ Match')
-          passed++
         } else {
           console.log(`   ❌ Mismatch — ${comparison.reason || `expected ${comparison.expected}, got ${comparison.got}`}`)
+        }
+        if (hasCalleeFailures) {
+          const ids = result.calleeFailures.map(c => c.id).join(', ')
+          console.log(`   ❌ Callee contract regression: ${ids}`)
+        }
+        if (comparison.match && !hasCalleeFailures) {
+          passed++
+        } else {
           failed++
         }
       }
