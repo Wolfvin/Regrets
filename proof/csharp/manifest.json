@@ -1,0 +1,32 @@
+{
+  "clusters": [
+    {
+      "id": "math-add",
+      "entry": "MathUtils.Add",
+      "csharpClass": "MathLib.MathUtils",
+      "file": "src/MathUtils.cs",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "inputs": [[1, 2], [10, 20], [0, 0], [-5, 5]],
+      "multiArgs": true
+    },
+    {
+      "id": "math-reverse",
+      "entry": "MathUtils.ReverseString",
+      "csharpClass": "MathLib.MathUtils",
+      "file": "src/MathUtils.cs",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello", "world", "", "a"]
+    },
+    {
+      "id": "math-isprime",
+      "entry": "MathUtils.IsPrime",
+      "csharpClass": "MathLib.MathUtils",
+      "file": "src/MathUtils.cs",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "inputs": [2, 7, 10, 1, 0]
+    }
+  ]
+}

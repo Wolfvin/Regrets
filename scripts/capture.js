@@ -325,6 +325,7 @@ for (const cluster of clusters) {
       react: 'node scripts/capture_react.mjs',
       rust: 'bash scripts/capture_rust.sh capture',
       go: 'bash scripts/capture_go.sh capture',
+      csharp: 'bash scripts/capture_csharp.sh',
     }
     // Emit a clear, machine-parseable message to BOTH stdout (user-visible)
     // and stderr (so callers like install.js can detect via exit code).

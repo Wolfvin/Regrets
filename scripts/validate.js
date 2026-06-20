@@ -669,6 +669,10 @@ export async function runCluster(clusterDef, regret, options = {}) {
     console.log(`  ⏭️  ${clusterDef.id}: stack=go — use capture_go.sh validate`)
     return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
   }
+  if (stack === 'csharp') {
+    console.log(`  ⏭️  ${clusterDef.id}: stack=csharp — use validate_csharp.sh`)
+    return { hashes: [regret.goldenHash], lastOutput: null, skipped: true }
+  }
 
   // Check environment snapshot if present in .regret file — but ONLY for
   // clusters this validator actually runs (js/react). The stack-skip block
