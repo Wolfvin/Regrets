@@ -390,6 +390,59 @@ function detectStack(ext) {
   return 'js'
 }
 
+// ─── Python module path resolver ──────────────────────────────────────────────
+//
+// Issue #279: capture.py expects a Python cluster to declare `module` as a
+// dotted import path (e.g. `invoice.processor`) plus an optional `pythonPath`
+// pointing at the package root (e.g. `src`). Previously install.js emitted
+// `file: "src/invoice/processor.py"` for every stack, which capture.py then
+// passed verbatim to `importlib.import_module(...)` → ModuleNotFoundError
+// (issue #274). This helper converts the discovered file path into the
+// `module` + `pythonPath` pair the Python capture pipeline actually consumes.
+//
+// Rules:
+//   - `<root>/transforms.py`           → { module: "transforms",           pythonPath: "" }
+//   - `<root>/pkg/mod.py`              → { module: "pkg.mod",              pythonPath: "" }
+//   - `<root>/src/invoice/processor.py`→ { module: "invoice.processor",   pythonPath: "src" }
+//   - `<root>/src/utils/__init__.py`   → { module: "utils",                pythonPath: "src" }
+//   - `<root>/tests/conftest.py`       → { module: "conftest",             pythonPath: "tests" }
+//
+// `pythonPath` is the FIRST directory component of the relative path — this
+// matches the SKILL.md guidance to declare the package root (not each nested
+// subfolder). An empty `pythonPath` means the module lives at the project
+// root and `cwd` (which capture.py inserts into sys.path) is sufficient.
+//
+// The helper is pure and exported for unit testing.
+
+function filePathToPythonModule(relPath) {
+  // Normalize to forward slashes regardless of platform separators
+  const normalized = relPath.replace(/\\/g, '/')
+  // Strip extension
+  const withoutExt = normalized.replace(/\.py$/i, '')
+  const parts = withoutExt.split('/').filter(Boolean)
+
+  // Drop `__init__` segments — the package itself is importable without it.
+  // e.g. `src/pkg/__init__.py` → module `pkg`, pythonPath `src`.
+  const cleaned = parts.filter(p => p !== '__init__')
+
+  if (cleaned.length === 0) {
+    // Edge case: relPath was just `__init__.py` at the root.
+    return { module: '', pythonPath: '' }
+  }
+
+  if (cleaned.length === 1) {
+    // File at project root, e.g. `transforms.py` → module `transforms`
+    return { module: cleaned[0], pythonPath: '' }
+  }
+
+  // File in a subdirectory: first segment becomes pythonPath, rest is the
+  // dotted module path. This matches the convention documented in SKILL.md
+  // (pythonPath = package root, module = relative dotted path inside it).
+  const pythonPath = cleaned[0]
+  const module = cleaned.slice(1).join('.')
+  return { module, pythonPath }
+}
+
 // ─── Generate cluster ID ───────────────────────────────────────────────────────
 
 function generateClusterId(fnName, relPath) {
@@ -796,14 +849,36 @@ async function installForScope({
         }
       }
 
+      // Build cluster — stack-dependent field naming.
+      //
+      // JS/TS clusters use `file` (a filesystem path) because capture.js
+      // resolves it via `pathToFileURL(resolve(cwd, file))`.
+      //
+      // Python clusters use `module` (dotted import path) + optional
+      // `pythonPath` (package root to add to sys.path) because capture.py
+      // calls `importlib.import_module(module)`. Issue #279: previously
+      // install.js emitted `file: "src/foo.py"` for Python clusters, which
+      // capture.py fell back to and then crashed with ModuleNotFoundError
+      // (issue #274). The `file` field is intentionally omitted for Python
+      // clusters so the contract is unambiguous: `module` is authoritative.
       const cluster = {
         id: clusterId,
         entry: fnName,
         watches: [],
-        file: filePathForManifest,
         stack,
         fingerprintLevel: 'entry',
         inputs: [null, {}],
+      }
+
+      if (stack === 'python') {
+        const { module: pyModule, pythonPath: pyPath } = filePathToPythonModule(filePathForManifest)
+        cluster.module = pyModule
+        // Only attach pythonPath when it's non-empty — keeps the manifest
+        // minimal and matches the convention that root-level modules need
+        // no pythonPath (cwd is on sys.path automatically).
+        if (pyPath) cluster.pythonPath = pyPath
+      } else {
+        cluster.file = filePathForManifest
       }
 
       // Phase 3: attach the auto-computed callees list. Only add the
@@ -940,7 +1015,10 @@ async function installForScope({
   const skippedDetails = []
 
   for (const cluster of newClusters) {
-    const relPath = cluster.file
+    // Display label: prefer `file` for JS/TS clusters (filesystem path),
+    // fall back to `module` for Python clusters (dotted module path). Issue #279:
+    // Python clusters no longer carry a `file` field, so use `module` here.
+    const relPath = cluster.file || cluster.module || cluster.id
     process.stdout.write(`  `)
 
     const result = await captureCluster(cluster.id, manifestPath, cwdForCapture)
@@ -978,6 +1056,9 @@ async function installForScope({
       console.log(`⚠️  ${cluster.id} [${relPath}] skipped — ${reasonLabel}`)
       skippedDetails.push({
         id: cluster.id,
+        // Preserve whichever field the cluster actually carries so the
+        // install-skipped.txt log is informative for both JS/TS (file)
+        // and Python (module) clusters.
         file: relPath,
         reason: reasonLabel,
         detail: result.detail || '',
@@ -1244,7 +1325,26 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error(`❌ Install failed: ${err.message}`)
-  process.exit(1)
-})
+// ─── CLI entry point guard ────────────────────────────────────────────────────
+//
+// install.js is both a CLI tool and (after the #279 fix) the home of the
+// `filePathToPythonModule` helper, which is unit-tested directly via ESM
+// import. To prevent `main()` from running when the file is imported (e.g.
+// by tests/install-python-manifest.test.js), we only invoke it when this
+// file is the actual entry point — i.e. when `import.meta.url` matches the
+// URL form of `process.argv[1]`. This is the standard ESM equivalent of
+// `if __name__ == '__main__'` in Python.
+const __entryUrl = pathToFileURL(process.argv[1]).href
+if (import.meta.url === __entryUrl) {
+  main().catch(err => {
+    console.error(`❌ Install failed: ${err.message}`)
+    process.exit(1)
+  })
+}
+
+// ─── Exports for unit testing ─────────────────────────────────────────────────
+//
+// `filePathToPythonModule` is a pure function (file path → {module, pythonPath})
+// used by the cluster-builder. Exported so tests can verify the path → dotted
+// module conversion without spawning install.js as a subprocess.
+export { filePathToPythonModule }

@@ -376,6 +376,53 @@ This makes regrets portable, self-contained, and version-controlled alongside th
 }
 ```
 
+#### Stack-specific `file` vs `module` field (issues #274, #279)
+
+**JS/TS clusters** use `file` (a filesystem path relative to the project
+root) because `capture.js` resolves it via `pathToFileURL(resolve(cwd, file))`.
+
+**Python clusters** use `module` (a dotted import path) plus an optional
+`pythonPath` (the directory to add to `sys.path`). `capture.py` calls
+`importlib.import_module(module)`, so a file path like
+`src/invoice/processor.py` MUST be declared as:
+
+```json
+{
+  "id": "process-invoice",
+  "entry": "process_invoice",
+  "watches": ["normalize_amount", "apply_tax"],
+  "module": "invoice.processor",
+  "pythonPath": "src",
+  "stack": "python",
+  "multiArgs": true,
+  "inputs": [[1000000, 0.11]]
+}
+```
+
+A Python file at the project root needs no `pythonPath` — `capture.py`
+automatically inserts the cwd into `sys.path`:
+
+```json
+{
+  "id": "transforms-double",
+  "entry": "double",
+  "module": "transforms",
+  "stack": "python",
+  "inputs": [21]
+}
+```
+
+`regret install --scope <py-file>` produces these fields automatically.
+For hand-edited manifests, the rule of thumb is: take the file's path
+relative to the project root, drop the `.py` extension, drop any
+`__init__` segment, and split the remaining path into `pythonPath`
+(the first directory component) + `module` (the rest as dotted notation).
+
+**Backward compatibility.** `capture.py` accepts a legacy `file: "src/foo.py"`
+field for Python clusters (auto-converted to the equivalent `module` +
+`pythonPath`) so manifests written before issue #279 was fixed continue
+to work. New manifests should prefer the explicit `module` form.
+
 AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regret` files.
 
 ### Cluster Fields
@@ -384,9 +431,10 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 |-------|----------|-------------|
 | `id` | ✅ | Unique cluster identifier (kebab-case) |
 | `version` | ❌ | `.regret` file format version (currently `1`) |
-| `entry` | ✅ | Function name to call (exported from `file`) |
+| `entry` | ✅ | Function name to call. For JS/TS: exported from `file`. For Python: defined in `module`. |
 | `watches` | ✅ | Array of function names to monitor via Ghost Proxy |
-| `file` | ✅ | Path to compiled JS module (relative to project root) |
+| `file` | JS/TS only | Path to compiled JS module (relative to project root). Required for `js`/`ts`/`react` stacks. **Do NOT use for Python** — use `module` instead. |
+| `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
 | `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `rust`, `react`, or `extension` |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
@@ -397,8 +445,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `ignoreFields` | ❌ | Fields to strip before hashing |
 | `fingerprintMode` | ❌ | `value` (default), `schema`, or `mixed` — see Fingerprint Modes |
 | `valuePaths` | ❌ | JSONPath selectors for mixed mode (e.g., `"$.status"`) |
-| `module` | ❌ | Module path (dot notation for Python, colon notation for Rust) |
-| `pythonPath` | ❌ | Directory to add to `sys.path` for Python imports |
+| `pythonPath` | Python only | Directory (relative to project root) to add to `sys.path` so `module` can be imported. Required when the module lives in a subdirectory; omit for root-level modules (cwd is on `sys.path` automatically). |
 | `renderMode` | ❌ | `static` for React (uses `renderToStaticMarkup`) |
 | `stripAttrs` | ❌ | HTML attributes to strip before fingerprinting (React) |
 | `goPackage` | ❌ | Full Go module import path for Go stack (e.g., `"github.com/user/repo/pkg"`) |
