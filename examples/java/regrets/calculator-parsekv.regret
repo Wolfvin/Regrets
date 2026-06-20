@@ -1,0 +1,12 @@
+cluster: calculator-parsekv
+version: 1
+fingerprint: l50u27z
+captured: 2026-06-20T17:49:45.793862795Z
+watches: [parseKv]
+entry: Calculator::parseKv
+stack: java
+fingerprintLevel: entry
+---
+INPUT  "b=2;a=1;c=3"
+OUTPUT {"a":"1","b":"2","c":"3"}
+HASH   l50u27z

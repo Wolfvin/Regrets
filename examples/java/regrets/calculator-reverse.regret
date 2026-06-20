@@ -1,0 +1,12 @@
+cluster: calculator-reverse
+version: 1
+fingerprint: 5vpf9r6
+captured: 2026-06-20T17:49:45.792748399Z
+watches: [reverse]
+entry: Calculator::reverse
+stack: java
+fingerprintLevel: entry
+---
+INPUT  "hello world"
+OUTPUT "dlrow olleh"
+HASH   5vpf9r6

@@ -1,0 +1,13 @@
+cluster: calculator-mul
+version: 1
+fingerprint: 2ja6uoq
+captured: 2026-06-20T17:49:45.789184761Z
+watches: [mul]
+entry: Calculator::mul
+stack: java
+fingerprintLevel: entry
+multiArgs: true
+---
+INPUT  [4,5]
+OUTPUT 20
+HASH   2ja6uoq

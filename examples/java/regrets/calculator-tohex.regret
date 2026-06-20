@@ -1,0 +1,12 @@
+cluster: calculator-tohex
+version: 1
+fingerprint: zj2bzm9
+captured: 2026-06-20T17:49:45.791037231Z
+watches: [toHex]
+entry: Calculator::toHex
+stack: java
+fingerprintLevel: entry
+---
+INPUT  255
+OUTPUT "000000FF"
+HASH   zj2bzm9

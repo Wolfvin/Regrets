@@ -1,0 +1,54 @@
+{
+  "clusters": [
+    {
+      "id": "calculator-add",
+      "entry": "Calculator::add",
+      "watches": ["add"],
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "inputs": [[2, 3]]
+    },
+    {
+      "id": "calculator-mul",
+      "entry": "Calculator::mul",
+      "watches": ["mul"],
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "inputs": [[4, 5]]
+    },
+    {
+      "id": "calculator-tohex",
+      "entry": "Calculator::toHex",
+      "watches": ["toHex"],
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "inputs": [255]
+    },
+    {
+      "id": "calculator-reverse",
+      "entry": "Calculator::reverse",
+      "watches": ["reverse"],
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello world"]
+    },
+    {
+      "id": "calculator-parsekv",
+      "entry": "Calculator::parseKv",
+      "watches": ["parseKv"],
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "inputs": ["b=2;a=1;c=3"]
+    },
+    {
+      "id": "calculator-sumlist",
+      "entry": "Calculator::sumList",
+      "watches": ["sumList"],
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "inputs": [[1, 2, 3, 4, 5]]
+    }
+  ]
+}

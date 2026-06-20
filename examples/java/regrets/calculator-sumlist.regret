@@ -1,0 +1,12 @@
+cluster: calculator-sumlist
+version: 1
+fingerprint: 1xumg20
+captured: 2026-06-20T17:49:45.795732146Z
+watches: [sumList]
+entry: Calculator::sumList
+stack: java
+fingerprintLevel: entry
+---
+INPUT  [1,2,3,4,5]
+OUTPUT 15
+HASH   1xumg20

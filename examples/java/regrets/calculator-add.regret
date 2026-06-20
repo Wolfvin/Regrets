@@ -1,0 +1,13 @@
+cluster: calculator-add
+version: 1
+fingerprint: 13mxb0z
+captured: 2026-06-20T17:49:45.782398627Z
+watches: [add]
+entry: Calculator::add
+stack: java
+fingerprintLevel: entry
+multiArgs: true
+---
+INPUT  [2,3]
+OUTPUT 5
+HASH   13mxb0z
