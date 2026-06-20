@@ -73,6 +73,7 @@ node scripts/regret.js diff --cluster my-cls  # see what changed
 
 | Command | Description | When to use |
 |---------|-------------|-------------|
+| `install` | Auto-discover + capture entire project in one command | Phase 1 — one-shot setup |
 | `capture` | Ghost-capture fingerprints for all clusters | Phase 1 — before refactoring |
 | `validate` | Compare current fingerprints against saved `.regret` files | Phase 3 — after every refactor batch |
 | `scan` | Scan project for cluster candidates (optional `--decompose`) | Phase 1 — discover clusters automatically |
