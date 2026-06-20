@@ -1342,7 +1342,25 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason, liveSideE
   }
 
   const clusterId = basename(regretPath, '.regret')
-  const newEntryContent = `${now}  UPDATE  ${clusterId}\n  old: ${oldHash}\n  new: ${newHash}\n  reason: ${safeReason}\n  by: AI refactor session`
+
+  // #250: Capture author, git SHA, and CI run ID for audit trail.
+  let author = 'AI refactor session'
+  try {
+    const gitUser = _execSync('git config user.name', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+    if (gitUser) author = gitUser
+  } catch { /* not in a git repo or git not available */ }
+
+  let gitSha = ''
+  try {
+    gitSha = _execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+  } catch { /* not in a git repo */ }
+
+  const ciRunId = process.env.GITHUB_RUN_ID || ''
+
+  let newEntryContent = `${now}  UPDATE  ${clusterId}\n  old: ${oldHash}\n  new: ${newHash}\n  reason: ${safeReason}\n  by: ${author}`
+  if (gitSha) newEntryContent += `\n  gitSha: ${gitSha}`
+  if (ciRunId) newEntryContent += `\n  ciRun: ${ciRunId}`
+
   const chainHash = createHash('sha256').update(prevChain + newEntryContent).digest('hex').slice(0, 7)
 
   const entry = `\n${newEntryContent}\n  chain: ${chainHash}`

@@ -142,7 +142,7 @@ Before Phase 2:                  After Phase 2 (with "callees": ["a","b"]):
 1. **Opt-in.** When `callees` is absent or empty, capture.js behaves identically to the pre-Phase-2 Ghost Proxy. No new files, no warnings, no overhead.
 2. **Depth 1.** Only the named callees are wrapped. If callee `a` itself calls `b`, that nested call is recorded as part of `a`'s execution (it does NOT spawn a `c.calls.a.calls.b` cluster).
 3. **Accessible callees only.** The callee must be a top-level function-bearing declaration in one of the supported patterns (see "Supported Callee Patterns" below). Closure-private functions, class methods, and destructured exports are NOT interceptable — `wrapCallees` logs an actionable warning and skips them. The parent cluster is still captured normally. **ESM `export function`, `export async function`, `export function*`, `export const` arrow/function expressions, and CJS bare-name calls are now interceptable** via automatic in-memory source transformation (see "Supported Callee Patterns" below) — when transformation is not possible (e.g. shadowing, parse errors), `wrapCallees` falls back to a warning and skips.
-4. **Backward compatible.** The `.regret` file format is unchanged. Callee `.regret` files use the same format with two extra metadata lines (`parent:` and `callee:`). `validate.js` re-validates each `.calls.*` contract by re-running the callee with its saved args and comparing the hash — this catches callee regressions that preserve the parent's output (a core security guarantee of Phase 2). Use `--skip-callees` to opt out entirely.
+4. **Backward compatible.** The `.regret` file format is unchanged. Callee `.regret` files use the same format with two extra metadata lines (`parent:` and `callee:`). `validate.js` re-validates each `.calls.<callee>` contract explicitly by re-running the callee function with its saved args and comparing the live fingerprint to the golden. This catches callee regressions that would otherwise be invisible — a callee whose behavior changed but whose parent's final output happens to be preserved by a compensating change in a sibling (a core security guarantee of Phase 2). Use `--skip-callees` to opt out entirely.
 
    **Update propagation (#284).** `regret update <parent>` also re-captures and updates all `<parent>.calls.*.regret` files for that parent, so the next `regret validate` does not report stale callee failures after a confirmed behavior change. Direct `regret update <parent>.calls.<callee>` is rejected — callee contracts are derived from the parent's inputs, so update the parent (or re-capture) instead. `regret validate --cluster <parent>` includes `<parent>.calls.*` re-validation so single-cluster debugging does not produce false GREENs.
 
@@ -479,6 +479,16 @@ Properties:
 - **Order-insensitive** — JSON keys sorted before hashing (semantic match)
 - **Short** — 7 chars, human memorable (`9jadb`)
 - **Opaque** — reveals nothing about internals, only that contract held
+
+### Sort Key and Determinism Guarantee
+
+The fingerprint is computed via `stableStringify()` which recursively sorts all object keys before serialization (`Object.keys(obj).sort()`). This guarantees:
+
+1. **Key order does not matter** — `{a:1, b:2}` and `{b:2, a:1}` produce the same fingerprint.
+2. **Cross-run reproducibility** — the same inputs and outputs always produce the same fingerprint regardless of runtime key insertion order.
+3. **Chain hash integrity** — the audit log chain hash is computed over the sorted, canonical representation of each entry, making the chain tamper-evident and order-stable.
+
+When adding new fields to `.regret` files or audit log entries, always include them in a deterministic position (sorted by key name) so the hash remains stable.
 
 ### Normalization Rules
 

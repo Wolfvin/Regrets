@@ -21,7 +21,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { resolve, join, extname, relative } from 'path'
-import { execFileSync } from 'child_process'
+import { execFileSync, spawnSync } from 'child_process'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { dirname } from 'path'
 import { mergeCjsModule } from './cjs-merge.js'
@@ -648,6 +648,21 @@ function trivialOutputReason(output, threw) {
   if (output === undefined) return 'output is undefined — inputs likely not meaningful'
   if (output === null) return 'output is null — inputs likely not meaningful'
   if (Number.isNaN(output)) return 'output is NaN — inputs likely not meaningful'
+  // #256: Streams, async iterables, and generator objects are truthy but
+  // not fingerprintable — their serialized form is always the same empty
+  // object regardless of the data they would produce when consumed.
+  if (typeof output === 'object' && output !== null) {
+    if (typeof output[Symbol.asyncIterator] === 'function') {
+      return 'output is an async iterable — not fingerprintable with auto-generated inputs'
+    }
+    if (typeof output[Symbol.iterator] === 'function' && typeof output.next === 'function') {
+      return 'output is a generator/iterator — not fingerprintable with auto-generated inputs'
+    }
+    // Node.js Readable streams
+    if (typeof output.pipe === 'function' && typeof output.on === 'function') {
+      return 'output is a stream — not fingerprintable with auto-generated inputs'
+    }
+  }
   return null  // output looks meaningful
 }
 
@@ -1278,12 +1293,12 @@ async function installForScope({
   // ── Step 6: Dry-run preview ─────────────────────────────────────────────────
   if (dryRun) {
     console.log('📋 DRY RUN — preview only (no files written, no capture)\n')
-    console.log('Manifest that would be generated:')
-    console.log(JSON.stringify({ clusters: newClusters }, null, 2))
-    console.log(`\n${newClusters.length} new clusters would be added`)
-    if (existingIds.size > 0) {
-      console.log(`${existingIds.size} existing clusters preserved`)
-    }
+    // Show the full proposed manifest (existing + new), not just new clusters.
+    // This gives CI and reviewers the complete picture of what would be on disk.
+    const proposedManifest = { clusters: mergedClusters }
+    console.log('Proposed manifest:')
+    console.log(JSON.stringify(proposedManifest, null, 2))
+    console.log(`\n${mergedClusters.length} total clusters (${newClusters.length} new, ${existingIds.size} existing)`)
     if (trivialSkipped > 0) {
       console.log(`${trivialSkipped} cluster(s) would be trivial-skipped (not added to manifest)`)
     }
@@ -1368,7 +1383,8 @@ async function installForScope({
     console.log(`\n🔧 Running preBuild: ${manifest.preBuild}`)
     try {
       const [cmd, ...cmdArgs] = manifest.preBuild.split(' ')
-      execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: cwdForCapture })
+      // #302: Use spawnSync for preBuild so SIGINT can be forwarded.
+      spawnSync(cmd, cmdArgs, { stdio: 'inherit', cwd: cwdForCapture })
       console.log('   ✅ preBuild succeeded\n')
     } catch {
       console.error('   ❌ preBuild failed — continuing anyway\n')
