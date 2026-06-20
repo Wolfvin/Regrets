@@ -7,6 +7,7 @@
 //   node scripts/regret.js validate [--cluster <id>] [--runs 5] [--fail-fast]
 //   node scripts/regret.js health [--sort fragile]
 //   node scripts/regret.js update <cluster-id> --reason "specific reason"
+//   node scripts/regret.js history <cluster-id>          Audit log of contract updates
 //   node scripts/regret.js drift
 //   node scripts/regret.js ci
 //   node scripts/regret.js guard
@@ -302,6 +303,11 @@ switch (command) {
     break
   }
 
+  case 'history': {
+    success = run('node', [`${SCRIPTS_DIR}/history.js`, ...passThroughArgs])
+    break
+  }
+
   case 'verify-kebenaran': {
     const stacks = detectStacks()
     let kebenaranOk = true
@@ -528,6 +534,8 @@ ANALYSIS:
   regret discover --static --entry <fn> --file <path>  Zero-execution static analysis
   regret diff [--cluster <id>]                       Show diff on FAIL
   regret list [--json]                               List all clusters
+  regret history <clusterId> [--json] [--limit N]    Audit log of contract updates
+  regret history --all                               Show events for every cluster
   regret analyze [dir] [--json]                      Deep structural analysis
 
 UTILITIES:
