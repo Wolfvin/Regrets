@@ -1,0 +1,13 @@
+cluster: rust-format-period
+version: 1
+fingerprint: 12d5tvu
+captured: 2026-06-20T17:53:56.001Z
+watches: [format_period]
+entry: format_period
+stack: rust
+module: regret_proof_rust::format_period
+fingerprintLevel: entry
+---
+INPUT  "2025_05"
+OUTPUT "052025"
+HASH   12d5tvu

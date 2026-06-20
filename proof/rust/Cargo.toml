@@ -1,0 +1,14 @@
+[package]
+name = "regret_proof_rust"
+version = "0.1.0"
+edition = "2021"
+description = "Proof-of-concept Rust project for the Regrets validate_rust.sh validator"
+
+[[bin]]
+name = "regret_proof_rust"
+path = "src/main.rs"
+
+# This proof project intentionally has zero external dependencies — the
+# functions being fingerprinted are pure string transforms that only need
+# std. The CLI parser uses std::io directly.
+[dependencies]

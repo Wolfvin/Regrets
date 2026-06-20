@@ -24,6 +24,14 @@ Each subdirectory represents one case study and contains:
 | `puzpy/` | alexdej/puzpy | Crossword puzzle parser | Python |
 | `pyluach/` | simlist/pyluach | Hebrew calendar computation | Python |
 | `python-baudot/` | xvillaneau/python-baudot | Baudot teleprinter encoding | Python |
+| `rust/` | (local — `regret_proof_rust`) | String transforms (period formatting, filename sanitization) | Rust (via `validate_rust.sh`) |
+
+> The `rust/` proof is a self-contained example that demonstrates the
+> `validate_rust.sh` validator end-to-end (capture → validate PASS →
+> validate FAIL with diff). It uses a Node shim so the demo runs without
+> a Rust toolchain, but ships real Rust source (`src/main.rs`) for users
+> who want to `cargo build` and validate against the actual binary.
+> See [`rust/README.md`](rust/README.md) for details.
 
 ## How to Use These Proofs
 

@@ -270,7 +270,9 @@ Run `cargo test -- --nocapture` to verify cross-stack hash parity in the test mo
 | `module` | ✅ | Rust module path (colon or double-colon notation) |
 | `file` | ✅ | Path to source file relative to project root |
 | `pythonPath` | ❌ | Not used for Rust |
-| `cargoBin` | ❌ | Binary target name if not default (default: package name) |
+| `cargoBin` | ❌ | Path to the binary that fulfills the Regrets CLI contract (JSON stdin → JSON stdout). Defaults to `./target/debug/<packageName>` if omitted. |
+| `cargoBinArgs` | ❌ | Array of string arguments passed verbatim to `cargoBin`. Useful for wrapper invocation (e.g. `cargoBin: "node"`, `cargoBinArgs: ["./shim/proxy.mjs"]`). Empty by default. |
+| `packageName` | ❌ | Cargo package name — used to locate the default binary path (`./target/debug/<packageName>`) when `cargoBin` is not set. |
 
 ---
 
@@ -344,6 +346,94 @@ case "$MODE" in
     ;;
 esac
 ```
+
+### `scripts/validate_rust.sh` — Proper Validator (Recommended)
+
+`capture_rust.sh validate` delegates to `node scripts/validate.js`, which
+cannot invoke Rust functions. **`scripts/validate_rust.sh`** is the proper
+Rust validator — it invokes your Rust binary via a documented CLI contract
+and recomputes fingerprints using `scripts/fingerprint.js` (the same
+algorithm JS/Python/Go use).
+
+#### Rust Binary Contract
+
+Your Rust binary must:
+
+1. Read a single JSON object from stdin:
+   `{ "cluster": "<id>", "input": <value> }`
+2. Dispatch to the target function based on `cluster` (typically a `match`
+   statement in `main()`)
+3. Write a single JSON object to stdout:
+   `{ "output": <value> }`
+4. On error: write `{ "error": "<message>" }` and exit non-zero
+
+The functions being fingerprinted MUST stay pure (no I/O, no global state,
+no `SystemTime`). Side effects belong in a separate shell module — see
+[Pure Function Extraction in Rust](#pure-function-extraction-in-rust)
+below.
+
+#### Usage
+
+```bash
+# Validate all Rust clusters against captured .regret files
+bash scripts/validate_rust.sh --manifest regrets/manifest.json
+
+# Validate one cluster
+bash scripts/validate_rust.sh --manifest regrets/manifest.json --cluster rust-format-period
+
+# Stop on first failure
+bash scripts/validate_rust.sh --manifest regrets/manifest.json --fail-fast
+
+# Machine-readable JSON output (for CI / MCP integration)
+bash scripts/validate_rust.sh --manifest regrets/manifest.json --quiet
+
+# Override the binary path (top-level cargoBin in manifest is the default)
+bash scripts/validate_rust.sh --manifest regrets/manifest.json --bin ./target/debug/my-binary
+```
+
+#### Manifest Configuration
+
+```json
+{
+  "packageName": "my-crate",
+  "cargoBin": "./target/debug/my-crate",
+  "clusters": [
+    {
+      "id": "rust-format-period",
+      "entry": "format_period",
+      "stack": "rust",
+      "module": "my_crate::formatter",
+      "file": "src/formatter.rs",
+      "inputs": ["2025_05", "2024_01"]
+    }
+  ]
+}
+```
+
+If `cargoBin` is omitted, the validator looks for
+`./target/debug/<packageName>`. Use `cargoBinArgs` to pass wrapper arguments
+(e.g. `["./shim/proxy.mjs"]` when invoking via `node`).
+
+#### Why a CLI binary contract (not `cargo test`)?
+
+The `cargo test --test regret_validate` approach requires hand-generating a
+`tests/regret_validate.rs` file per project — a non-trivial barrier. The
+CLI binary contract is simpler: one small binary that does JSON-stdin →
+JSON-stdout dispatch, reusable across any Rust project. The validator stays
+fast (no recompilation) and decoupled from the build system.
+
+#### Working Example
+
+See [`proof/rust/`](../proof/rust/README.md) for a complete end-to-end demo
+including:
+- Real Rust source (`src/main.rs`) with two pure functions
+- Node shim (for running the demo without a Rust toolchain)
+- Captured `.regret` files
+- A `run_demo.sh` script that exercises PASS and FAIL cases
+
+The demo verifies cross-stack fingerprint parity: the `rust-format-period`
+cluster produces hash `12d5tvu`, identical to the hash documented in the
+example `.regret` file below.
 
 ### `cargo regret` — Cargo Subcommand (Optional)
 
@@ -435,13 +525,13 @@ Or add as Makefile targets:
 
 ```makefile
 regret-capture-rust:
-	bash skills/regresion-testing/scripts/capture_rust.sh capture
+        bash skills/regresion-testing/scripts/capture_rust.sh capture
 
 regret-validate-rust:
-	bash skills/regresion-testing/scripts/capture_rust.sh validate
+        bash skills/regresion-testing/scripts/capture_rust.sh validate
 
 regret-health-rust:
-	bash skills/regresion-testing/scripts/capture_rust.sh health
+        bash skills/regresion-testing/scripts/capture_rust.sh health
 ```
 
 ---

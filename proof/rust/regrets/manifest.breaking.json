@@ -1,0 +1,35 @@
+{
+  "packageName": "regret_proof_rust",
+  "cargoBin": "node",
+  "cargoBinArgs": ["shim/regret_proof_rust_breaking.mjs"],
+  "_cargoBinNote": "Manifest for the FAIL-case demo — points at the breaking-change shim. The .regret golden files were captured against the original (non-breaking) shim, so this manifest must produce FAIL on validate.",
+  "clusters": [
+    {
+      "id": "rust-format-period",
+      "entry": "format_period",
+      "watches": ["format_period"],
+      "file": "src/main.rs",
+      "stack": "rust",
+      "module": "regret_proof_rust::format_period",
+      "fingerprintLevel": "entry",
+      "description": "Convert tax period string from YYYY_MM to MMYYYY",
+      "inputs": ["2025_05", "2024_01", "2023_12"]
+    },
+    {
+      "id": "rust-sanitize-filename",
+      "entry": "sanitize_filename",
+      "watches": ["sanitize_filename"],
+      "file": "src/main.rs",
+      "stack": "rust",
+      "module": "regret_proof_rust::sanitize_filename",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Sanitize a string for use as a filename — prefix + alphanumeric-only base",
+      "inputs": [
+        ["FPK-", "2025-05"],
+        ["DOC-", "2025"],
+        ["INV-", "2024-12-31"]
+      ]
+    }
+  ]
+}

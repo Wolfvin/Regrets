@@ -1,0 +1,14 @@
+cluster: rust-sanitize-filename
+version: 1
+fingerprint: 4xby6y5
+captured: 2026-06-20T17:53:56.075Z
+watches: [sanitize_filename]
+entry: sanitize_filename
+stack: rust
+module: regret_proof_rust::sanitize_filename
+fingerprintLevel: entry
+multiArgs: true
+---
+INPUT  ["FPK-","2025-05"]
+OUTPUT "FPK-2025_05"
+HASH   4xby6y5
