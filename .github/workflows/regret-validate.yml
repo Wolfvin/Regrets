@@ -1,0 +1,67 @@
+# .github/workflows/regret-validate.yml
+#
+# Regret validate CI gate (#251)
+#
+# On every PR to main, run `regret validate --fail-fast` against the
+# repo's own golden contracts (if any). If any cluster goes RED, the
+# PR check fails — the PR changed behavior, not just structure.
+#
+# This workflow dogfoods the Regrets skill on the Regrets codebase itself:
+# when the repo grows its own regrets/manifest.json (e.g. for regression-
+# testing the CLI scripts), this check will automatically pick it up.
+# Until then, it's a no-op that exits 0 with a clear message — so the
+# workflow is ready to go the moment a manifest is added.
+#
+# Companion to .github/workflows/ci.yml (which runs `npm test` for the
+# unit-test suite). The two are intentionally separate so a failing
+# `regret validate` shows up as its own status check on the PR.
+
+name: regret-validate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Allow manual triggering for debugging
+  workflow_dispatch:
+
+jobs:
+  regret-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Check for regrets/manifest.json
+        id: check_manifest
+        run: |
+          if [ -f "regrets/manifest.json" ]; then
+            echo "has_manifest=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Found regrets/manifest.json — will run regret validate"
+          else
+            echo "has_manifest=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  No regrets/manifest.json in this repo — skipping regret validate"
+            echo "    (Once a manifest is added, this check will run automatically.)"
+          fi
+
+      - name: Run regret validate
+        if: steps.check_manifest.outputs.has_manifest == 'true'
+        run: node scripts/regret.js validate --fail-fast
+
+      - name: Run regret history (informational)
+        if: steps.check_manifest.outputs.has_manifest == 'true'
+        # History is non-blocking — even if it's empty, the check passes.
+        # This step exists so CI logs surface the audit trail at a glance.
+        continue-on-error: true
+        run: node scripts/regret.js history --all || true
