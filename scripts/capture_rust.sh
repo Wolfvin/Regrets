@@ -1,15 +1,36 @@
 #!/usr/bin/env bash
 # capture_rust.sh — compile + run regret capture for Rust clusters
-# ⚠️  EXPERIMENTAL — This script is a proof-of-concept. The test runner
-#     (regret_capture.rs) must be generated manually from manifest.json.
-#     There is no auto-generator yet. Fallback to JS capture for manifest
-#     processing if Rust test files don't exist.
+#
+# Reads manifest.json to find Rust clusters, invokes the target functions with
+# the specified inputs, computes fingerprints, and writes .regret files.
+#
+# This script delegates to the Rust integration test runner (regret_runner.rs)
+# which handles the actual function invocation and .regret file generation.
 #
 # Usage:
-#   bash scripts/capture_rust.sh               # capture all Rust clusters
-#   bash scripts/capture_rust.sh validate       # validate all Rust clusters
-#   bash scripts/capture_rust.sh health         # health report
-#   bash scripts/capture_rust.sh --cluster rust-format-period
+#   bash scripts/capture_rust.sh                          # capture all Rust clusters
+#   bash scripts/capture_rust.sh --cluster rust-add       # capture specific cluster
+#   bash scripts/capture_rust.sh --project ./references/rust  # specify project dir
+#   bash scripts/capture_rust.sh --verbose                # show detailed output
+#
+# Prerequisites:
+#   - Rust toolchain (cargo, rustc) installed
+#   - Target crate has a test/regret_runner.rs with function dispatch
+#   - regrets/manifest.json exists with stack=rust clusters
+#
+# .regret file format (compatible with JS/Python stacks):
+#   cluster: <id>
+#   version: 1
+#   fingerprint: <7-char hash>
+#   captured: <ISO timestamp>
+#   watches: [<watch1>, <watch2>]
+#   entry: <function name>
+#   stack: rust
+#   fingerprintLevel: entry
+#   ---
+#   INPUT  <json>
+#   OUTPUT <json>
+#   HASH   <7-char hash>
 
 set -euo pipefail
 
@@ -19,58 +40,121 @@ PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
+# Parse CLI flags
+CLUSTER_FILTER=""
+VERBOSE=false
+PROJECT_PATH=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --cluster)
+      shift
+      CLUSTER_FILTER="$1"
+      ;;
+    --verbose)
+      VERBOSE=true
+      ;;
+    --project)
+      shift
+      PROJECT_PATH="$1"
+      ;;
+    --help|-h)
+      echo "Usage: bash scripts/capture_rust.sh [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --cluster <id>   Capture only the specified cluster"
+      echo "  --verbose        Show detailed output"
+      echo "  --project <dir>  Path to Rust project directory (default: current dir)"
+      echo "  --help           Show this help message"
+      exit 0
+      ;;
+  esac
+done
+
+# If --project specified, change to that directory
+if [[ -n "$PROJECT_PATH" ]]; then
+  PROJECT_DIR="$(cd "$PROJECT_PATH" && pwd)"
+  MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+  REGRET_DIR="${PROJECT_DIR}/regrets"
+fi
+
 # Ensure regrets directory exists
 mkdir -p "$REGRET_DIR"
 
-MODE="${1:-capture}"
-CLUSTER_FLAG=""
+# Check prerequisites
+if ! command -v cargo &> /dev/null; then
+  echo "⚠️  Cargo is not installed. Install Rust toolchain to use the Rust stack."
+  echo "   See: https://rustup.rs/"
+  echo ""
+  echo "   Alternatively, use the JS capture script for manifest processing:"
+  echo "   node ${SKILL_DIR}/scripts/capture.js ${CLUSTER_FLAG:-}"
+  exit 0
+fi
 
-# Parse --cluster flag
-for arg in "$@"; do
-  if [[ "$arg" == "--cluster" ]]; then
-    shift
-    CLUSTER_FLAG="--cluster $1"
-    break
-  fi
-done
+if [[ ! -f "$MANIFEST" ]]; then
+  echo "❌ regrets/manifest.json not found at ${MANIFEST}"
+  echo "   Run this script from the project root, or use --project <dir>."
+  exit 1
+fi
 
-# Generate the test runner from manifest
-# This creates a temporary Rust test file that:
-# 1. Reads manifest.json
-# 2. For each cluster with stack=rust:
-#    - Imports the target module
-#    - Wraps watched functions with GhostRecorder
-#    - Calls entry function with provided inputs
-#    - Computes fingerprint
-#    - Writes .regret file
+# ─── Read Rust clusters from manifest ────────────────────────────────────────
 
-case "$MODE" in
-  capture)
-    echo "📡 Capturing Rust clusters..."
-    # Build first to ensure modules are compiled
-    cargo build 2>/dev/null || true
-    # Run capture test — outputs to stdout, we parse and write .regret files
-    cargo test --test regret_capture -- --nocapture 2>/dev/null || {
-      echo "⚠️  No regret_capture test found. Run: cargo regret init"
-      echo "   This generates tests/regret_capture.rs from your manifest.json"
-      echo ""
-      echo "   Alternatively, use the JS capture script for manifest processing:"
-      echo "   node ${SKILL_DIR}/scripts/capture.js ${CLUSTER_FLAG}"
-    }
-    ;;
-  validate)
-    echo "🔍 Validating Rust clusters..."
-    cargo test --test regret_validate -- --nocapture 2>/dev/null || {
-      echo "⚠️  No regret_validate test found."
-      echo "   Using JS validator as fallback:"
-      echo "   node ${SKILL_DIR}/scripts/validate.js ${CLUSTER_FLAG}"
-    }
-    ;;
-  health)
-    node "$SKILL_DIR/scripts/health.js"
-    ;;
-  *)
-    echo "Usage: bash scripts/capture_rust.sh [capture|validate|health] [--cluster <id>]"
-    exit 1
-    ;;
-esac
+CLUSTERS_JSON=$(node -e "
+  const m = JSON.parse(require('fs').readFileSync('${MANIFEST}', 'utf8'));
+  let clusters = m.clusters.filter(c => c.stack === 'rust');
+  if ('${CLUSTER_FILTER}') {
+    clusters = clusters.filter(c => c.id === '${CLUSTER_FILTER}');
+  }
+  if (clusters.length === 0) {
+    console.error('No Rust clusters found in manifest.');
+    process.exit(1);
+  }
+  console.log(JSON.stringify(clusters, null, 2));
+")
+
+echo "📡 Capturing Rust clusters..."
+
+if [[ "$VERBOSE" == "true" ]]; then
+  echo "📋 Rust clusters found:"
+  echo "$CLUSTERS_JSON" | node -e "
+    const clusters = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+    clusters.forEach(c => console.log('  - ' + c.id + ' (' + c.entry + ')'));
+  "
+fi
+
+# ─── Run capture ─────────────────────────────────────────────────────────────
+# The capture is done by the Rust integration test (regret_runner.rs) which:
+# 1. Reads manifest.json to find Rust clusters
+# 2. For each cluster, calls the entry function with each input
+# 3. Computes fingerprint (SHA-256 → base36 → 7 chars)
+# 4. Writes .regret files with the standard format
+
+cd "$PROJECT_DIR"
+
+# Build first to ensure modules are compiled
+if [[ "$VERBOSE" == "true" ]]; then
+  cargo build 2>&1 || true
+else
+  cargo build 2>/dev/null || true
+fi
+
+# Run capture test
+if [[ "$VERBOSE" == "true" ]]; then
+  cargo test --test regret_runner -- capture --nocapture 2>&1
+else
+  cargo test --test regret_runner -- capture --nocapture 2>&1 | grep -E '(Capturing|Cluster|Fingerprint|Written|complete|error)'
+fi
+
+EXIT_CODE=$?
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+  echo "✅ Capture complete. .regret files written to ${REGRET_DIR}/"
+else
+  echo "⚠️  Capture test failed. Possible causes:"
+  echo "   - No tests/regret_runner.rs with capture function dispatch"
+  echo "   - Target functions not found or signature mismatch"
+  echo ""
+  echo "   For a working example, see references/rust/"
+fi
+
+exit $EXIT_CODE
