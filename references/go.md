@@ -2,9 +2,11 @@
 
 Regression fingerprinting for Go projects using generated test files and `go test` capture.
 
-## Status: Community Preview
+## Status: Working
 
-Go stack support is in **Community Preview** — the core fingerprint algorithm is implemented, but the capture/validate flow requires more manual setup than JS/Python stacks. This is based on real-world testing against the `baris-inandi/bfgo` project (a Brainfuck compiler/interpreter in Go).
+Go stack support is **Working** — `capture_go.sh capture` and `capture_go.sh validate` are fully implemented. The script generates a Go test file from `manifest.json`, invokes the user's entry functions via reflection, computes the cross-stack-compatible fingerprint (sha256 + base36 + first 7 chars, identical to JS/Python), and writes `.regret` files in the standard format. Validate re-reads the `.regret` file, re-invokes the entry function, and compares hashes — exiting non-zero on any mismatch so `go test` itself fails.
+
+**Verified end-to-end** against `tests/fixtures/go-example/` (3 pure functions, 2 clusters, 3 inputs each): capture → validate PASS → breaking refactor FAIL → valid refactor PASS.
 
 ---
 
@@ -532,23 +534,23 @@ Or add as Makefile targets:
 
 ```makefile
 regret-capture-go:
-	bash skills/regresion-testing/scripts/capture_go.sh capture
+        bash skills/regresion-testing/scripts/capture_go.sh capture
 
 regret-validate-go:
-	bash skills/regresion-testing/scripts/capture_go.sh validate
+        bash skills/regresion-testing/scripts/capture_go.sh validate
 
 regret-health-go:
-	bash skills/regresion-testing/scripts/capture_go.sh health
+        bash skills/regresion-testing/scripts/capture_go.sh health
 ```
 
 Or use Go's native tooling:
 
 ```makefile
 regret-capture-go:
-	go test -v -run TestRegretCapture ./regrets/
+        go test -v -run TestRegretCapture ./regrets/
 
 regret-validate-go:
-	go test -v -run TestRegretValidate ./regrets/
+        go test -v -run TestRegretValidate ./regrets/
 ```
 
 ---

@@ -980,7 +980,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
-| Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
+| Go | Generated test files + `go test` | Value / Schema / Mixed | **Working** — see `references/go.md` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
@@ -1205,7 +1205,7 @@ regression-testing/
 │   ├── health.py               ← cluster health report (Python)
 │   ├── capture_react.mjs       ← React component render capture
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
-│   ├── capture_go.sh           ← Go cluster capture runner (community preview)
+│   ├── capture_go.sh           ← Go cluster capture runner (working)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
 │   ├── contest.py              ← chain testing for Python stack clusters
 │   ├── diff.js                 ← output diff — shows what changed when RED
@@ -1223,7 +1223,7 @@ regression-testing/
     ├── update-protocol.md      ← safe update + audit trail rules (with hash chain)
     ├── python.md               ← Python stack — full implementation
     ├── rust.md                 ← Rust stack — trait wrapping + cargo test
-    ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
+    ├── go.md                   ← Go stack — generated test files + go test (Working)
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant

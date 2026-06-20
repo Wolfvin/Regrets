@@ -1,0 +1,26 @@
+{
+  "clusters": [
+    {
+      "id": "reverse",
+      "entry": "Reverse",
+      "watches": ["Reverse"],
+      "file": "strings/strings.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/test-go-example/strings",
+      "fingerprintLevel": "entry",
+      "description": "Reverse a string",
+      "inputs": ["hello", "regrets", "level"]
+    },
+    {
+      "id": "count-vowels",
+      "entry": "CountVowels",
+      "watches": ["CountVowels"],
+      "file": "strings/strings.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/test-go-example/strings",
+      "fingerprintLevel": "entry",
+      "description": "Count vowels in a string",
+      "inputs": ["hello", "aeiou", "rhythm"]
+    }
+  ]
+}
