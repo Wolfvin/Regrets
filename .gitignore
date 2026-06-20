@@ -56,3 +56,8 @@ Desktop.ini
 .vscode/
 .idea/
 *.sublime-*
+
+# ===== Regrets build artifacts =====
+.regret-c-build/
+.regret-java-classes/
+
