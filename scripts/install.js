@@ -25,7 +25,7 @@ import { execFileSync } from 'child_process'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { dirname } from 'path'
 import { mergeCjsModule } from './cjs-merge.js'
-import { analyzeScope } from './analyzer.js'
+import { analyzeScope, detectLanguage } from './analyzer.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPTS_DIR = __dirname
@@ -305,33 +305,78 @@ function extractExportedFunctions(source, ext) {
     return fns
   }
 
+  // #286: Strip comment lines so regex patterns don't match inside comments.
+  // We remove // comments and /* ... */ block comments before applying
+  // the extraction regexes. This prevents false positives like:
+  //   // export function fakeFn()
+  //   /* export function alsoFake() */
+  const strippedSource = source
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+
   // JS/TS: exported functions
   // Named export: export function name() / export async function name()
-  const namedExportFn = source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
+  const namedExportFn = strippedSource.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
   for (const m of namedExportFn) fns.push(m[1])
 
   // Arrow function exports: export const name = () => {
-  const arrowExports = source.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
+  const arrowExports = strippedSource.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
   for (const m of arrowExports) fns.push(m[1])
 
   // Default export function
-  const defaultExportFn = source.matchAll(/export\s+default\s+function\s+(\w+)/g)
+  const defaultExportFn = strippedSource.matchAll(/export\s+default\s+function\s+(\w+)/g)
   for (const m of defaultExportFn) fns.push(m[1])
 
+  // #292: export class X and export default class X
+  // Class-only files should not report 0 functions — the class name
+  // is an exported symbol worth tracking.
+  const namedExportClass = strippedSource.matchAll(/export\s+class\s+(\w+)/g)
+  for (const m of namedExportClass) fns.push(m[1])
+
+  const defaultExportClass = strippedSource.matchAll(/export\s+default\s+class\s+(\w+)/g)
+  for (const m of defaultExportClass) fns.push(m[1])
+
+  // #271: Named export list: export { foo, bar }
+  // This pattern exports previously declared names. We extract each
+  // identifier from the brace-enclosed list.
+  const namedExportList = strippedSource.matchAll(/export\s*\{([^}]*)\}/g)
+  for (const m of namedExportList) {
+    const body = m[1]
+    // Split by comma, extract identifiers
+    const items = body.split(',')
+    for (const item of items) {
+      const trimmed = item.trim()
+      if (!trimmed) continue
+      // Handle "foo as bar" — export name is "bar"
+      // Handle "foo" — export name is "foo"
+      const asMatch = trimmed.match(/\bas\s+(\w+)$/)
+      if (asMatch) {
+        fns.push(asMatch[1])
+      } else {
+        const identMatch = trimmed.match(/^(\w+)$/)
+        if (identMatch) {
+          fns.push(identMatch[1])
+        }
+      }
+    }
+  }
+
   // CJS: module.exports.Name = ...
-  const moduleExports = source.matchAll(/module\.exports\.(\w+)\s*=/g)
+  const moduleExports = strippedSource.matchAll(/module\.exports\.(\w+)\s*=/g)
   for (const m of moduleExports) fns.push(m[1])
 
   // CJS: exports.Name = ...
-  const exportsAssign = source.matchAll(/^exports\.(\w+)\s*=/gm)
+  const exportsAssign = strippedSource.matchAll(/^exports\.(\w+)\s*=/gm)
   for (const m of exportsAssign) fns.push(m[1])
 
   // CJS: module.exports = function Name(...)
-  const cjsNamedFn = source.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
+  const cjsNamedFn = strippedSource.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
   for (const m of cjsNamedFn) fns.push(m[1])
 
   // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
-  const cjsObjExports = extractCjsObjectExports(source)
+  // Note: extractCjsObjectExports has its own comment-stripping logic,
+  // but passing the already-stripped source is harmless.
+  const cjsObjExports = extractCjsObjectExports(strippedSource)
   for (const name of cjsObjExports) fns.push(name)
 
   return [...new Set(fns)]
@@ -482,6 +527,59 @@ function detectClassMethods(source, ext) {
   }
 
   return classes
+}
+
+// ─── Python module path resolver ──────────────────────────────────────────────
+//
+// Issue #279: capture.py expects a Python cluster to declare `module` as a
+// dotted import path (e.g. `invoice.processor`) plus an optional `pythonPath`
+// pointing at the package root (e.g. `src`). Previously install.js emitted
+// `file: "src/invoice/processor.py"` for every stack, which capture.py then
+// passed verbatim to `importlib.import_module(...)` → ModuleNotFoundError
+// (issue #274). This helper converts the discovered file path into the
+// `module` + `pythonPath` pair the Python capture pipeline actually consumes.
+//
+// Rules:
+//   - `<root>/transforms.py`           → { module: "transforms",           pythonPath: "" }
+//   - `<root>/pkg/mod.py`              → { module: "pkg.mod",              pythonPath: "" }
+//   - `<root>/src/invoice/processor.py`→ { module: "invoice.processor",   pythonPath: "src" }
+//   - `<root>/src/utils/__init__.py`   → { module: "utils",                pythonPath: "src" }
+//   - `<root>/tests/conftest.py`       → { module: "conftest",             pythonPath: "tests" }
+//
+// `pythonPath` is the FIRST directory component of the relative path — this
+// matches the SKILL.md guidance to declare the package root (not each nested
+// subfolder). An empty `pythonPath` means the module lives at the project
+// root and `cwd` (which capture.py inserts into sys.path) is sufficient.
+//
+// The helper is pure and exported for unit testing.
+
+function filePathToPythonModule(relPath) {
+  // Normalize to forward slashes regardless of platform separators
+  const normalized = relPath.replace(/\\/g, '/')
+  // Strip extension
+  const withoutExt = normalized.replace(/\.py$/i, '')
+  const parts = withoutExt.split('/').filter(Boolean)
+
+  // Drop `__init__` segments — the package itself is importable without it.
+  // e.g. `src/pkg/__init__.py` → module `pkg`, pythonPath `src`.
+  const cleaned = parts.filter(p => p !== '__init__')
+
+  if (cleaned.length === 0) {
+    // Edge case: relPath was just `__init__.py` at the root.
+    return { module: '', pythonPath: '' }
+  }
+
+  if (cleaned.length === 1) {
+    // File at project root, e.g. `transforms.py` → module `transforms`
+    return { module: cleaned[0], pythonPath: '' }
+  }
+
+  // File in a subdirectory: first segment becomes pythonPath, rest is the
+  // dotted module path. This matches the convention documented in SKILL.md
+  // (pythonPath = package root, module = relative dotted path inside it).
+  const pythonPath = cleaned[0]
+  const module = cleaned.slice(1).join('.')
+  return { module, pythonPath }
 }
 
 // ─── Generate cluster ID ───────────────────────────────────────────────────────
@@ -801,7 +899,43 @@ async function installForScope({
 
     const ext = extname(filePath)
     const relPath = relative(scopeRoot, filePath)
-    const fns = extractExportedFunctions(source, ext)
+
+    // #280: Prefer tree-sitter (analyzeScope) as the source of truth for
+    // function names when the language is supported. The regex-based
+    // extractExportedFunctions is used only as a fallback for unsupported
+    // languages or when tree-sitter returns no results (e.g. parse errors).
+    // This prevents false positives like unclosed strings being interpreted
+    // as function declarations by the regex extractor.
+    //
+    // #270 (#312 merge): When a file contains exported classes, the regex
+    // extractor returns the CLASS NAMES (e.g. `Calculator`) while tree-sitter
+    // returns the METHOD NAMES (e.g. `add`, `multiply`). The callee-tracking
+    // logic below (`detectClassMethods` + `callerNames`) depends on class
+    // names being in `publicFns` so it can look up the class's methods.
+    // Strategy: run both extractors. If `extractExportedFunctions` returns
+    // any class names (detected via `detectClassMethods`), prefer the regex
+    // result — that's the only way to surface class-as-cluster behavior.
+    // Otherwise prefer tree-sitter (more accurate for plain function files).
+    //
+    // We compute `classMethodsMap` ONCE here and reuse it in the callee
+    // phase below — avoids a second regex scan of the same source.
+    const classMethodsMap = detectClassMethods(source, ext)
+    const lang = await detectLanguage(filePath)
+    let fns
+    if (lang !== 'unknown') {
+      const scope = await analyzeScope(filePath)
+      const scopeFns = scope.functions.map(f => f.name)
+      const regexFns = extractExportedFunctions(source, ext)
+      if (classMethodsMap.size > 0 && regexFns.length > 0) {
+        fns = regexFns
+      } else if (scopeFns.length > 0) {
+        fns = scopeFns
+      } else {
+        fns = regexFns
+      }
+    } else {
+      fns = extractExportedFunctions(source, ext)
+    }
 
     // Filter: skip functions starting with _
     const publicFns = fns.filter(fn => !fn.startsWith('_'))
@@ -841,7 +975,8 @@ async function installForScope({
     // We analyze the file once (not once per function) since the AST is
     // shared across all functions in the file. analyzeScope is async
     // (lazy WASM init), so this loop is awaited.
-    const classMethodsMap = detectClassMethods(source, ext)
+    // `classMethodsMap` was already computed above (during function-list
+    // resolution) — we reuse it here to avoid a second regex scan.
     const calleesByFn = new Map()
     try {
       const { functions: analysisFns, edges } = await analyzeScope(filePath)
@@ -860,7 +995,26 @@ async function installForScope({
           }
 
           const callees = edges
+            // #312 (#270): include edges from any caller in `callerNames`
+            // (fnName itself PLUS class method names when fnName is a class
+            // — analyzer edges have `from: <methodName>`, not `from:
+            // <className>`, so we must match on method names to surface
+            // class-internal calls). This is a SUPERSET of the simpler
+            // `e.from === fnName` filter that origin/main used pre-#312.
             .filter(e => callerNames.has(e.from))
+            // #308 (#287): When an edge is a method call (isMethod: true)
+            // on an object that is NOT `this` or `super`, it should NOT be
+            // matched to a bare function with the same name. For example,
+            // `obj.process()` should not resolve to the standalone `process`
+            // function. Method calls on `this`/`super` ARE included because
+            // they likely refer to class methods defined in the same file.
+            // This filter composes with the `callerNames` filter above —
+            // both must pass for the edge to be included.
+            .filter(e => {
+              if (!e.isMethod) return true // bare call — always include
+              // Method call: only include if receiver is `this` or `super`
+              return e.methodReceiver === 'this' || e.methodReceiver === 'super'
+            })
             .map(e => e.to)
             .filter(name => definedNames.has(name))
           // Dedupe while preserving first-appearance order. Multiple call
@@ -902,10 +1056,27 @@ async function installForScope({
         id: clusterId,
         entry: fnName,
         watches: [],
-        file: filePathForManifest,
         stack,
         fingerprintLevel: 'entry',
         inputs: [null, {}],
+      }
+
+      // #279 / #309: For Python clusters, emit `module` (dotted import path)
+      // and optional `pythonPath` (package root) instead of `file`. capture.py
+      // expects `module` and falls back to `file` only as a last resort —
+      // but the fallback path uses importlib.import_module(file) which
+      // crashes with ModuleNotFoundError for paths like "src/foo.py" (issue
+      // #274). The `file` field is intentionally omitted for Python clusters
+      // so the contract is unambiguous: `module` is authoritative.
+      if (stack === 'python') {
+        const { module: pyModule, pythonPath: pyPath } = filePathToPythonModule(filePathForManifest)
+        cluster.module = pyModule
+        // Only attach pythonPath when it's non-empty — keeps the manifest
+        // minimal and matches the convention that root-level modules need
+        // no pythonPath (cwd is on sys.path automatically).
+        if (pyPath) cluster.pythonPath = pyPath
+      } else {
+        cluster.file = filePathForManifest
       }
 
       // Phase 3: attach the auto-computed callees list. Only add the
@@ -1211,7 +1382,10 @@ async function installForScope({
   const skippedDetails = []
 
   for (const cluster of newClusters) {
-    const relPath = cluster.file
+    // Display label: prefer `file` for JS/TS clusters (filesystem path),
+    // fall back to `module` for Python clusters (dotted module path). Issue #279:
+    // Python clusters no longer carry a `file` field, so use `module` here.
+    const relPath = cluster.file || cluster.module || cluster.id
     process.stdout.write(`  `)
 
     const result = await captureCluster(cluster.id, manifestPath, cwdForCapture)
@@ -1614,7 +1788,21 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error(`❌ Install failed: ${err.message}`)
-  process.exit(1)
-})
+// Guard the CLI entry point with `import.meta.url === __entryUrl` so that
+// importing install.js as a module (e.g. from unit tests that exercise
+// `filePathToPythonModule`) does NOT trigger `main()`. Mirrors the
+// `if __name__ == '__main__'` pattern in Python.
+const __entryUrl = pathToFileURL(process.argv[1]).href
+if (import.meta.url === __entryUrl) {
+  main().catch(err => {
+    console.error(`❌ Install failed: ${err.message}`)
+    process.exit(1)
+  })
+}
+
+// ─── Exports for unit testing ─────────────────────────────────────────────────
+//
+// `filePathToPythonModule` is a pure function (file path → {module, pythonPath})
+// used by the cluster-builder. Exported so tests can verify the path → dotted
+// module conversion without spawning install.js as a subprocess.
+export { filePathToPythonModule }

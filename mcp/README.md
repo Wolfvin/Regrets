@@ -99,6 +99,27 @@ mcp/
 
 - Uses `@modelcontextprotocol/sdk` with stdio transport
 - Zod schemas for input validation on every tool
-- `capture`, `validate`, and `scan` delegate to `regret-testing`'s programmatic API
+- `capture` and `validate` **delegate to `scripts/capture.js` and `scripts/validate.js` via child process spawn** (single source of truth — issue #266). Both scripts are invoked with `--json` so the MCP layer just parses structured output. Any future capture/validate feature (callee wrapping, callee re-validation, drift detection, etc.) is picked up automatically with no logic drift.
+- `scan` and `chain` delegate to `regret-testing`'s programmatic API (no equivalent CLI scripts to spawn).
 - `health` and `status` read `.regret` files, `audit.log`, and `manifest.json` directly to produce reports
 - Built with `tsup` in ESM format
+
+### Callee contract support (Phase 2 + Phase 3)
+
+When a manifest cluster declares `callees: [...]`, the MCP tools now handle
+them end-to-end:
+
+- **`regrets_capture`** spawns `capture.js --json`, which performs Phase 2
+  callee wrapping (Ghost Proxy for CJS, ESM source transform for bare-name
+  callees) and writes `<parent>.calls.<callee>.regret` files. The MCP
+  result's per-cluster entry includes a `callees` array listing each
+  callee contract written.
+- **`regrets_validate`** spawns `validate.js --json`, which performs
+  Phase 3 callee contract re-validation. The MCP result includes a
+  top-level `callees` object: `{ passed, failed, skipped, considered,
+  contracts: [{ id, pass, expected, actual, ... }] }`.
+- Set `skipCallees: true` on `regrets_validate` to disable Phase 3
+  (mirrors `regret validate --skip-callees`).
+
+Before issue #266, the MCP tools imported a parallel implementation from
+`scripts/api.js` that silently skipped both phases.

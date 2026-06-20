@@ -141,25 +141,57 @@ function extractExportedFunctions(source, ext) {
     return fns
   }
 
-  const namedExportFn = source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
+  // #286: Strip comments before matching
+  const strippedSource = source
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+
+  const namedExportFn = strippedSource.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
   for (const m of namedExportFn) fns.push(m[1])
 
-  const arrowExports = source.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
+  const arrowExports = strippedSource.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
   for (const m of arrowExports) fns.push(m[1])
 
-  const defaultExportFn = source.matchAll(/export\s+default\s+function\s+(\w+)/g)
+  const defaultExportFn = strippedSource.matchAll(/export\s+default\s+function\s+(\w+)/g)
   for (const m of defaultExportFn) fns.push(m[1])
 
-  const moduleExports = source.matchAll(/module\.exports\.(\w+)\s*=/g)
+  // #292: export class X and export default class X
+  const namedExportClass = strippedSource.matchAll(/export\s+class\s+(\w+)/g)
+  for (const m of namedExportClass) fns.push(m[1])
+
+  const defaultExportClass = strippedSource.matchAll(/export\s+default\s+class\s+(\w+)/g)
+  for (const m of defaultExportClass) fns.push(m[1])
+
+  // #271: Named export list: export { foo, bar }
+  const namedExportList = strippedSource.matchAll(/export\s*\{([^}]*)\}/g)
+  for (const m of namedExportList) {
+    const body = m[1]
+    const items = body.split(',')
+    for (const item of items) {
+      const trimmed = item.trim()
+      if (!trimmed) continue
+      const asMatch = trimmed.match(/\bas\s+(\w+)$/)
+      if (asMatch) {
+        fns.push(asMatch[1])
+      } else {
+        const identMatch = trimmed.match(/^(\w+)$/)
+        if (identMatch) {
+          fns.push(identMatch[1])
+        }
+      }
+    }
+  }
+
+  const moduleExports = strippedSource.matchAll(/module\.exports\.(\w+)\s*=/g)
   for (const m of moduleExports) fns.push(m[1])
 
-  const exportsAssign = source.matchAll(/^exports\.(\w+)\s*=/gm)
+  const exportsAssign = strippedSource.matchAll(/^exports\.(\w+)\s*=/gm)
   for (const m of exportsAssign) fns.push(m[1])
 
-  const cjsNamedFn = source.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
+  const cjsNamedFn = strippedSource.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
   for (const m of cjsNamedFn) fns.push(m[1])
 
-  const cjsObjExports = extractCjsObjectExports(source)
+  const cjsObjExports = extractCjsObjectExports(strippedSource)
   for (const name of cjsObjExports) fns.push(name)
 
   return [...new Set(fns)]
