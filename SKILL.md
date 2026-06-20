@@ -1594,3 +1594,37 @@ fought/extension_source/ts/
 5. **Every test must run independently** — use `beforeEach` to reset state.
 6. **Minimum tests per function**: 1 happy path + 1 edge case (null/empty/undefined) + 1 format/boundary case.
 7. **Don't write tests that always pass** — if unsure, intentionally break the implementation and check if the test fails.
+
+---
+
+## Behavior Changes
+
+### `regret discover` — watches array only contains actually-traced functions (#321)
+
+**Before:** `regret discover --entry <fn> --file <path>` populated the draft
+manifest's `watches` array with **every** function exported by the target
+module, regardless of whether it was invoked during the trace. The
+human-readable output listed called functions first and uncalled exports
+after, all under "Functions discovered:". For modules with many exports
+(e.g. validator.js with 98 exports) this produced 0/98 signal-to-noise.
+
+**After:** The `watches` array in the generated manifest contains **only**
+the functions that were actually invoked during the trace (via the proxy
+interception of `this.<fn>()` calls). Exported-but-uncalled functions are
+still listed in the human-readable output under a separate "Exported but
+NOT called during trace" section — they are NOT added to `watches`.
+
+**Self-contained functions (no traceable callees):** If the entry function
+makes no trackable calls (e.g. it calls only internal/non-exported helpers
+directly, which bypass the proxy), `watches` stays empty `[]` and the
+following message is printed:
+
+```
+Tidak ada call lain yang terdeteksi selama trace — watches kosong, ini normal untuk fungsi yang self-contained
+```
+
+This is the expected behavior — the previous behavior of filling `watches`
+with all exports as a misleading "module map" was never intended. Users who
+need a list of all module exports should use `regret scan` or `regret
+discover --static` instead.
+
