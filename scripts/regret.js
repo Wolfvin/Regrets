@@ -18,7 +18,8 @@
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { execFileSync } from 'child_process'
+import { spawn } from 'child_process'
+import { constants as osConstants } from 'os'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPTS_DIR = __dirname
@@ -29,24 +30,109 @@ const args = process.argv.slice(2)
 const command = args[0] ?? 'help'
 const passThroughArgs = args.slice(1)
 
+// Convert a signal name (e.g. 'SIGINT') to its numeric value.
+// Node's os.constants.signals provides the mapping.
+function signalNumber(sig) {
+  const signals = osConstants.signals
+  for (const [name, num] of Object.entries(signals)) {
+    if (name === sig) return num
+  }
+  return 0
+}
+
 // ─── Helper ────────────────────────────────────────────────────────────────────
 
 /**
- * Run a command safely using execFileSync (no shell injection risk).
+ * Run a command asynchronously with signal forwarding (#302).
+ *
+ * Previously this used `execFileSync`, which blocks the parent's event loop.
+ * When the user pressed Ctrl+C, the parent received SIGINT and exited
+ * immediately, but the child was orphaned and kept running — defeating
+ * PR #244's SIGINT cleanup handlers in capture.js / esm-callee-transform.js.
+ *
+ * Now we use async `spawn` and forward SIGINT / SIGTERM / SIGHUP from the
+ * parent to the child explicitly. The parent stays alive until the child
+ * finishes cleaning up, then exits with the child's exit code (or 128+signum
+ * if the child was killed by a signal).
+ *
  * @param {string} cmd - The executable (e.g., 'node', 'python3', 'bash')
  * @param {string[]} cmdArgs - Arguments as an array (properly escaped)
- * @returns {boolean} true if exit code 0
+ * @returns {Promise<boolean>} true if exit code 0
  */
-function run(cmd, cmdArgs) {
+async function run(cmd, cmdArgs) {
   const displayCmd = `${cmd} ${cmdArgs.join(' ')}`
   console.log(`\n$ ${displayCmd}`)
-  try {
-    execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: process.cwd() })
-    return true
-  } catch {
-    return false
-  }
+
+  return new Promise((resolve) => {
+    const child = spawn(cmd, cmdArgs, {
+      stdio: 'inherit',
+      cwd: process.cwd(),
+    })
+
+    // Track the live child so signal handlers can forward to it.
+    _currentChild = child
+
+    // Forward terminal signals to the child so its cleanup handlers run.
+    // Without this, killing the parent orphans the child (issue #302).
+    function forwardSignal(sig) {
+      try { child.kill(sig) } catch { /* child already exited */ }
+    }
+    _signalForwarders.SIGINT = () => forwardSignal('SIGINT')
+    _signalForwarders.SIGTERM = () => forwardSignal('SIGTERM')
+    _signalForwarders.SIGHUP = () => forwardSignal('SIGHUP')
+
+    child.on('error', (err) => {
+      console.error(`❌ Failed to spawn ${cmd}: ${err.message}`)
+      _currentChild = null
+      resolve(false)
+    })
+
+    child.on('exit', (code, signal) => {
+      _currentChild = null
+      // If the child was killed by a signal (e.g. SIGINT from Ctrl+C),
+      // propagate the conventional 128+signum exit code to the parent.
+      // This preserves the shell convention (130 for SIGINT, 143 for SIGTERM)
+      // so CI runners and wrapper scripts can distinguish signal-killed
+      // runs from regular failures.
+      if (signal) {
+        const signum = signalNumber(signal)
+        process.exit(128 + signum)
+      }
+      // If the child exited with a 128+signum code (e.g. 130 for SIGINT),
+      // it means the child's own signal handler ran process.exit(130).
+      // Propagate that code so CI runners see the correct exit status.
+      if (code !== null && code >= 128 && code < 256) {
+        process.exit(code)
+      }
+      resolve(code === 0)
+    })
+  })
 }
+
+// Track the current child process + signal forwarders so the parent's
+// top-level signal handlers (installed below) can reach the child.
+let _currentChild = null
+const _signalForwarders = {}
+
+// Top-level signal handlers. When the parent receives SIGINT/SIGTERM/SIGHUP,
+// forward to the current child (if any) and wait for it to exit before
+// exiting ourselves. If there's no current child, exit immediately.
+function topLevelSignalHandler(sig) {
+  const forwarder = _signalForwarders[sig]
+  if (forwarder && _currentChild) {
+    // Forward to child; child.on('exit') will resolve the promise and the
+    // main flow will continue. We don't process.exit here — we let the
+    // child finish cleaning up first.
+    forwarder()
+    return
+  }
+  // No child running — exit immediately with conventional 128+signum code.
+  const signum = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 }[sig] ?? 0
+  process.exit(128 + signum)
+}
+process.on('SIGINT', () => topLevelSignalHandler('SIGINT'))
+process.on('SIGTERM', () => topLevelSignalHandler('SIGTERM'))
+process.on('SIGHUP', () => topLevelSignalHandler('SIGHUP'))
 
 // ─── Detect stacks from manifest ───────────────────────────────────────────────
 
@@ -74,21 +160,22 @@ let success = true
 // Regrets can import the compiled output.
 // Example manifest: { "preBuild": "npm run build", "clusters": [...] }
 
-function runPreBuild() {
+async function runPreBuild() {
   try {
     const manifestPath = resolve(process.cwd(), 'regrets/manifest.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     if (manifest.preBuild) {
       console.log(`\n🔧 Running preBuild: ${manifest.preBuild}`)
-      try {
-        const [cmd, ...cmdArgs] = manifest.preBuild.split(' ')
-        execFileSync(cmd, cmdArgs, { stdio: 'inherit', cwd: process.cwd() })
+      // Use the same async `run()` helper so SIGINT propagates to preBuild
+      // child processes too (#302).
+      const [cmd, ...cmdArgs] = manifest.preBuild.split(' ')
+      const ok = await run(cmd, cmdArgs)
+      if (ok) {
         console.log(`   ✅ preBuild succeeded\n`)
         return true
-      } catch {
-        console.error(`   ❌ preBuild failed — continuing anyway\n`)
-        return false
       }
+      console.error(`   ❌ preBuild failed — continuing anyway\n`)
+      return false
     }
   } catch { /* no manifest or no preBuild — that's fine */ }
   return true
@@ -103,18 +190,32 @@ if (skipBuild) {
   if (idx !== -1) passThroughArgs.splice(idx, 1)
   console.log('\n⏩ Skipping preBuild (--skip-build flag)')
 }
+// Track the in-flight preBuild promise so main() can await it before
+// dispatching the actual command. This preserves the original ordering
+// (preBuild finishes before capture/validate starts).
+let _preBuildPromise = Promise.resolve(true)
 if (needsPreBuild.includes(command) && !skipBuild) {
-  runPreBuild()
+  // runPreBuild is now async (it uses the async `run()` helper for SIGINT
+  // propagation). We don't await here — main() awaits the resulting
+  // promise before dispatching the actual command.
+  _preBuildPromise = runPreBuild()
 }
 
-switch (command) {
+async function main() {
+  // Wait for preBuild to finish (if it was started) so capture/validate
+  // see the built output. Failures are non-fatal (original behavior).
+  await _preBuildPromise
+
+  let success = true
+
+  switch (command) {
   case 'install': {
-    success = run('node', [`${SCRIPTS_DIR}/install.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/install.js`, ...passThroughArgs])
     break
   }
 
   case 'init': {
-    success = run('node', [`${SCRIPTS_DIR}/init.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/init.js`, ...passThroughArgs])
     break
   }
 
@@ -122,17 +223,17 @@ switch (command) {
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/capture.js`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/capture.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/capture.py`, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/capture.py`, ...passThroughArgs]) && success
       } else if (stack === 'react') {
-        success = run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
-        success = run('php', [`${SCRIPTS_DIR}/capture_php.php`, ...passThroughArgs]) && success
+        success = await run('php', [`${SCRIPTS_DIR}/capture_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
       }
     }
     break
@@ -142,22 +243,22 @@ switch (command) {
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
-        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs]) && success
+        success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
     }
     break
   }
 
   case 'health': {
-    success = run('node', [`${SCRIPTS_DIR}/health.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/health.js`, ...passThroughArgs])
     break
   }
 
@@ -173,16 +274,16 @@ switch (command) {
     } catch { /* default to js */ }
 
     if (targetStack === 'python') {
-      success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs])
+      success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs])
     } else if (targetStack === 'php') {
-      success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs])
+      success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs])
     } else if (targetStack === 'rust') {
-      success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs])
+      success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs])
     } else if (targetStack === 'go') {
-      success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs])
+      success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs])
     } else {
       // js, ts, css all use validate.js
-      success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs])
+      success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs])
     }
     break
   }
@@ -196,13 +297,13 @@ switch (command) {
       : ['--drift-mode']
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/validate.js`, ...driftDefault, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/validate.py`, ...driftDefault, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'php') {
-        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...driftDefault, ...passThroughArgs]) && success
+        success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
       }
@@ -217,21 +318,21 @@ switch (command) {
     if (passThroughArgs.includes('--init')) {
       // Generate GitHub Actions workflow file
       const ciArgs = passThroughArgs.filter(a => a !== '--init')
-      success = run('node', [`${SCRIPTS_DIR}/ci-init.js`, ...ciArgs])
+      success = await run('node', [`${SCRIPTS_DIR}/ci-init.js`, ...ciArgs])
       break
     }
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'php') {
-        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
+        success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
     }
     break
@@ -241,10 +342,10 @@ switch (command) {
     // Pre-flight manifest validation — verifies exports exist in compiled output
     const stacksForCheck = detectStacks()
     if (stacksForCheck.includes('python')) {
-      success = run('python3', [`${SCRIPTS_DIR}/check.py`, ...passThroughArgs])
+      success = await run('python3', [`${SCRIPTS_DIR}/check.py`, ...passThroughArgs])
     } else {
       // Full JS pre-flight: import module, verify entries exist
-      success = run('node', [`${SCRIPTS_DIR}/check.js`, ...passThroughArgs])
+      success = await run('node', [`${SCRIPTS_DIR}/check.js`, ...passThroughArgs])
     }
     break
   }
@@ -253,15 +354,15 @@ switch (command) {
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/truth.js`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/truth.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/truth.py`, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/truth.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
-        success = run('php', [`${SCRIPTS_DIR}/truth_php.php`, ...passThroughArgs]) && success
+        success = await run('php', [`${SCRIPTS_DIR}/truth_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -277,9 +378,9 @@ switch (command) {
     }
     console.log(`\n🔄 Rolling back: ${targetCluster}`)
     console.log('   Re-capturing fingerprint with current code...\n')
-    success = run('node', [`${SCRIPTS_DIR}/capture.js`, '--cluster', targetCluster]) && success
+    success = await run('node', [`${SCRIPTS_DIR}/capture.js`, '--cluster', targetCluster]) && success
     if (success) {
-      success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--cluster', targetCluster]) && success
+      success = await run('node', [`${SCRIPTS_DIR}/validate.js`, '--cluster', targetCluster]) && success
     }
     break
   }
@@ -289,9 +390,9 @@ switch (command) {
     let diffOk = true
     for (const stack of diffStacks) {
       if (stack === 'python') {
-        diffOk = run('python3', [`${SCRIPTS_DIR}/diff.py`, ...passThroughArgs]) && diffOk
+        diffOk = (await run('python3', [`${SCRIPTS_DIR}/diff.py`, ...passThroughArgs])) && diffOk
       } else {
-        diffOk = run('node', [`${SCRIPTS_DIR}/diff.js`, ...passThroughArgs]) && diffOk
+        diffOk = (await run('node', [`${SCRIPTS_DIR}/diff.js`, ...passThroughArgs])) && diffOk
       }
     }
     success = diffOk
@@ -299,12 +400,12 @@ switch (command) {
   }
 
   case 'list': {
-    success = run('node', [`${SCRIPTS_DIR}/list.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/list.js`, ...passThroughArgs])
     break
   }
 
   case 'history': {
-    success = run('node', [`${SCRIPTS_DIR}/history.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/history.js`, ...passThroughArgs])
     break
   }
 
@@ -313,9 +414,9 @@ switch (command) {
     let kebenaranOk = true
     for (const stack of stacks) {
       if (stack === 'python') {
-        kebenaranOk = run('python3', [`${SCRIPTS_DIR}/verify_kebenaran.py`, ...passThroughArgs]) && kebenaranOk
+        kebenaranOk = (await run('python3', [`${SCRIPTS_DIR}/verify_kebenaran.py`, ...passThroughArgs])) && kebenaranOk
       } else {
-        kebenaranOk = run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs]) && kebenaranOk
+        kebenaranOk = (await run('node', [`${SCRIPTS_DIR}/verify_kebenaran.js`, ...passThroughArgs])) && kebenaranOk
       }
     }
     success = kebenaranOk
@@ -326,9 +427,9 @@ switch (command) {
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/contest.py`, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/contest.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         console.log(`  ⏭️  PHP chain testing: use regret chain with JS/Python stacks for now — PHP chain support coming soon`)
       }
@@ -337,7 +438,7 @@ switch (command) {
   }
 
   case 'setup': {
-    success = run('node', [`${SCRIPTS_DIR}/setup.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/setup.js`, ...passThroughArgs])
     break
   }
 
@@ -348,12 +449,12 @@ switch (command) {
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/scan.py`, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/scan.py`, ...passThroughArgs]) && success
       } else {
         // Default to JS scanner for unknown stacks
-        success = run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/scan.js`, ...passThroughArgs]) && success
       }
     }
     // If --decompose flag is passed but no stack detected, run Python scanner
@@ -361,7 +462,7 @@ switch (command) {
       // Try Python scanner with the --decompose flag directly
       const dirArg = passThroughArgs.find(a => !a.startsWith('-'))
       if (dirArg) {
-        success = run('python3', [`${SCRIPTS_DIR}/scan.py`, dirArg, '--decompose'])
+        success = await run('python3', [`${SCRIPTS_DIR}/scan.py`, dirArg, '--decompose'])
       }
     }
     break
@@ -371,7 +472,7 @@ switch (command) {
     console.warn('⚠️  DEPRECATED: `regret structure` is replaced by `regret analyze`')
     console.warn('   `regret analyze` provides deep structural analysis including god functions,')
     console.warn('   duplicates, and cross-module dependencies. Falling back to structure...\n')
-    success = run('node', [`${SCRIPTS_DIR}/structure.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/structure.js`, ...passThroughArgs])
     break
   }
 
@@ -379,12 +480,12 @@ switch (command) {
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/coverage.py`, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/coverage.py`, ...passThroughArgs]) && success
       } else {
         // Default to JS coverage for unknown stacks
-        success = run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/coverage.js`, ...passThroughArgs]) && success
       }
     }
     break
@@ -394,7 +495,7 @@ switch (command) {
     console.warn('⚠️  DEPRECATED: `regret branch-map` is replaced by `regret coverage --suggest-inputs`')
     console.warn('   `regret coverage --suggest-inputs` provides branch coverage analysis with')
     console.warn('   input suggestions and is more flexible. Falling back to branch-map...\n')
-    success = run('node', [`${SCRIPTS_DIR}/branch-map.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/branch-map.js`, ...passThroughArgs])
     break
   }
 
@@ -404,15 +505,15 @@ switch (command) {
     console.warn('   to refactor. Falling back to audit...\n')
     const stacksForAudit = detectStacks()
     if (stacksForAudit.includes('python')) {
-      success = run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
+      success = await run('python3', [`${SCRIPTS_DIR}/audit.py`, ...passThroughArgs])
     } else {
-      success = run('node', [`${SCRIPTS_DIR}/audit.js`, ...passThroughArgs])
+      success = await run('node', [`${SCRIPTS_DIR}/audit.js`, ...passThroughArgs])
     }
     break
   }
 
   case 'analyze': {
-    success = run('python3', [`${SCRIPTS_DIR}/analyze.py`, ...passThroughArgs])
+    success = await run('python3', [`${SCRIPTS_DIR}/analyze.py`, ...passThroughArgs])
     break
   }
 
@@ -420,17 +521,17 @@ switch (command) {
     console.warn('⚠️  DEPRECATED: `regret diagnose` is replaced by `regret discover --entry <fn> --file <path>`')
     console.warn('   `regret discover` uses runtime tracing for more accurate discovery.')
     console.warn('   Falling back to diagnose...\n')
-    success = run('node', [`${SCRIPTS_DIR}/diagnose.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/diagnose.js`, ...passThroughArgs])
     break
   }
 
   case 'compare': {
-    success = run('node', [`${SCRIPTS_DIR}/compare.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/compare.js`, ...passThroughArgs])
     break
   }
 
   case 'mutate-audit': {
-    success = run('python3', [`${SCRIPTS_DIR}/mutate_audit.py`, ...passThroughArgs])
+    success = await run('python3', [`${SCRIPTS_DIR}/mutate_audit.py`, ...passThroughArgs])
     break
   }
 
@@ -441,15 +542,15 @@ switch (command) {
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
-        success = run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'php') {
-        success = run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
+        success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
-        success = run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       }
     }
     if (success) {
@@ -461,7 +562,7 @@ switch (command) {
   }
 
   case 'watch': {
-    success = run('node', [`${SCRIPTS_DIR}/watch.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/watch.js`, ...passThroughArgs])
     // watch runs until Ctrl+C — exit code is always 0 (graceful shutdown)
     success = true
     break
@@ -471,32 +572,32 @@ switch (command) {
     console.warn('⚠️  DEPRECATED: `regret branches` is replaced by `regret coverage`')
     console.warn('   `regret coverage` provides more comprehensive branch coverage analysis')
     console.warn('   with --suggest-inputs and --verbose options. Falling back to branches...\n')
-    success = run('node', [`${SCRIPTS_DIR}/branches.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/branches.js`, ...passThroughArgs])
     break
   }
 
   case 'risk': {
-    success = run('node', [`${SCRIPTS_DIR}/risk.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/risk.js`, ...passThroughArgs])
     break
   }
 
   case 'discover': {
     if (passThroughArgs.includes('--static')) {
       const staticArgs = passThroughArgs.filter(a => a !== '--static')
-      success = run('node', [`${SCRIPTS_DIR}/discover-static.js`, ...staticArgs])
+      success = await run('node', [`${SCRIPTS_DIR}/discover-static.js`, ...staticArgs])
     } else {
-      success = run('node', [`${SCRIPTS_DIR}/discover.js`, ...passThroughArgs])
+      success = await run('node', [`${SCRIPTS_DIR}/discover.js`, ...passThroughArgs])
     }
     break
   }
 
   case 'uninstall': {
-    success = run('node', [`${SCRIPTS_DIR}/uninstall.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/uninstall.js`, ...passThroughArgs])
     break
   }
 
   case 'status': {
-    success = run('node', [`${SCRIPTS_DIR}/status.js`, ...passThroughArgs])
+    success = await run('node', [`${SCRIPTS_DIR}/status.js`, ...passThroughArgs])
     break
   }
 
@@ -602,4 +703,12 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
     break
 }
 
-process.exit(success ? 0 : 1)
+  process.exit(success ? 0 : 1)
+}
+
+// Launch the async main loop. Any rejection (e.g. from spawn error) falls
+// back to a non-zero exit so CI gates fail loudly.
+main().catch((err) => {
+  console.error(`❌ regret: ${err.message}`)
+  process.exit(1)
+})
