@@ -17,6 +17,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 import {
   captureToolSchema,
@@ -148,8 +150,21 @@ export async function startMcpServer(): Promise<void> {
   await server.connect(transport);
 }
 
-// When executed directly (not imported), start the server
-startMcpServer().catch((error: unknown) => {
-  console.error("Fatal error starting @regrets/mcp server:", error);
-  process.exit(1);
-});
+// ─── Main-module guard ────────────────────────────────────────────────────────
+// Only auto-start the server when this file is the Node entry point
+// (`node dist/server.js`). When imported (e.g. by tests via
+// `import('@regrets/mcp')`), the server should NOT start — otherwise unit
+// tests would hang on stdio. This mirrors the `isMainModule` pattern used
+// in scripts/validate.js and scripts/capture.js.
+const __filename = fileURLToPath(import.meta.url);
+const isMainModule =
+  typeof process !== "undefined" &&
+  process.argv[1] &&
+  resolve(process.argv[1]) === __filename;
+
+if (isMainModule) {
+  startMcpServer().catch((error: unknown) => {
+    console.error("Fatal error starting @regrets/mcp server:", error);
+    process.exit(1);
+  });
+}

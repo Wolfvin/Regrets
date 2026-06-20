@@ -2134,25 +2134,63 @@ if (reporter === 'junit') {
 } else if (jsonOutput) {
   // JSON output mode — include callee results as a separate top-level field
   // so programmatic consumers can distinguish cluster passes from callee passes.
+  //
+  // Issue #266: enrich the per-cluster entry with the fields the MCP
+  // regrets_validate tool needs to preserve its existing output contract
+  // (pass, expected, actual, diff, error, skipped) while ALSO surfacing the
+  // richer validate.js metadata (status, confidence, drift, calleesMissing,
+  // etc.) as additive fields. Skipped clusters are NO LONGER filtered out
+  // so consumers can see "cluster X was skipped" rather than wondering why
+  // it's missing from the array.
   const jsonResult = {
     passed,
     failed,
-    clusters: results
-      .filter(r => !r.skipped)
-      .map(r => ({
+    clusters: results.map(r => {
+      // Compute diff string (same logic as the human-output path) so MCP
+      // consumers don't have to call formatDiffOutput themselves.
+      let diffStr
+      if (!noDiff && !r.pass && r.goldenOutput != null && r.liveOutput != null) {
+        try {
+          diffStr = formatDiffOutput(r.goldenOutput, r.liveOutput, { verbose: false }) || undefined
+        } catch { diffStr = undefined }
+      }
+      // Compute side-effect diff if applicable
+      let sideEffectDiffStr
+      if (!noDiff && !r.pass && r.goldenSideEffects != null) {
+        try {
+          sideEffectDiffStr = formatSideEffectDiff(
+            r.goldenSideEffects,
+            r.lastSideEffectRecording,
+            r.normalize ?? [],
+            r.ignoreFields ?? [],
+            r.ignorePaths ?? []
+          ) || undefined
+        } catch { sideEffectDiffStr = undefined }
+      }
+      return {
         id: r.id,
-        status: r.pass ? (r.drift ? 'drift' : 'pass') : (r.expectThrowViolated ? 'expect_throw_violated' : (r.mutationMismatch ? 'mutation_mismatch' : (r.error ? 'error' : 'fail'))),
+        // Direct boolean — MCP contract field (kept stable for backward compat)
+        pass: !!r.pass,
+        // Machine-readable status string — additive, richer than `pass`
+        status: r.skipped
+          ? 'skipped'
+          : (r.pass ? (r.drift ? 'drift' : 'pass') : (r.expectThrowViolated ? 'expect_throw_violated' : (r.mutationMismatch ? 'mutation_mismatch' : (r.error ? 'error' : 'fail')))),
         confidence: r.confidence || 'LOW',
+        ...(r.skipped ? { skipped: true } : {}),
         ...(r.expected ? { expected: r.expected } : {}),
         ...(r.actual ? { actual: r.actual } : {}),
         ...(r.error ? { error: r.error } : {}),
+        ...(diffStr ? { diff: diffStr } : {}),
+        ...(sideEffectDiffStr ? { sideEffectDiff: sideEffectDiffStr } : {}),
         ...(r.drift ? { drift: true } : {}),
         ...(r.updated ? { updated: true } : {}),
         ...(r.mutationMismatch ? { mutationMismatch: true, mutationDetected: r.mutationDetected } : {}),
         ...(r.expectedError ? { expectedError: r.expectedError } : {}),
         ...(r.actualError ? { actualError: r.actualError } : {}),
         ...(r.expectThrowViolated ? { expectThrowViolated: true } : {}),
-      })),
+        ...(r.missingCallees ? { missingCallees: r.missingCallees } : {}),
+      }
+    }),
     callees: {
       passed: calleePassed,
       failed: calleeFailed,
@@ -2160,7 +2198,10 @@ if (reporter === 'junit') {
       considered: calleeResults.length,
       contracts: calleeResults.map(r => ({
         id: r.id,
+        // Direct boolean — MCP contract field
+        pass: !!r.pass,
         status: r.skipped ? 'skipped' : (r.pass ? 'pass' : (r.expectThrowViolated ? 'expect_throw_violated' : (r.error ? 'error' : 'fail'))),
+        ...(r.skipped ? { skipped: true } : {}),
         ...(r.expected ? { expected: r.expected } : {}),
         ...(r.actual ? { actual: r.actual } : {}),
         ...(r.error ? { error: r.error } : {}),
