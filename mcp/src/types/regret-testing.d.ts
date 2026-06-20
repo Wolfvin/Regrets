@@ -58,6 +58,8 @@ declare module "regret-testing" {
     failFast?: boolean;
     runs?: number;
     includeDiff?: boolean;
+    /** Skip Phase 3 callee contract re-validation. Default: false. */
+    skipCallees?: boolean;
     cwd?: string;
   }
 

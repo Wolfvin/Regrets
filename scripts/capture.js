@@ -12,6 +12,7 @@
 //   node scripts/capture.js --only-new --stale 48
 //   node scripts/capture.js --quiet           Only print summary line
 //   node scripts/capture.js --verbose         Print extra detail (call trace, ghost intercepts, normalize)
+//   node scripts/capture.js --json            Emit machine-readable JSON to stdout (consumed by MCP tools)
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, openSync, closeSync, unlinkSync } from 'fs'
 import { resolve, dirname, join, extname } from 'path'
@@ -102,10 +103,20 @@ if (args.includes('--stale')) {
     : 24  // default: 24 hours
 }
 
-// ─── --quiet / --verbose flags ─────────────────────────────────────────────────
+// ─── --quiet / --verbose / --json flags ────────────────────────────────────────
 
 let quiet   = args.includes('--quiet')
 let verbose = args.includes('--verbose')
+// --json: machine-readable JSON output for programmatic consumers (MCP tools).
+// Suppresses all human-readable stdout; emits a single JSON object at the end.
+// Issue #266: enables MCP regrets_capture to delegate to this script via spawn
+// instead of reimplementing the capture loop in TypeScript (which silently
+// skipped Phase 2 callee wrapping).
+const jsonOutput = args.includes('--json')
+if (jsonOutput) {
+  // JSON mode implies quiet — no per-cluster human logs.
+  quiet = true
+}
 
 if (quiet && verbose) {
   console.warn('⚠️  --quiet and --verbose are mutually exclusive; using --quiet')
@@ -114,6 +125,7 @@ if (quiet && verbose) {
 
 // --quiet: only print summary line
 // --verbose: print everything + extra detail (call trace, ghost proxy intercepts, normalize applied)
+// --json: only print a single JSON object; no other stdout output
 // default (neither): current behavior unchanged
 
 // ─── Load manifest ────────────────────────────────────────────────────────────
@@ -122,8 +134,12 @@ let manifest
 try {
   manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
 } catch (e) {
-  console.error(`❌ Could not read manifest: ${manifestPath}`)
-  console.error(`   Create regrets/manifest.json first. See SKILL.md for format.`)
+  if (jsonOutput) {
+    console.log(JSON.stringify({ passed: 0, failed: 0, clusters: [], error: `Could not read manifest: ${manifestPath} — ${e.message}` }))
+  } else {
+    console.error(`❌ Could not read manifest: ${manifestPath}`)
+    console.error(`   Create regrets/manifest.json first. See SKILL.md for format.`)
+  }
   process.exit(1)
 }
 
@@ -186,21 +202,24 @@ if (!clusterFilter && (onlyNew || staleHours !== null)) {
   }
 
   // Print summary messages matching the spec
-  if (onlyNew && !staleHours) {
-    if (skippedExisting > 0) {
-      console.log(`Skipping ${skippedExisting} existing clusters. Capturing ${newCount} new clusters.`)
-    } else {
-      console.log(`No existing clusters to skip. Capturing all ${filteredClusters.length} clusters.`)
+  // (suppressed in --json mode to keep stdout parseable)
+  if (!jsonOutput) {
+    if (onlyNew && !staleHours) {
+      if (skippedExisting > 0) {
+        console.log(`Skipping ${skippedExisting} existing clusters. Capturing ${newCount} new clusters.`)
+      } else {
+        console.log(`No existing clusters to skip. Capturing all ${filteredClusters.length} clusters.`)
+      }
     }
-  }
-  if (staleHours !== null) {
-    if (staleCount > 0) {
-      console.log(`Re-capturing ${staleCount} stale clusters (>${staleHours}h). Skipping ${skippedFresh} fresh clusters.`)
-    } else {
-      console.log(`No stale clusters found (all captured within ${staleHours}h). Skipping ${skippedFresh} fresh clusters.`)
-    }
-    if (newCount > 0 && onlyNew) {
-      console.log(`Capturing ${newCount} new clusters (no .regret file).`)
+    if (staleHours !== null) {
+      if (staleCount > 0) {
+        console.log(`Re-capturing ${staleCount} stale clusters (>${staleHours}h). Skipping ${skippedFresh} fresh clusters.`)
+      } else {
+        console.log(`No stale clusters found (all captured within ${staleHours}h). Skipping ${skippedFresh} fresh clusters.`)
+      }
+      if (newCount > 0 && onlyNew) {
+        console.log(`Capturing ${newCount} new clusters (no .regret file).`)
+      }
     }
   }
 
@@ -209,10 +228,18 @@ if (!clusterFilter && (onlyNew || staleHours !== null)) {
 
 if (!clusters.length) {
   if (clusterFilter) {
-    console.error(`❌ No clusters found matching "${clusterFilter}"`)
+    if (jsonOutput) {
+      console.log(JSON.stringify({ passed: 0, failed: 0, clusters: [], error: `No clusters found matching "${clusterFilter}"` }))
+    } else {
+      console.error(`❌ No clusters found matching "${clusterFilter}"`)
+    }
     process.exit(1)
   }
-  console.log(`✅ Nothing to capture — all clusters are up-to-date.`)
+  if (jsonOutput) {
+    console.log(JSON.stringify({ passed: 0, failed: 0, clusters: [] }))
+  } else {
+    console.log(`✅ Nothing to capture — all clusters are up-to-date.`)
+  }
   process.exit(0)
 }
 
@@ -231,6 +258,13 @@ let failed = 0
 // can distinguish "unsupported stack — use the stack-specific capture
 // script" from genuine runtime errors. See issue #264.
 let skippedStack = 0
+
+// Per-cluster structured results — collected so --json mode can emit a
+// machine-readable summary without parsing stdout. Each entry mirrors the
+// shape returned by regret-testing's programmatic capture() API, extended
+// with a `callees` array listing callee contracts written for that cluster.
+// (Issue #266 — gives MCP regrets_capture a single source of truth.)
+const clusterResults = []
 
 for (const cluster of clusters) {
   const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
@@ -304,6 +338,7 @@ for (const cluster of clusters) {
     // marker, regardless of the --quiet flag.
     console.error(`regrets-unsupported-stack: ${stack} — ${msg}`)
     skippedStack++
+    clusterResults.push({ id, pass: true, fingerprint: null, skipped: true, note: `stack=${stack} requires native capture script` })
     continue
   }
 
@@ -410,6 +445,11 @@ for (const cluster of clusters) {
   // can clean it up even if the body throws partway through. Null means
   // no temp file was created (CJS module, or transformation aborted).
   let esmTransformTempPath = null
+
+  // Per-cluster list of callee contracts written during this capture.
+  // Populated inside the Phase 2 callee-writing block. Used by --json mode
+  // to surface callee outcomes to MCP regrets_capture (issue #266).
+  const calleesWritten = []
 
   try {
     // Dynamic import of target module
@@ -1733,6 +1773,9 @@ for (const cluster of clusters) {
             console.warn(`          \`const foo = () => {}\` and not shadowed. Alternatively, call`)
             console.warn(`          the callee via \`module.exports.foo(...)\` instead of the bare name.`)
           }
+          // Record that this declared callee produced no contract, so
+          // --json consumers (MCP regrets_capture) can surface the gap.
+          calleesWritten.push({ id: `${id}.calls.${calleeName}`, pass: false, skipped: true, error: 'declared callee was not intercepted during capture — no contract written' })
           continue
         }
 
@@ -1780,15 +1823,19 @@ for (const cluster of clusters) {
         if (!quiet) {
           console.log(`   📄 Saved: regrets/${calleeClusterId}.regret (callee fingerprint: ${calleeFp})`)
         }
+        // Record this callee contract for --json output (issue #266).
+        calleesWritten.push({ id: calleeClusterId, pass: true, fingerprint: calleeFp, callee: calleeName })
       }
     }
 
     passed++
+    clusterResults.push({ id, pass: true, fingerprint: fp, ...(calleesWritten.length > 0 ? { callees: calleesWritten } : {}) })
 
   } catch (err) {
     if (!quiet) console.error(`   ❌ Capture failed: ${err.message}`)
     if (verbose) console.error(`   Stack: ${err.stack}`)
     failed++
+    clusterResults.push({ id, pass: false, error: err.message })
   } finally {
     // Restore original Date if we froze it
     if (dateFrozen) {
@@ -1846,6 +1893,27 @@ for (const cluster of clusters) {
 //   3 — mixed: some clusters captured AND some skipped due to unsupported
 //       stack. Still flagged non-zero so the caller knows not every
 //       requested cluster produced a .regret file.
+
+// ─── --json output mode ──────────────────────────────────────────────────────
+// Emits a single JSON object to stdout and exits. Shape mirrors the
+// regret-testing programmatic capture() API (backward compat for MCP
+// regrets_capture consumers) plus a per-cluster `callees` array listing
+// callee contracts written during this run (issue #266 — Phase 2 visibility).
+if (jsonOutput) {
+  const jsonResult = {
+    passed,
+    failed,
+    clusters: clusterResults,
+    ...(skippedStack > 0 ? { skippedStack } : {}),
+  }
+  console.log(JSON.stringify(jsonResult, null, 2))
+  // Preserve the issue #264 exit-code contract so callers (install.js,
+  // CI) can still distinguish "all skipped" from "some failed" from "ok".
+  if (failed > 0) process.exit(1)
+  if (passed === 0 && skippedStack > 0) process.exit(2)
+  if (skippedStack > 0) process.exit(3)
+  process.exit(0)
+}
 
 if (quiet) {
   // ─── Quiet summary: only one line ─────────────────────────────────────────
