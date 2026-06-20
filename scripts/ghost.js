@@ -299,6 +299,17 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
     parentClusterId = '<unknown>',
     quiet = false,
     holderName = '__regretsHolder',
+    // Issue #301: Map<bindingName, { from, kind }> of ESM imported bindings
+    // detected in the source. When a declared callee is in this map, the
+    // "not found" warning is replaced with a specific message that explains
+    // the callee is an imported binding (e.g., `import { readFileSync } from 'fs'`)
+    // and therefore cannot be intercepted — neither the source transformer
+    // (which only handles top-level function_declaration in this file) nor
+    // wrapCallees (which can only install proxies on module namespace
+    // properties, and ESM imported bindings are not exposed as such) can
+    // reach it. The callee WILL still execute normally during capture; it
+    // just won't get a `.calls.<name>.regret` contract.
+    importedBindings = new Map(),
   } = options
 
   const restores = []
@@ -365,9 +376,43 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
       }
     }
     if (!original) {
+      // Issue #301: if the callee name matches an ESM imported binding
+      // (e.g., `import { readFileSync } from 'fs'`), emit a specific,
+      // actionable warning instead of the misleading generic one. The
+      // generic message says "closure-private or not exported" — which
+      // is wrong for imported bindings: they ARE exported by their source
+      // module, they just live in a different module's namespace and
+      // aren't exposed as properties on THIS module's namespace object
+      // (which is what wrapCallees iterates over via `holder[calleeName]`).
+      // The callee WILL still execute normally during capture; only the
+      // callee-contract recording is skipped.
+      const importInfo = importedBindings && importedBindings.has(calleeName)
+        ? importedBindings.get(calleeName)
+        : null
       if (!quiet) {
-        console.warn(`  ⚠️  Callee "${calleeName}" not found or not a function on module exports — skipping (cluster: ${parentClusterId})`)
-        console.warn(`      This typically means the function is a closure-private or not exported. The parent cluster will still be captured.`)
+        if (importInfo) {
+          const fromMod = importInfo.from || 'another module'
+          const kindLabel = importInfo.kind === 'default'
+            ? 'default import'
+            : importInfo.kind === 'namespace'
+              ? 'namespace import'
+              : 'named import'
+          const originalName = importInfo.importedAs && importInfo.importedAs !== calleeName
+            ? ` (imported as "${calleeName}" from "${importInfo.importedAs}")`
+            : ''
+          console.warn(`  ⚠️  Callee "${calleeName}" is an ESM imported binding (${kindLabel} from "${fromMod}")${originalName} — cannot install proxy (cluster: ${parentClusterId})`)
+          console.warn(`      ESM imported bindings are not exposed as properties on the module namespace, so wrapCallees cannot intercept them.`)
+          console.warn(`      The source transformer also cannot rewrite them (it only handles top-level function_declaration in this file).`)
+          console.warn(`      The callee WILL still execute normally during capture, but no .calls.${calleeName}.regret contract will be written.`)
+          console.warn(`      To track this callee's behavior, either:`)
+          console.warn(`        1. Wrap the imported call in a local function:`)
+          console.warn(`             function ${calleeName}Local(...args) { return ${calleeName}(...args) }`)
+          console.warn(`           and declare \`callees: ["${calleeName}Local"]\` instead.`)
+          console.warn(`        2. Use sideEffectWatches (a different feature) for tracking fs/network/external calls.`)
+        } else {
+          console.warn(`  ⚠️  Callee "${calleeName}" not found or not a function on module exports — skipping (cluster: ${parentClusterId})`)
+          console.warn(`      This typically means the function is a closure-private or not exported. The parent cluster will still be captured.`)
+        }
       }
       continue
     }

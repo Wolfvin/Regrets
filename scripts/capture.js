@@ -20,7 +20,7 @@ import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stable
 import { createGhost, wrapCallees, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
-import { isEsmSource, transformEsmForCallees, HOLDER_NAME, registerEsmTempFile, deleteEsmTempFile, generateEsmTempFileName } from './esm-callee-transform.js'
+import { isEsmSource, transformEsmForCallees, HOLDER_NAME, registerEsmTempFile, deleteEsmTempFile, generateEsmTempFileName, detectImportedBindings } from './esm-callee-transform.js'
 import { isCjsSource, transformCjsForCallees } from './cjs-callee-transform.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -233,7 +233,13 @@ let failed = 0
 let skippedStack = 0
 
 for (const cluster of clusters) {
-  const { id, entry, watches, file, stack, normalize = [], ignoreFields = [],
+  // Issue #261: `watches` is documented as optional and install.js always
+  // writes `watches: []`, but a manually-authored manifest cluster may omit
+  // the field entirely. Defaulting to an empty array here prevents a
+  // `TypeError: Cannot read properties of undefined (reading 'join')` crash
+  // later in the cluster loop (log lines, uncalled-watch filter, .regret
+  // `watches:` line).
+  const { id, entry, watches = [], file, stack, normalize = [], ignoreFields = [],
           ignorePaths = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [], inputs,
           classMethod, constructor: constructorName, constructorArgs, setup,
@@ -455,10 +461,31 @@ for (const cluster of clusters) {
     // (frozen, for ESM) namespace or instead of the (wrong, for CJS
     // bare-name) `module.exports.foo` lookup path.
     let moduleUrl = pathToFileURL(absPath).href
+    // Issue #301: detect ESM imported bindings so we can emit an accurate
+    // warning when a declared `callees: [...]` entry is an imported binding
+    // (e.g., `import { readFileSync } from 'fs'`). Such callees CANNOT be
+    // intercepted by wrapCallees — ESM imported bindings are not exposed as
+    // properties on the module namespace — and the source transformer cannot
+    // rewrite them (they're not top-level function_declaration nodes). The
+    // previous generic warning ("not found or not a function on module
+    // exports — this typically means the function is a closure-private")
+    // was misleading because it implied the callee was missing or private,
+    // when in fact it IS being called normally during capture (just not
+    // interceptable for callee-contract recording).
+    //
+    // `importedBindings` is read by both wrapCallees (passed via the
+    // `importedBindings` option below) and capture.js's post-capture
+    // "no contract written" branch, to choose between the specific
+    // imported-binding message and the generic one.
+    let importedBindings = new Map()
     if (Array.isArray(callees) && callees.length > 0 &&
         ['.mjs', '.cjs', '.js', '.ts', '.tsx'].includes(fileExt)) {
       try {
         const source = readFileSync(absPath, 'utf8')
+        // Detect imported bindings BEFORE the transform attempt — we want
+        // this info regardless of whether the transform succeeds, so the
+        // warning is accurate even when the transformer aborts.
+        importedBindings = detectImportedBindings(source)
         const isEsm = isEsmSource(source, fileExt)
         const isCjs = !isEsm && isCjsSource(source, fileExt)
         let transformResult = null
@@ -607,9 +634,24 @@ for (const cluster of clusters) {
     // pre-Phase-2 Ghost Proxy.
     const calleeRecorder = []
     if (Array.isArray(callees) && callees.length > 0) {
+      // Issue #295: pass HOLDER_NAME explicitly so the invariant between
+      // esm-callee-transform.js (which writes the holder into the transformed
+      // source under HOLDER_NAME) and wrapCallees (which looks up the holder
+      // on the imported module by `holderName`) is enforced by code, not by
+      // convention. Without this, renaming HOLDER_NAME in the transformer
+      // would silently break ESM callee wrapping — capture would continue
+      // to look for the old name and find nothing on the frozen namespace.
+      //
+      // Issue #301: pass `importedBindings` so wrapCallees can emit an
+      // accurate "imported binding — cannot intercept" warning instead of
+      // the misleading generic "closure-private or not exported" message
+      // when a declared callee is an ESM imported binding (e.g.,
+      // `import { readFileSync } from 'fs'`).
       cleanupCallees = wrapCallees(rawModule, callees, calleeRecorder, {
         parentClusterId: id,
         quiet,
+        holderName: HOLDER_NAME,
+        importedBindings,
       })
       if (!quiet) {
         console.log(`   Callees: ${callees.join(', ')}`)
@@ -1624,10 +1666,29 @@ for (const cluster of clusters) {
       sideEffectWatches.length ? `sideEffectWatches: [${sideEffectWatches.map(s => `"${s}"`).join(', ')}]` : null,
       `env: ${JSON.stringify(getEnvSnapshot())}`,
       `---`,
-      `INPUT  ${JSON.stringify(input ?? null)}`,
+      // Issue #300: do NOT coerce `undefined` to `null` before serializing.
+      //   Previously: `JSON.stringify(input ?? null)` wrote `INPUT null`
+      //   even when the actual input was `undefined` (the default for
+      //   clusters with `inputs: []`). validate.js then parsed `null` back
+      //   and recomputed the fingerprint with `null`, which mismatched the
+      //   golden hash captured with `undefined` — every `inputs: []` cluster
+      //   ALWAYS FAILED validate, even with zero code change.
+      //
+      //   Now: drop the `?? null`. `JSON.stringify(undefined)` returns the
+      //   value `undefined`, which the template literal coerces to the
+      //   literal string "undefined". validate.js's parseRegret already
+      //   recognizes the literal string `undefined` and parses it back to
+      //   the `undefined` value, so capture and validate agree.
+      //
+      //   Backward compat: old `.regret` files with `INPUT null` (written
+      //   by previous captures) still parse as `null` — those clusters were
+      //   already broken (their golden hash was computed with `undefined`
+      //   but stored as `null`), so re-capturing them is required anyway.
+      //   The same logic applies to the OUTPUT line below.
+      `INPUT  ${JSON.stringify(input)}`,
       threw
         ? `ERROR_CONTRACT ${JSON.stringify(errorContract)}`
-        : `OUTPUT ${JSON.stringify(outputForFile ?? null)}`,
+        : `OUTPUT ${JSON.stringify(outputForFile)}`,
       `HASH   ${fp}`,
       goldenSideEffects.length > 0 ? `SIDE_EFFECTS ${JSON.stringify(sideEffectSignature)}` : null,
       mutationBefore !== undefined ? `MUTATION_BEFORE ${JSON.stringify(mutationBefore)}` : null,
@@ -1695,46 +1756,105 @@ for (const cluster of clusters) {
     // branch didn't reach it for any input), we emit a warning instead of
     // an empty `.regret` file.
     if (Array.isArray(callees) && callees.length > 0) {
-      // Group all callee recordings by function name. Each declared callee
-      // may have been called multiple times across multiple inputs — we
-      // only need the first call for the golden contract.
-      const callsByCallee = new Map()
+      // Issue #298: group ALL callee recordings by function name and dedup
+      // by `(construct, args)` so the contract captures behavior across
+      // every distinct invocation. Previously we kept only the FIRST call
+      // per callee, which meant a refactor that broke the callee for any
+      // args OTHER than the first would PASS validate (false negative).
+      //
+      // The dedup key is `stableStringify({ c: construct, a: args })` —
+      // two calls with identical args but different invocation modes
+      // (`new Foo()` vs `Foo()`) are treated as distinct invocations.
+      // For each unique key we keep the FIRST observation (result/error),
+      // matching the existing single-call convention for deterministic
+      // callees and giving stable contracts for non-deterministic callees
+      // (where the same args might produce different results across runs).
+      const callsByCallee = new Map()  // Map<fn, Array<rec>>
       for (const rec of calleeRecorder) {
-        if (!callsByCallee.has(rec.fn)) callsByCallee.set(rec.fn, rec)
+        if (!callsByCallee.has(rec.fn)) callsByCallee.set(rec.fn, [])
+        callsByCallee.get(rec.fn).push(rec)
+      }
+      // Dedup each callee's call list by (construct, args).
+      const uniqueCallsByCallee = new Map()  // Map<fn, Array<rec>>
+      for (const [fn, recs] of callsByCallee) {
+        const seenKeys = new Set()
+        const unique = []
+        for (const rec of recs) {
+          const dedupKey = stableStringify({
+            c: rec.construct === true,
+            a: rec.args,
+          })
+          if (seenKeys.has(dedupKey)) continue
+          seenKeys.add(dedupKey)
+          unique.push(rec)
+        }
+        uniqueCallsByCallee.set(fn, unique)
       }
 
       for (const calleeName of callees) {
         if (typeof calleeName !== 'string' || calleeName.length === 0) continue
-        const goldenCall = callsByCallee.get(calleeName)
-        if (!goldenCall) {
+        const uniqueCalls = uniqueCallsByCallee.get(calleeName)
+        if (!uniqueCalls || uniqueCalls.length === 0) {
           if (!quiet) {
-            // Issue #263: this warning used to say "declared but never
-            // called during capture" — which was misleading. The callee
-            // MAY have been called many times, but if the source transform
-            // was aborted (shadowing, unsupported pattern, parse error)
-            // AND the module is a frozen ESM namespace OR a CJS module
-            // whose internal calls resolve to local bindings (not
-            // `module.exports.foo`), the proxy simply couldn't see the
-            // call. The user-facing fix is the same in both cases
-            // (refactor or use the explicit `module.exports.foo(...)`
-            // idiom in CJS), but the diagnosis should be accurate.
-            console.warn(`   ⚠️  Callee "${calleeName}" was not intercepted during capture — no contract written (cluster: ${id})`)
-            console.warn(`      This means either:`)
-            console.warn(`        a. The callee was genuinely never called by the entry function for any input.`)
-            console.warn(`        b. The callee WAS called, but the source transform was aborted (shadowing,`)
-            console.warn(`           unsupported declaration pattern, parse error) AND the module's`)
-            console.warn(`           internal calls don't go through a path wrapCallees can intercept`)
-            console.warn(`           (frozen ESM namespace, or CJS bare-name calls without transform).`)
-            console.warn(`      The parent cluster is still captured. To enable callee contracts:`)
-            console.warn(`        - For ESM: ensure the callee is a top-level \`function foo(){}\` or`)
-            console.warn(`          \`export function foo(){}\` or \`export const foo = () => {}\` and`)
-            console.warn(`          not shadowed anywhere in the file.`)
-            console.warn(`        - For CJS: ensure the callee is a top-level \`function foo(){}\` or`)
-            console.warn(`          \`const foo = () => {}\` and not shadowed. Alternatively, call`)
-            console.warn(`          the callee via \`module.exports.foo(...)\` instead of the bare name.`)
+            // Issue #301: when the callee name matches an ESM imported
+            // binding (e.g., `import { readFileSync } from 'fs'`), emit
+            // a specific "imported binding" message instead of the generic
+            // "either never called or transform aborted" message. The
+            // generic message was misleading for imported bindings —
+            // the callee WAS called (its side effects are visible in the
+            // parent cluster's output), it just couldn't be intercepted
+            // because imported bindings don't appear as properties on the
+            // module namespace. wrapCallees already emitted the same
+            // diagnosis above; here we explain the consequence (no
+            // .regret file written) and the user's options.
+            const importInfo = importedBindings && importedBindings.has(calleeName)
+              ? importedBindings.get(calleeName)
+              : null
+            if (importInfo) {
+              const fromMod = importInfo.from || 'another module'
+              console.warn(`   ⚠️  Callee "${calleeName}" is an imported binding (from "${fromMod}") — no contract written (cluster: ${id})`)
+              console.warn(`      The callee IS being called by the entry function (its effects are visible in the parent output),`)
+              console.warn(`      but ESM imported bindings cannot be intercepted for callee-contract recording.`)
+              console.warn(`      See the earlier wrapCallees warning for remediation options (wrap in a local function, or use sideEffectWatches).`)
+            } else {
+              // Issue #263: this warning used to say "declared but never
+              // called during capture" — which was misleading. The callee
+              // MAY have been called many times, but if the source transform
+              // was aborted (shadowing, unsupported pattern, parse error)
+              // AND the module is a frozen ESM namespace OR a CJS module
+              // whose internal calls resolve to local bindings (not
+              // `module.exports.foo`), the proxy simply couldn't see the
+              // call. The user-facing fix is the same in both cases
+              // (refactor or use the explicit `module.exports.foo(...)`
+              // idiom in CJS), but the diagnosis should be accurate.
+              console.warn(`   ⚠️  Callee "${calleeName}" was not intercepted during capture — no contract written (cluster: ${id})`)
+              console.warn(`      This means either:`)
+              console.warn(`        a. The callee was genuinely never called by the entry function for any input.`)
+              console.warn(`        b. The callee WAS called, but the source transform was aborted (shadowing,`)
+              console.warn(`           unsupported declaration pattern, parse error) AND the module's`)
+              console.warn(`           internal calls don't go through a path wrapCallees can intercept`)
+              console.warn(`           (frozen ESM namespace, or CJS bare-name calls without transform).`)
+              console.warn(`      The parent cluster is still captured. To enable callee contracts:`)
+              console.warn(`        - For ESM: ensure the callee is a top-level \`function foo(){}\` or`)
+              console.warn(`          \`export function foo(){}\` or \`export const foo = () => {}\` and`)
+              console.warn(`          not shadowed anywhere in the file.`)
+              console.warn(`        - For CJS: ensure the callee is a top-level \`function foo(){}\` or`)
+              console.warn(`          \`const foo = () => {}\` and not shadowed. Alternatively, call`)
+              console.warn(`          the callee via \`module.exports.foo(...)\` instead of the bare name.`)
+            }
           }
           continue
         }
+
+        // Issue #298: `uniqueCalls` holds every distinct (args, result)
+        // observation for this callee. The FIRST call is used as the
+        // backward-compatible `goldenCall` (driving the existing
+        // INPUT/OUTPUT/HASH lines). The full list is also serialized as a
+        // new `CALLS` line so validate.js can re-run each invocation
+        // independently and catch regressions that only affect args the
+        // callee sees on calls 2, 3, ... — which previously slipped
+        // through as false-negative PASSes.
+        const goldenCall = uniqueCalls[0]
 
         const calleeClusterId = `${id}.calls.${calleeName}`
         const calleeRegretPath = join(outDir, `${calleeClusterId}.regret`)
@@ -1743,11 +1863,42 @@ for (const cluster of clusters) {
         // Callee fingerprint: hash of (args, result) or (args, error).
         // We use the same fingerprint() function as the parent cluster so
         // hash semantics are consistent across parent and callee contracts.
+        // The `fingerprint:` line and `HASH` line use the FIRST call's hash
+        // for backward compatibility with tooling that reads the top-level
+        // fingerprint. The `CALLS` line below carries per-call hashes so
+        // validate.js can re-run each invocation.
         const calleeFpInput = goldenCall.args
         const calleeFpOutput = goldenCall.error != null
           ? { __error: goldenCall.error }
           : (goldenCall.result ?? null)
         const calleeFp = fingerprint(calleeFpInput, calleeFpOutput, fpConfig)
+
+        // Issue #298: build the per-call records for the CALLS line.
+        // Each entry includes: args, result OR error, threw flag, per-call
+        // hash, and construct flag (when true). The `hash` field lets
+        // validate.js compare each call independently without re-running
+        // fingerprint() — but validate.js SHOULD re-run fingerprint() on
+        // the live result anyway (the stored hash is just the golden to
+        // compare against).
+        const callsPayload = uniqueCalls.map(rec => {
+          const fpInput = rec.args
+          const fpOutput = rec.error != null
+            ? { __error: rec.error }
+            : (rec.result ?? null)
+          const hash = fingerprint(fpInput, fpOutput, fpConfig)
+          const entry = {
+            args: rec.args,
+            hash,
+            threw: rec.error != null,
+          }
+          if (rec.error != null) {
+            entry.error = rec.error
+          } else {
+            entry.result = rec.result
+          }
+          if (rec.construct) entry.construct = true
+          return entry
+        })
 
         const calleeContent = [
           `cluster: ${calleeClusterId}`,
@@ -1763,11 +1914,33 @@ for (const cluster of clusters) {
           goldenCall.error != null ? `threw: true` : null,
           `env: ${JSON.stringify(getEnvSnapshot())}`,
           `---`,
-          `INPUT  ${JSON.stringify(goldenCall.args ?? null)}`,
+          // Issue #300 (callee side): same undefined-vs-null fix as the
+          // parent .regret file. If `args` or `result` is `undefined`, write
+          // the literal string `undefined` so validate.js parses it back as
+          // `undefined` and the recomputed fingerprint matches the golden.
+          `INPUT  ${JSON.stringify(goldenCall.args)}`,
           goldenCall.error != null
             ? `ERROR_CONTRACT ${JSON.stringify({ type: 'Error', message: goldenCall.error })}`
-            : `OUTPUT ${JSON.stringify(goldenCall.result ?? null)}`,
+            : `OUTPUT ${JSON.stringify(goldenCall.result)}`,
           `HASH   ${calleeFp}`,
+          // Issue #298: CALLS line carries EVERY unique (args, result/error)
+          // observation for this callee, with per-call hashes. validate.js
+          // re-runs the callee with each saved args and FAILs if any call's
+          // live hash differs from its golden. The first entry's hash always
+          // equals `calleeFp` above (backward compat). When the callee was
+          // only called once (or only with one unique arg set), this array
+          // has length 1 and validate.js behaves identically to the old
+          // single-call contract.
+          //
+          // The CALLS line is omitted (null) only when callsPayload is empty,
+          // which can't happen here because we already `continue`d above for
+          // callees with no recorded calls. The `uniqueCalls.length > 1`
+          // guard avoids writing a redundant CALLS line for the common
+          // single-call case (keeping the .regret file format minimal for
+          // the 99% case where this issue doesn't apply).
+          callsPayload.length > 1
+            ? `CALLS   ${JSON.stringify(callsPayload)}`
+            : null,
         ].filter(Boolean).join('\n')
 
         const _calleeLock = acquireLock(calleeRegretPath)
