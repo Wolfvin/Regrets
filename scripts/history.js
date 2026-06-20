@@ -27,12 +27,13 @@
 //     new: <hash>
 //     reason: <reason text>
 //     by: <author or "AI refactor session">
-//     gitSha: <git HEAD short SHA>            ← optional, added by #250
 //     gitAuthor: <git author name <email>>   ← optional, added by #250
+//     gitSha: <git HEAD short SHA>            ← optional, added by #250
+//     ciRunId: <GitHub run id or CI run id>  ← optional, added by #250
 //     chain: <chain hash>
 //
 // Blocks are separated by blank lines. Old entries (pre-#250) will not have
-// gitSha / gitAuthor fields — we just show what's there.
+// gitAuthor / gitSha / ciRunId fields — we just show what's there.
 
 import { readFileSync, existsSync } from 'fs'
 import { resolve, join } from 'path'
@@ -131,6 +132,7 @@ function parseAuditLog(logPath) {
       by: null,
       gitSha: null,
       gitAuthor: null,
+      ciRunId: null,
       chain: null,
       raw: block,
     }
@@ -148,6 +150,7 @@ function parseAuditLog(logPath) {
         case 'by': event.by = value; break
         case 'gitSha': event.gitSha = value; break
         case 'gitAuthor': event.gitAuthor = value; break
+        case 'ciRunId': event.ciRunId = value; break
         case 'chain': event.chain = value; break
       }
     }
@@ -205,6 +208,7 @@ if (jsonOutput) {
       reason: e.reason,
       author: e.gitAuthor ?? e.by,
       gitSha: e.gitSha,
+      ciRunId: e.ciRunId,
       chain: e.chain,
     })),
   }
@@ -235,6 +239,9 @@ if (jsonOutput) {
     }
     if (e.gitSha) {
       console.log(`    git sha:  ${e.gitSha}`)
+    }
+    if (e.ciRunId) {
+      console.log(`    ci run:   ${e.ciRunId}`)
     }
     if (e.chain) {
       console.log(`    chain:    ${e.chain}`)

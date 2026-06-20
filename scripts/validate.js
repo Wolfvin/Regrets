@@ -1342,7 +1342,42 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason, liveSideE
   }
 
   const clusterId = basename(regretPath, '.regret')
-  const newEntryContent = `${now}  UPDATE  ${clusterId}\n  old: ${oldHash}\n  new: ${newHash}\n  reason: ${safeReason}\n  by: AI refactor session`
+
+  // ─── Git / CI provenance metadata (#250) ──────────────────────────────────
+  // Capture author, git commit SHA, and CI run id at update time so the
+  // audit trail answers "who/what/when" — accessible via `regret history`.
+  // All lookups are best-effort: failures fall back to null and we still
+  // write the entry. The legacy `by: AI refactor session` line is kept for
+  // backward compatibility with older parsers; the richer `gitAuthor`,
+  // `gitSha`, and `ciRunId` fields are added alongside it.
+  let gitAuthor = null
+  let gitSha = null
+  const ciRunId = process.env.GITHUB_RUN_ID || process.env.CI_RUN_ID || null
+  try {
+    const gitName = _execSync('git config user.name', { stdio: ['ignore', 'pipe', 'ignore'], cwd: process.cwd() }).toString().trim()
+    const gitEmail = _execSync('git config user.email', { stdio: ['ignore', 'pipe', 'ignore'], cwd: process.cwd() }).toString().trim()
+    if (gitName) gitAuthor = gitEmail ? `${gitName} <${gitEmail}>` : gitName
+  } catch { /* not a git repo, or git missing — leave gitAuthor null */ }
+  try {
+    // Short SHA is enough for human-readable audit; full SHA is recoverable
+    // from the short form via `git rev-parse <short>`.
+    gitSha = _execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'], cwd: process.cwd() }).toString().trim()
+  } catch { /* no commits yet, or not a git repo — leave gitSha null */ }
+
+  // Build the entry content. New fields (gitAuthor, gitSha, ciRunId) are
+  // added BEFORE the chain hash is computed so the chain covers them too.
+  // Legacy `by:` line stays for backward compat with old parsers/tools.
+  const newEntryLines = [
+    `${now}  UPDATE  ${clusterId}`,
+    `  old: ${oldHash}`,
+    `  new: ${newHash}`,
+    `  reason: ${safeReason}`,
+    `  by: AI refactor session`,
+  ]
+  if (gitAuthor) newEntryLines.push(`  gitAuthor: ${gitAuthor}`)
+  if (gitSha)    newEntryLines.push(`  gitSha: ${gitSha}`)
+  if (ciRunId)   newEntryLines.push(`  ciRunId: ${ciRunId}`)
+  const newEntryContent = newEntryLines.join('\n')
   const chainHash = createHash('sha256').update(prevChain + newEntryContent).digest('hex').slice(0, 7)
 
   const entry = `\n${newEntryContent}\n  chain: ${chainHash}`

@@ -78,7 +78,7 @@ const MIXED_AUDIT_LOG = `
   chain: 9h0i1j2
 `
 
-// Audit log with #250-style enriched entries (gitSha, gitAuthor fields).
+// Audit log with #250-style enriched entries (gitSha, gitAuthor, ciRunId fields).
 const ENRICHED_AUDIT_LOG = `
 2026-06-21T14:00:00Z  UPDATE  enriched-cluster
   old: old1234
@@ -87,6 +87,7 @@ const ENRICHED_AUDIT_LOG = `
   by: AI refactor session
   gitSha: abc1234
   gitAuthor: Alice <alice@example.com>
+  ciRunId: 9876543210
   chain: enriched_chain_hash
 `
 
@@ -304,7 +305,7 @@ describe('regret history — legacy entries (pre-#250, no git fields)', () => {
   })
 })
 
-describe('regret history — enriched entries (#250 gitSha + gitAuthor)', () => {
+describe('regret history — enriched entries (#250 gitSha + gitAuthor + ciRunId)', () => {
   before(() => setupFixtures(ENRICHED_AUDIT_LOG))
   after(() => cleanupFixtures())
 
@@ -318,13 +319,19 @@ describe('regret history — enriched entries (#250 gitSha + gitAuthor)', () => 
     assert.ok(result.stdout.includes('git sha:  abc1234'), 'should render git sha line')
   })
 
-  it('JSON output includes the gitSha and gitAuthor fields', () => {
+  it('renders ci run line when ciRunId is present', () => {
+    const result = runHistory(['enriched-cluster'])
+    assert.ok(result.stdout.includes('ci run:   9876543210'), 'should render ci run line')
+  })
+
+  it('JSON output includes the gitSha, gitAuthor (as author), and ciRunId fields', () => {
     const result = runHistory(['enriched-cluster', '--json'])
     assert.equal(result.exitCode, 0)
     const parsed = JSON.parse(result.stdout)
     assert.equal(parsed.events.length, 1)
     assert.equal(parsed.events[0].gitSha, 'abc1234')
     assert.equal(parsed.events[0].author, 'Alice <alice@example.com>')
+    assert.equal(parsed.events[0].ciRunId, '9876543210')
   })
 })
 
