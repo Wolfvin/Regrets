@@ -1,0 +1,15 @@
+cluster: calc-fizzbuzz
+version: 1
+fingerprint: v43ye6z
+captured: 2026-06-20T18:01:58.675214+00:00
+watches: [FizzBuzz]
+entry: FizzBuzz
+stack: csharp
+fingerprintLevel: entry
+class: RegretDemo.Calculator
+env: {"runtime":"dotnet","version":"8.0.28"}
+---
+INPUT  5
+OUTPUT ["1","2","Fizz","4","Buzz"]
+HASH   v43ye6z
+INPUTS [{"input":15,"output":["1","2","Fizz","4","Buzz","Fizz","7","8","Fizz","Buzz","11","Fizz","13","14","FizzBuzz"],"hash":"3kx6k9m","threw":false}, {"input":1,"output":["1"],"hash":"3sp468n","threw":false}]
