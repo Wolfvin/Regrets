@@ -25,7 +25,7 @@ import { execFileSync } from 'child_process'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { dirname } from 'path'
 import { mergeCjsModule } from './cjs-merge.js'
-import { analyzeScope } from './analyzer.js'
+import { analyzeScope, detectLanguage } from './analyzer.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPTS_DIR = __dirname
@@ -305,33 +305,78 @@ function extractExportedFunctions(source, ext) {
     return fns
   }
 
+  // #286: Strip comment lines so regex patterns don't match inside comments.
+  // We remove // comments and /* ... */ block comments before applying
+  // the extraction regexes. This prevents false positives like:
+  //   // export function fakeFn()
+  //   /* export function alsoFake() */
+  const strippedSource = source
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+
   // JS/TS: exported functions
   // Named export: export function name() / export async function name()
-  const namedExportFn = source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
+  const namedExportFn = strippedSource.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
   for (const m of namedExportFn) fns.push(m[1])
 
   // Arrow function exports: export const name = () => {
-  const arrowExports = source.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
+  const arrowExports = strippedSource.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
   for (const m of arrowExports) fns.push(m[1])
 
   // Default export function
-  const defaultExportFn = source.matchAll(/export\s+default\s+function\s+(\w+)/g)
+  const defaultExportFn = strippedSource.matchAll(/export\s+default\s+function\s+(\w+)/g)
   for (const m of defaultExportFn) fns.push(m[1])
 
+  // #292: export class X and export default class X
+  // Class-only files should not report 0 functions — the class name
+  // is an exported symbol worth tracking.
+  const namedExportClass = strippedSource.matchAll(/export\s+class\s+(\w+)/g)
+  for (const m of namedExportClass) fns.push(m[1])
+
+  const defaultExportClass = strippedSource.matchAll(/export\s+default\s+class\s+(\w+)/g)
+  for (const m of defaultExportClass) fns.push(m[1])
+
+  // #271: Named export list: export { foo, bar }
+  // This pattern exports previously declared names. We extract each
+  // identifier from the brace-enclosed list.
+  const namedExportList = strippedSource.matchAll(/export\s*\{([^}]*)\}/g)
+  for (const m of namedExportList) {
+    const body = m[1]
+    // Split by comma, extract identifiers
+    const items = body.split(',')
+    for (const item of items) {
+      const trimmed = item.trim()
+      if (!trimmed) continue
+      // Handle "foo as bar" — export name is "bar"
+      // Handle "foo" — export name is "foo"
+      const asMatch = trimmed.match(/\bas\s+(\w+)$/)
+      if (asMatch) {
+        fns.push(asMatch[1])
+      } else {
+        const identMatch = trimmed.match(/^(\w+)$/)
+        if (identMatch) {
+          fns.push(identMatch[1])
+        }
+      }
+    }
+  }
+
   // CJS: module.exports.Name = ...
-  const moduleExports = source.matchAll(/module\.exports\.(\w+)\s*=/g)
+  const moduleExports = strippedSource.matchAll(/module\.exports\.(\w+)\s*=/g)
   for (const m of moduleExports) fns.push(m[1])
 
   // CJS: exports.Name = ...
-  const exportsAssign = source.matchAll(/^exports\.(\w+)\s*=/gm)
+  const exportsAssign = strippedSource.matchAll(/^exports\.(\w+)\s*=/gm)
   for (const m of exportsAssign) fns.push(m[1])
 
   // CJS: module.exports = function Name(...)
-  const cjsNamedFn = source.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
+  const cjsNamedFn = strippedSource.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
   for (const m of cjsNamedFn) fns.push(m[1])
 
   // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
-  const cjsObjExports = extractCjsObjectExports(source)
+  // Note: extractCjsObjectExports has its own comment-stripping logic,
+  // but passing the already-stripped source is harmless.
+  const cjsObjExports = extractCjsObjectExports(strippedSource)
   for (const name of cjsObjExports) fns.push(name)
 
   return [...new Set(fns)]
@@ -653,7 +698,22 @@ async function installForScope({
 
     const ext = extname(filePath)
     const relPath = relative(scopeRoot, filePath)
-    const fns = extractExportedFunctions(source, ext)
+
+    // #280: Prefer tree-sitter (analyzeScope) as the source of truth for
+    // function names when the language is supported. The regex-based
+    // extractExportedFunctions is used only as a fallback for unsupported
+    // languages or when tree-sitter returns no results (e.g. parse errors).
+    // This prevents false positives like unclosed strings being interpreted
+    // as function declarations by the regex extractor.
+    const lang = await detectLanguage(filePath)
+    let fns
+    if (lang !== 'unknown') {
+      const scope = await analyzeScope(filePath)
+      const scopeFns = scope.functions.map(f => f.name)
+      fns = scopeFns.length > 0 ? scopeFns : extractExportedFunctions(source, ext)
+    } else {
+      fns = extractExportedFunctions(source, ext)
+    }
 
     // Filter: skip functions starting with _
     const publicFns = fns.filter(fn => !fn.startsWith('_'))
@@ -688,6 +748,17 @@ async function installForScope({
         for (const fnName of publicFns) {
           const callees = edges
             .filter(e => e.from === fnName)
+            // #287: When an edge is a method call (isMethod: true) on an
+            // object that is NOT `this` or `super`, it should NOT be matched
+            // to a bare function with the same name. For example,
+            // `obj.process()` should not resolve to the standalone `process`
+            // function. Method calls on `this`/`super` ARE included because
+            // they likely refer to class methods defined in the same file.
+            .filter(e => {
+              if (!e.isMethod) return true // bare call — always include
+              // Method call: only include if receiver is `this` or `super`
+              return e.methodReceiver === 'this' || e.methodReceiver === 'super'
+            })
             .map(e => e.to)
             .filter(name => definedNames.has(name))
           // Dedupe while preserving first-appearance order. Multiple call

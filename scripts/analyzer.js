@@ -263,6 +263,18 @@ export async function analyzeScope(scopePath) {
     const functions = []
     const edges = []
 
+    // #267: Check for parse errors in the tree. If the root has errors,
+    // emit a warning so the user knows the analysis may be incomplete.
+    // Individual function nodes are checked separately — their own
+    // hasError flag indicates whether that specific function's subtree
+    // contains errors (e.g. a malformed function body).
+    if (root.hasError) {
+      console.warn(
+        `[analyzer] Parse errors detected in ${scopePath}. ` +
+        `Functions with errors in their subtree will be excluded.`
+      )
+    }
+
     // Collect function-like nodes with their byte ranges so we can resolve
     // enclosing functions for call sites via ancestor walk.
     const funcRanges = []
@@ -273,6 +285,16 @@ export async function analyzeScope(scopePath) {
       if (config.functionKinds.includes(node.type)) {
         const name = readNameField(node)
         if (name) {
+          // #267: Skip functions whose subtree contains parse errors.
+          // node.hasError is true when the function's own AST subtree
+          // has ERROR nodes (e.g. malformed body), but false for
+          // correctly-parsed functions that are merely siblings of errors.
+          if (node.hasError) {
+            console.warn(
+              `[analyzer] Excluding function "${name}" at line ${node.startPosition.row + 1} — parse error in function subtree`
+            )
+            return
+          }
           functions.push({ name, file: scopePath, line: node.startPosition.row + 1 })
           funcRanges.push({
             name,
@@ -302,6 +324,13 @@ export async function analyzeScope(scopePath) {
           ) {
             const name = nameNode.text
             if (name) {
+              // #267: Skip declaration-based functions whose subtree has errors.
+              if (node.hasError) {
+                console.warn(
+                  `[analyzer] Excluding function "${name}" at line ${node.startPosition.row + 1} — parse error in function subtree`
+                )
+                continue
+              }
               functions.push({ name, file: scopePath, line: node.startPosition.row + 1 })
               funcRanges.push({
                 name,
@@ -328,12 +357,25 @@ export async function analyzeScope(scopePath) {
       // For method calls like `obj.method()` or `this.helper()`,
       // calleeNode is a member_expression (JS/TS) or attribute (Python).
       // We extract the property/attribute name as the callee.
+      //
+      // #287: Method calls are marked with isMethod: true so that downstream
+      // consumers (install.js) can distinguish them from bare calls. This
+      // prevents false-positive matching where obj.process() would collide
+      // with a standalone function named "process".
       let calleeName
+      let isMethodCall = false
+      let methodReceiver = null
       if (calleeNode.type === 'identifier') {
         calleeName = calleeNode.text
       } else if (config.methodCalleeInfo && calleeNode.type === config.methodCalleeInfo.nodeType) {
         const propNode = calleeNode.childForFieldName(config.methodCalleeInfo.propertyField)
         calleeName = propNode ? propNode.text : null
+        isMethodCall = true
+        // Extract the receiver object name for context (e.g. "obj", "this", "super")
+        const objectNode = calleeNode.childForFieldName('object')
+        if (objectNode) {
+          methodReceiver = objectNode.text
+        }
       } else {
         return
       }
@@ -362,7 +404,14 @@ export async function analyzeScope(scopePath) {
         parent = parent.parent
       }
 
-      edges.push({ from: fromName, to: calleeName })
+      const edge = { from: fromName, to: calleeName }
+      // #287: Tag method calls so install.js can avoid false-positive
+      // matching against bare functions with the same name.
+      if (isMethodCall) {
+        edge.isMethod = true
+        edge.methodReceiver = methodReceiver
+      }
+      edges.push(edge)
     })
 
     return { functions, edges }

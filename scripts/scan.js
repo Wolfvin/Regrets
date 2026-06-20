@@ -317,18 +317,50 @@ function extractExportedFunctions(source, ext) {
     return fns
   }
 
+  // #286: Strip comment lines so regex patterns don't match inside comments.
+  const strippedSource = source
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+
   // JS/TS: exported functions
   // Named export: export function name() / export const name = () => / export async function name()
-  const namedExportFn = source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
+  const namedExportFn = strippedSource.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
   for (const m of namedExportFn) fns.push(m[1])
 
   // Arrow function exports: export const name = () => { / export const name = (args) => {
-  const arrowExports = source.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
+  const arrowExports = strippedSource.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
   for (const m of arrowExports) fns.push(m[1])
 
   // Default export function
-  const defaultExportFn = source.matchAll(/export\s+default\s+function\s+(\w+)/g)
+  const defaultExportFn = strippedSource.matchAll(/export\s+default\s+function\s+(\w+)/g)
   for (const m of defaultExportFn) fns.push(m[1])
+
+  // #292: export class X and export default class X
+  const namedExportClass = strippedSource.matchAll(/export\s+class\s+(\w+)/g)
+  for (const m of namedExportClass) fns.push(m[1])
+
+  const defaultExportClass = strippedSource.matchAll(/export\s+default\s+class\s+(\w+)/g)
+  for (const m of defaultExportClass) fns.push(m[1])
+
+  // #271: Named export list: export { foo, bar }
+  const namedExportList = strippedSource.matchAll(/export\s*\{([^}]*)\}/g)
+  for (const m of namedExportList) {
+    const body = m[1]
+    const items = body.split(',')
+    for (const item of items) {
+      const trimmed = item.trim()
+      if (!trimmed) continue
+      const asMatch = trimmed.match(/\bas\s+(\w+)$/)
+      if (asMatch) {
+        fns.push(asMatch[1])
+      } else {
+        const identMatch = trimmed.match(/^(\w+)$/)
+        if (identMatch) {
+          fns.push(identMatch[1])
+        }
+      }
+    }
+  }
 
   // ── CJS (CommonJS) patterns ──────────────────────────────────────────────
   // These are critical for older Node.js projects like natural, underscore, etc.
@@ -336,19 +368,19 @@ function extractExportedFunctions(source, ext) {
   // module.exports.Name = require(...)
   // module.exports.Name = ClassName
   // module.exports.Name = function() {...}
-  const moduleExports = source.matchAll(/module\.exports\.(\w+)\s*=/g)
+  const moduleExports = strippedSource.matchAll(/module\.exports\.(\w+)\s*=/g)
   for (const m of moduleExports) fns.push(m[1])
 
   // exports.Name = require(...)
-  const exportsAssign = source.matchAll(/^exports\.(\w+)\s*=/gm)
+  const exportsAssign = strippedSource.matchAll(/^exports\.(\w+)\s*=/gm)
   for (const m of exportsAssign) fns.push(m[1])
 
   // module.exports = function Name(...) — single function export with a name
-  const cjsNamedFn = source.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
+  const cjsNamedFn = strippedSource.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
   for (const m of cjsNamedFn) fns.push(m[1])
 
   // module.exports = ClassName — single class export
-  const cjsClassExport = source.matchAll(/module\.exports\s*=\s*(\w+)/g)
+  const cjsClassExport = strippedSource.matchAll(/module\.exports\s*=\s*(\w+)/g)
   for (const m of cjsClassExport) {
     // Skip if it's 'require' or common keywords
     if (!['require', 'undefined', 'null', 'true', 'false'].includes(m[1])) {
@@ -363,17 +395,17 @@ function extractExportedFunctions(source, ext) {
   // and flag it as a singletonMethod candidate.
 
   // Prototype method definitions: Name.prototype.method = function()
-  const protoMethods = source.matchAll(/(\w+)\.prototype\.(\w+)\s*=\s*function/g)
+  const protoMethods = strippedSource.matchAll(/(\w+)\.prototype\.(\w+)\s*=\s*function/g)
   for (const m of protoMethods) {
     fns.push(`${m[1]}.prototype.${m[2]}`)
   }
 
   // this.method = function() — inside constructor/mixin functions
-  const thisMethods = source.matchAll(/this\.(\w+)\s*=\s*(?:function|async\s+function)/g)
+  const thisMethods = strippedSource.matchAll(/this\.(\w+)\s*=\s*(?:function|async\s+function)/g)
   for (const m of thisMethods) fns.push(m[1])
 
   // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
-  const cjsObjExports = extractCjsObjectExports(source)
+  const cjsObjExports = extractCjsObjectExports(strippedSource)
   for (const name of cjsObjExports) fns.push(name)
 
   // Svelte component functions (from <script> blocks)
