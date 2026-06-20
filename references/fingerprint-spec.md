@@ -113,6 +113,23 @@ Example where this matters:
 
 **Relationship to `floatTolerance`:** Both normalization rules can coexist. `floatTolerance` handles floating-point representation differences (e.g., `123456.0` vs `123456.00000001`), while `floatPrecision` handles OCR string cases and integer-float type equivalence. When both are specified, `floatTolerance` is applied first, then `floatPrecision`.
 
+### Non-Finite Numbers: NaN, Infinity, -Infinity
+
+Problem: `JSON.stringify` serializes `NaN`, `Infinity`, and `-Infinity` all to `"null"`. Without special handling this causes two issues:
+
+1. **Misleading `.regret` files** — `OUTPUT null` is written when the function actually returned `NaN`, so a reader can't tell what the function really produced.
+2. **Hash collisions** — a refactor that changes `NaN` → `null` (or `Infinity` → `-Infinity`) is undetectable because both serialize to `"null"` and produce the same fingerprint.
+
+Solution: `stableStringify` short-circuits these three values **before** the `JSON.stringify` fallback, mapping them to distinct sentinel strings. This is applied recursively, so a `NaN` nested inside `{ a: NaN, b: [Infinity] }` is also handled.
+
+| Value         | Sentinel              |
+|---------------|-----------------------|
+| `NaN`         | `"__nan__"`           |
+| `Infinity`    | `"__infinity__"`      |
+| `-Infinity`   | `"__neg_infinity__"`  |
+
+No manifest-level opt-in is needed — the sentinels are always applied. This is a **breaking change** (issue #322): `.regret` files captured before the fix whose output contained one of these three values will produce a different fingerprint after the fix and must be re-captured.
+
 ### File System Paths
 
 Problem: `/home/user/project/...` vs `/home/ci/project/...`
