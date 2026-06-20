@@ -163,6 +163,7 @@ function run_cluster(array $clusterDef, array $regret, int $runs): array
     $hashes = [];
     $hashesPerInput = [];
     $lastOutput = null;
+    $firstOutput = null;  // output corresponding to $hashes[0] — used by --update
 
     // Determine which inputs to validate
     $allInputs = $clusterDef['inputs'] ?? [$regret['input']];
@@ -200,6 +201,9 @@ function run_cluster(array $clusterDef, array $regret, int $runs): array
             }
 
             $lastOutput = $output;
+            if ($firstOutput === null) {
+                $firstOutput = $output;  // captured on the very first iteration
+            }
             $fpInput = $multiArgs && is_array($inputForFp) ? $inputForFp : $inputForFp;
 
             // Determine fingerprint
@@ -238,7 +242,7 @@ function run_cluster(array $clusterDef, array $regret, int $runs): array
         }
     }
 
-    return ['hashes' => $hashes, 'hashesPerInput' => $hashesPerInput, 'lastOutput' => $lastOutput];
+    return ['hashes' => $hashes, 'hashesPerInput' => $hashesPerInput, 'lastOutput' => $lastOutput, 'firstOutput' => $firstOutput];
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -321,6 +325,7 @@ foreach ($regretFiles as $file) {
         $hashes = $runResult['hashes'];
         $hashesPerInput = $runResult['hashesPerInput'];
         $lastOutput = $runResult['lastOutput'];
+        $firstOutput = $runResult['firstOutput'];
 
         $liveHash = $hashes[0];
         $isMatch = $liveHash === $regret['goldenHash'];
@@ -343,7 +348,12 @@ foreach ($regretFiles as $file) {
                 echo "  ℹ️  {$idPadded} unchanged — no update needed\n";
                 $results[] = ['id' => $id, 'pass' => true];
             } else {
-                $updateResult = update_regret($regretPath, $regret, $liveHash, $lastOutput, $updateReason);
+                // BUGFIX: --update must write the FIRST input's output to the .regret file,
+                // not the last. The HASH field is computed from $hashes[0] (= first input),
+                // so the OUTPUT field must match that same input — otherwise the .regret
+                // file ends up with INPUT="first input" + OUTPUT="last input's output"
+                // + HASH="first input's hash", which is internally inconsistent.
+                $updateResult = update_regret($regretPath, $regret, $liveHash, $firstOutput, $updateReason);
                 echo "  ✅ {$idPadded} {$updateResult['oldHash']} → {$updateResult['newHash']}  UPDATED\n";
                 $results[] = ['id' => $id, 'pass' => true, 'updated' => true];
             }

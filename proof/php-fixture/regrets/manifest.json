@@ -1,0 +1,65 @@
+{
+  "projectName": "php-fixture",
+  "clusters": [
+    {
+      "id": "php-slugify",
+      "entry": "slugify",
+      "watches": ["slugify"],
+      "file": "src/TextUtils.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "Slugify a string — lowercase + dash separator (standalone function pattern)",
+      "inputs": [
+        "Hello World!",
+        "PHP is GREAT!!!",
+        "  multiple   spaces  ",
+        ""
+      ]
+    },
+    {
+      "id": "php-count-words",
+      "entry": "count_words",
+      "watches": ["count_words"],
+      "file": "src/TextUtils.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "Count words by whitespace split (standalone function pattern)",
+      "inputs": [
+        "hello world",
+        "one",
+        "",
+        "  "
+      ]
+    },
+    {
+      "id": "php-invoice-calculate",
+      "entry": "Invoice::calculate",
+      "watches": ["calculate"],
+      "file": "src/Invoice.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "constructorArgs": [0.11],
+      "multiArgs": true,
+      "description": "Invoice total with tax + discount (class instance method, multiArgs, constructorArgs)",
+      "inputs": [
+        [[{"price": 10.0, "qty": 2}, {"price": 5.5, "qty": 3}], 0.0],
+        [[{"price": 100.0, "qty": 1}], 0.10],
+        [[{"price": 7.25, "qty": 4}, {"price": 3.0, "qty": 12}], 0.05]
+      ]
+    },
+    {
+      "id": "php-format-post",
+      "entry": "format_post",
+      "watches": ["format_post"],
+      "file": "src/PostFormatter.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "normalize": ["timestamps"],
+      "description": "Format blog post with non-deterministic timestamp (uses normalize rule)",
+      "inputs": [
+        {"title": "Hello World", "body": "This is a long body that needs to be truncated to one hundred characters. Lorem ipsum dolor sit amet, consectetur adipiscing elit."},
+        {"title": "Short Title", "body": "tiny body"}
+      ]
+    }
+  ]
+}
