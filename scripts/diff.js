@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, fingerprintSequence, extractSchema } from './fingerprint.js'
 import { createGhost, deepClone } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
-import { deepDiff, formatDiffs } from './diff-utils.js'
+import { deepDiff, formatDiffs, formatValue } from './diff-utils.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -75,7 +75,17 @@ let regretFiles
 try {
   regretFiles = readdirSync(regretDir)
     .filter(f => f.endsWith('.regret'))
-    .filter(f => !clusterFilter || f === `${clusterFilter}.regret`)
+    .filter(f => {
+      if (!clusterFilter) return true
+      // Exact match: filterId === "main" → main.regret
+      if (f === `${clusterFilter}.regret`) return true
+      // When filterId is a parent cluster, also include its callee contracts
+      // (main.calls.add.regret, main.calls.mul.regret, etc.) so that
+      // `regret diff --cluster main` diffs callee regressions too.
+      // Only apply when filterId itself is NOT a callee (.calls.).
+      if (clusterFilter.includes('.calls.')) return false
+      return f.startsWith(`${clusterFilter}.calls.`) && f.endsWith('.regret')
+    })
 } catch { console.error(`❌ regrets/ not found.`); process.exit(1) }
 
 if (!regretFiles.length) {
@@ -91,8 +101,36 @@ for (const file of regretFiles) {
   const id = file.replace('.regret', '')
   const regretPath = join(regretDir, file)
   const regret = parseRegret(readFileSync(regretPath, 'utf8'))
-  const def = manifest.clusters.find(c => c.id === id)
-  if (!def) { console.warn(`  ⚠️  ${id}: not in manifest — skipping`); continue }
+  let def = manifest.clusters.find(c => c.id === id)
+
+  // ── Callee contract handling ──────────────────────────────────────────────
+  // Callee contracts (<parent>.calls.<callee>) are intentionally not declared
+  // in the manifest — they are derived from their parent cluster by capture.js.
+  // When we encounter a callee .regret file, look up the parent cluster's
+  // definition to find the module file and stack info, then diff the callee
+  // function directly.
+  const isCallee = id.includes('.calls.')
+  let calleeName = null
+  let parentDef = null
+
+  if (!def && isCallee) {
+    const parentId = id.split('.calls.')[0]
+    parentDef = manifest.clusters.find(c => c.id === parentId)
+    calleeName = id.split('.calls.').slice(1).join('.calls.')
+
+    if (!parentDef) {
+      // Parent not in manifest either — this is truly orphaned
+      console.warn(`  ⚠️  ${id}: parent "${parentId}" not in manifest — skipping`)
+      continue
+    }
+
+    // Use parent's definition for module resolution and stack info
+    def = parentDef
+  } else if (!def) {
+    // Not a callee and not in manifest — truly orphaned
+    console.warn(`  ⚠️  ${id}: not in manifest — skipping`)
+    continue
+  }
 
   const { entry, file: moduleFile, normalize = [], ignoreFields = [],
           fingerprintLevel = 'entry', fingerprintMode = 'value', valuePaths = [],
@@ -113,14 +151,21 @@ for (const file of regretFiles) {
     // Handle CJS modules — merge default exports for consistent access
     mod = mergeCjsModule(mod)
 
+    // For callee contracts, use the callee name as the entry point
+    const effectiveEntry = isCallee ? (calleeName ?? regret.entry ?? entry) : entry
+
     const recorder = []
     const ghostModule = createGhost(mod, regret.watches ?? def.watches, recorder)
-    const entryFn = ghostModule[entry] ?? mod[entry] ?? mod.default?.[entry]
-    if (typeof entryFn !== 'function') throw new Error(`Entry "${entry}" not found`)
+    const entryFn = ghostModule[effectiveEntry] ?? mod[effectiveEntry] ?? mod.default?.[effectiveEntry]
+    if (typeof entryFn !== 'function') throw new Error(`Entry "${effectiveEntry}" not found`)
 
     const goldenInput = regret.input
     const inputForArgs = deepClone(goldenInput)
-    const args_ = multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs]
+    // Callee contracts store inputs as arrays (the arguments list), so always
+    // spread for callees. For parent clusters, respect the multiArgs flag.
+    const args_ = isCallee
+      ? (Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs])
+      : (multiArgs && Array.isArray(inputForArgs) ? [...inputForArgs] : [inputForArgs])
     const rawOutput = await entryFn(...args_)
     const liveOutput = deepClone(rawOutput)
 
@@ -130,8 +175,9 @@ for (const file of regretFiles) {
 
     const isMatch = liveFp === goldenFp
     const icon = isMatch ? '✅' : '❌'
+    const calleeTag = isCallee ? ' [callee]' : ''
 
-    console.log(`${icon} ${id.padEnd(40)} ${goldenFp} → ${liveFp}`)
+    console.log(`${icon} ${id.padEnd(40)} ${goldenFp} → ${liveFp}${calleeTag}`)
 
     if (!isMatch) {
       anyDiff = true

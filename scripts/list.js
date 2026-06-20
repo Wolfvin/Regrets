@@ -79,6 +79,12 @@ function confidenceForCluster(clusterId, meta) {
 // ─── Render ────────────────────────────────────────────────────────────────────
 
 if (jsonOutput) {
+  // Separate callee contracts from truly orphaned files
+  const manifestIds = new Set(manifest.clusters.map(c => c.id))
+  const nonManifestIds = Object.keys(regretMetas).filter(id => !manifestIds.has(id))
+  const calleeContractIds = nonManifestIds.filter(id => id.includes('.calls.'))
+  const orphanedIds = nonManifestIds.filter(id => !id.includes('.calls.'))
+
   const jsonResult = {
     clusters: manifest.clusters.map(cluster => {
       const meta = regretMetas[cluster.id] || {}
@@ -94,6 +100,20 @@ if (jsonOutput) {
         confidenceScore: confidence.score,
       }
     }),
+    calleeContracts: calleeContractIds.map(id => {
+      const meta = regretMetas[id] || {}
+      const parentId = id.split('.calls.')[0]
+      const parentCluster = manifest.clusters.find(c => c.id === parentId)
+      return {
+        id,
+        parent: parentId,
+        calleeName: id.split('.calls.').slice(1).join('.calls.'),
+        fingerprint: meta.fingerprint || null,
+        status: meta.fingerprint ? 'captured' : 'pending',
+        parentInManifest: !!parentCluster,
+      }
+    }),
+    orphaned: orphanedIds,
     totalClusters: manifest.clusters.length,
     captured: Object.keys(regretMetas).length,
     chains: chainCount,
@@ -149,9 +169,31 @@ if (jsonOutput) {
     }
   }
 
-  // Show orphaned .regret files (not in manifest)
+  // Separate callee contracts (.calls.* pattern) from truly orphaned files
+  // Callee contracts (<parent>.calls.<callee>) are intentionally not in the
+  // manifest — they are derived from their parent cluster by capture.js.
+  // Only files that are NEITHER in the manifest NOR a callee pattern are orphaned.
   const manifestIds = new Set(manifest.clusters.map(c => c.id))
-  const orphaned = Object.keys(regretMetas).filter(id => !manifestIds.has(id))
+  const nonManifestIds = Object.keys(regretMetas).filter(id => !manifestIds.has(id))
+  const calleeContracts = nonManifestIds.filter(id => id.includes('.calls.'))
+  const orphaned = nonManifestIds.filter(id => !id.includes('.calls.'))
+
+  // Show callee contracts in their own category
+  if (calleeContracts.length > 0) {
+    console.log(`\n📞 Callee contracts (${calleeContracts.length}):`)
+    for (const id of calleeContracts) {
+      const meta = regretMetas[id] || {}
+      const fp = meta.fingerprint || '(not captured)'
+      const parentId = id.split('.calls.')[0]
+      const calleeName = id.split('.calls.').slice(1).join('.calls.')
+      const parentCluster = manifest.clusters.find(c => c.id === parentId)
+      const parentExists = !!parentCluster
+      const parentNote = parentExists ? `parent: ${parentId}` : `parent: ${parentId} (not in manifest)`
+      console.log(`  • ${id}.regret  ${fp}  (${parentNote})`)
+    }
+  }
+
+  // Show truly orphaned .regret files (not in manifest AND not callee pattern)
   if (orphaned.length > 0) {
     console.log(`\n⚠️  Orphaned .regret files (not in manifest):`)
     for (const id of orphaned) {
