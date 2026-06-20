@@ -1,0 +1,29 @@
+{
+  "clusters": [
+    {
+      "id": "csharp-add",
+      "entry": "Add",
+      "file": "ExampleLib.dll",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "inputs": [[3, 4], [10, 20], [-5, 5]],
+      "multiArgs": true
+    },
+    {
+      "id": "csharp-reverse",
+      "entry": "ReverseString",
+      "file": "ExampleLib.dll",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello", "regrets", "KAW81"]
+    },
+    {
+      "id": "csharp-fizzbuzz",
+      "entry": "FizzBuzz",
+      "file": "ExampleLib.dll",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "inputs": [5, 15, 30]
+    }
+  ]
+}
