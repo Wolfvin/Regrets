@@ -1,0 +1,21 @@
+{
+  "project": "csharp-example",
+  "clusters": [
+    {
+      "id": "morse-encode",
+      "entry": "Encode",
+      "watches": ["Encode"],
+      "stack": "csharp",
+      "assembly": "bin/Debug/net8.0/RegretExample.dll",
+      "class": "RegretExample.MorseCode",
+      "fingerprintLevel": "entry",
+      "description": "Encode text to International Morse Code (pure function)",
+      "inputs": [
+        "SOS",
+        "HELLO WORLD",
+        "test 123",
+        ""
+      ]
+    }
+  ]
+}

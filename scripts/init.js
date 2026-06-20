@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css']
+const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'csharp']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -147,6 +147,25 @@ const templates = {
         ]
       }
     ]
+  },
+  csharp: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'MyFunction',
+        watches: ['MyFunction'],
+        stack: 'csharp',
+        assembly: 'bin/Debug/net8.0/MyLib.dll',
+        class: 'MyNamespace.MyClass',
+        fingerprintLevel: 'entry',
+        description: 'Example C# cluster — replace with your actual cluster definitions. Requires .NET 8+ SDK and a compiled .dll.',
+        inputs: [
+          'sample_input_1',
+          'hello',
+          ''
+        ]
+      }
+    ]
   }
 }
 
@@ -221,6 +240,13 @@ if (stack === 'css') {
   console.log(`📦 Note for CSS stack: CSS uses the JS runner (capture.js / validate.js).`)
   console.log(`   Your module should export a function that takes CSS input and returns the transformed output.`)
   console.log(`   See references/css-stack-guide.md for PostCSS, Sass, and CSS-in-JS examples.`)
+}
+if (stack === 'csharp') {
+  console.log()
+  console.log(`📦 Note for C# stack: requires .NET 8+ SDK (\`dotnet\` on PATH).`)
+  console.log(`   Build your project first:  dotnet build`)
+  console.log(`   The \`assembly\` field in the manifest points to your compiled .dll.`)
+  console.log(`   See proof/csharp-example/ for a working end-to-end example.`)
 }
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)

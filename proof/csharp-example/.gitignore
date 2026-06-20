@@ -1,0 +1,6 @@
+# C# build output (excluded from git — built fresh on each test)
+bin/
+obj/
+
+# Audit log (regenerated on each capture/update)
+regrets/audit.log

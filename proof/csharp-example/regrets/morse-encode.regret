@@ -1,0 +1,13 @@
+cluster: morse-encode
+version: 1
+fingerprint: 1nm9yky
+captured: 2026-06-20T18:13:15.1518068+00:00
+entry: Encode
+stack: csharp
+class: RegretExample.MorseCode
+assembly: bin/Debug/net8.0/RegretExample.dll
+fingerprintLevel: entry
+---
+INPUT  "SOS"
+OUTPUT "... --- ..."
+HASH   1nm9yky

@@ -56,3 +56,11 @@ Desktop.ini
 .vscode/
 .idea/
 *.sublime-*
+
+# ===== .NET / C# =====
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
