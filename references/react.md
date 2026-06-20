@@ -7,7 +7,7 @@ Regression fingerprinting for React components — capture what a component *ren
 1. Add `"stack": "react"` clusters to `regrets/manifest.json`
 2. Create `regrets/` folder in your React project root
 3. Run `node ../../skills/regresion-testing/scripts/capture_react.mjs` to capture rendered fingerprints
-4. Run `node ../../skills/regresion-testing/scripts/validate.js` to validate (same validator works for all stacks)
+4. Run `node ../../skills/regresion-testing/scripts/validate_react.mjs` to validate
 5. All `.regret` files use identical format to JS stack
 
 ---
@@ -374,21 +374,47 @@ if (failed > 0) {
 
 ## Validation for React Clusters
 
-The standard `validate.js` works for React clusters because `.regret` files use the same format. However, the re-execution needs to render the component again:
+`scripts/validate_react.mjs` is the React-aware validator. It mirrors
+`capture_react.mjs`'s rendering pipeline (same module resolution, same
+`renderToStaticMarkup` call, same `normalizeHtml` rules) so a `.regret`
+captured by `capture_react.mjs` is guaranteed to be re-renderable by
+`validate_react.mjs`.
 
 ```js
-// In validate.js, add stack detection:
-if (clusterDef.stack === 'react') {
-  // Re-render component and compare
-  const Component = mod[regret.entry]
-  const element = React.createElement(Component, regret.input)
-  const liveHtml = renderToStaticMarkup(element)
-  const normalizedHtml = normalizeHtml(liveHtml, clusterDef.stripAttrs)
-  // Compare normalizedHtml fingerprint with golden hash
-}
+// validate_react.mjs — core re-render path (simplified)
+const Component = (await import(moduleUrl))[regret.entry]
+const element = React.createElement(Component, regret.input)
+const liveHtml = renderToStaticMarkup(element)
+const normalizedHtml = normalizeHtml(liveHtml, stripAttrs)
+const liveHash = fingerprint(regret.input, normalizedHtml, clusterConfig)
+const isMatch = liveHash === regret.goldenHash  // PASS / FAIL
 ```
 
-This is a planned enhancement — currently React clusters use the same validator with manual re-rendering.
+The CLI dispatcher in `scripts/regret.js` routes `stack: "react"` clusters
+to `validate_react.mjs` for `regret validate`, `regret update`, and
+`regret drift` — never to `validate.js`, which cannot render React
+components and would silently produce wrong fingerprints.
+
+### CLI flags
+
+```
+node scripts/validate_react.mjs                              # validate all React clusters
+node scripts/validate_react.mjs --cluster invoice-card-paid  # one cluster
+node scripts/validate_react.mjs --manifest ./regrets/manifest.json
+node scripts/validate_react.mjs --fail-fast                  # stop on first FAIL
+node scripts/validate_react.mjs --runs 5                     # drift detection
+node scripts/validate_react.mjs --update invoice-card-paid --reason "..."
+node scripts/validate_react.mjs --quiet                      # summary line only
+node scripts/validate_react.mjs --verbose                    # per-cluster detail
+node scripts/validate_react.mjs --json                       # machine-readable output
+```
+
+### End-to-end demo
+
+A complete working example lives at `proof/react_demo/` — two clusters
+captured from a real (small) React component, with a script that walks
+through PASS / valid-refactor-PASS / breaking-refactor-FAIL / update-with-audit
+/ PASS-again. See `proof/react_demo/README.md` and `proof/react_demo/demo.sh`.
 
 ---
 

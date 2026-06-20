@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 import { fingerprint, normalize, stableStringify, extractSchema } from './fingerprint.js'
 import { deepClone, normalizeHtml } from './ghost.js'
 import React from 'react'
-import { renderToStaticMarkup } from 'react-dom/server.js'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 

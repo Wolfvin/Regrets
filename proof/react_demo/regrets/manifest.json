@@ -1,0 +1,47 @@
+{
+  "clusters": [
+    {
+      "id": "invoice-card-paid",
+      "entry": "InvoiceCard",
+      "file": "src/InvoiceCard.js",
+      "stack": "react",
+      "renderMode": "static",
+      "fingerprintLevel": "entry",
+      "description": "Renders an InvoiceCard for a paid invoice — captures the full HTML structure with status badge, formatted amount, due date, and locale.",
+      "inputs": [
+        {
+          "invoice": {
+            "id": "INV-2026-0042",
+            "amount": 1250000,
+            "currency": "IDR",
+            "status": "paid",
+            "dueDate": "2026-06-30"
+          },
+          "locale": "id-ID"
+        }
+      ]
+    },
+    {
+      "id": "invoice-card-overdue",
+      "entry": "InvoiceCard",
+      "file": "src/InvoiceCard.js",
+      "stack": "react",
+      "renderMode": "static",
+      "fingerprintLevel": "entry",
+      "stripAttrs": ["data-invoice-id"],
+      "description": "Renders an InvoiceCard for an overdue invoice. Strips data-invoice-id so the fingerprint is stable across invoices with different IDs (we want to validate the rendering logic, not the ID).",
+      "inputs": [
+        {
+          "invoice": {
+            "id": "INV-2026-0099",
+            "amount": 75000.5,
+            "currency": "USD",
+            "status": "overdue",
+            "dueDate": "2026-05-15"
+          },
+          "locale": "en-US"
+        }
+      ]
+    }
+  ]
+}
