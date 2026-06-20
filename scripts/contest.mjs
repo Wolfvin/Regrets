@@ -447,10 +447,43 @@ class ContestRunner {
         if (!c.pass && !c.skipped) calleeFailures.push({ step: r.cluster, ...c })
       }
     }
-    return { id: chainId, steps: stepResults, chainHash: this.computeChainHash(stepResults), calleeFailures }
+    return { id: chainId, steps: stepResults, chainHash: this.computeChainHash(stepResults, chain.steps), calleeFailures }
   }
 
-  computeChainHash(stepResults) {
+  computeChainHash(stepResults, expectedSteps = null) {
+    // #254 — Determinism guarantee: stepResults MUST be in the same order as
+    // the `steps` array in chains.json. The chain hash is computed by
+    // joining `${cluster}:${fingerprint}` for each step IN THAT ORDER. If
+    // stepResults ever arrives here in a different order (e.g. because a
+    // future refactor parallelizes step execution with Promise.all), the
+    // hash becomes nondeterministic — same code + same inputs would
+    // produce different .chain files, causing false REDs in CI.
+    //
+    // This assertion is the runtime enforcement of the sort-key spec
+    // documented in references/contest.md. It catches parallelization
+    // refactors that forget to re-sort stepResults back into steps-array
+    // order before hashing.
+    if (!Array.isArray(stepResults)) {
+      throw new Error(`computeChainHash: expected array, got ${typeof stepResults}`)
+    }
+    if (expectedSteps && Array.isArray(expectedSteps)) {
+      if (stepResults.length !== expectedSteps.length) {
+        throw new Error(
+          `computeChainHash: stepResults length (${stepResults.length}) does not match ` +
+          `expected steps length (${expectedSteps.length}) — order may have been corrupted ` +
+          `by a parallelization refactor. See references/contest.md (#254).`
+        )
+      }
+      for (let i = 0; i < stepResults.length; i++) {
+        if (stepResults[i].cluster !== expectedSteps[i].cluster) {
+          throw new Error(
+            `computeChainHash: stepResults[${i}].cluster="${stepResults[i].cluster}" does not ` +
+            `match expectedSteps[${i}].cluster="${expectedSteps[i].cluster}". Step order must ` +
+            `match the steps array in chains.json — see references/contest.md (#254).`
+          )
+        }
+      }
+    }
     const combined = stepResults.map(r => `${r.cluster}:${r.fingerprint}`).join('|')
     return BigInt('0x' + createHash('sha256').update(combined, 'utf8').digest('hex')).toString(36).slice(0, 7)
   }

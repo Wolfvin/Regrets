@@ -218,10 +218,40 @@ class ContestRunner:
         return {
             'id': chain_id,
             'steps': step_results,
-            'chain_hash': self.compute_chain_hash(step_results)
+            'chain_hash': self.compute_chain_hash(step_results, steps)
         }
 
-    def compute_chain_hash(self, step_results):
+    def compute_chain_hash(self, step_results, expected_steps=None):
+        # #254 — Determinism guarantee: step_results MUST be in the same order
+        # as the `steps` array in chains.json. The chain hash is computed by
+        # joining `${cluster}:${fingerprint}` for each step IN THAT ORDER. If
+        # step_results ever arrives here in a different order (e.g. because a
+        # future refactor parallelizes step execution), the hash becomes
+        # nondeterministic — same code + same inputs would produce different
+        # .chain files, causing false REDs in CI.
+        #
+        # This assertion is the runtime enforcement of the sort-key spec
+        # documented in references/contest.md.
+        if not isinstance(step_results, list):
+            raise TypeError(
+                f'compute_chain_hash: expected list, got {type(step_results).__name__}'
+            )
+        if expected_steps is not None and isinstance(expected_steps, list):
+            if len(step_results) != len(expected_steps):
+                raise ValueError(
+                    f'compute_chain_hash: step_results length ({len(step_results)}) does not '
+                    f'match expected steps length ({len(expected_steps)}) — order may have '
+                    f'been corrupted by a parallelization refactor. See '
+                    f'references/contest.md (#254).'
+                )
+            for i, (got, expected) in enumerate(zip(step_results, expected_steps)):
+                if got['cluster'] != expected['cluster']:
+                    raise ValueError(
+                        f'compute_chain_hash: step_results[{i}].cluster="{got["cluster"]}" '
+                        f'does not match expected_steps[{i}].cluster="{expected["cluster"]}". '
+                        f'Step order must match the steps array in chains.json — see '
+                        f'references/contest.md (#254).'
+                    )
         combined = '|'.join(f'{r["cluster"]}:{r["fingerprint"]}' for r in step_results)
         hash_hex = hashlib.sha256(combined.encode('utf-8')).hexdigest()
         return to_base36(int(hash_hex, 16))[:7]
