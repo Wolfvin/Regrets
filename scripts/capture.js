@@ -456,6 +456,18 @@ for (const cluster of clusters) {
   // Populated inside the Phase 2 callee-writing block. Used by --json mode
   // to surface callee outcomes to MCP regrets_capture (issue #266).
   const calleesWritten = []
+  // Issue #326: Set<string> of callee names that were SUCCESSFULLY wrapped
+  // by wrapCallees (proxy installed on at least one holder). Used in the
+  // Phase 2 callee-writing block to distinguish two cases when a declared
+  // callee produced no recordings:
+  //   - Callee IN wrappedCalleeNames → proxy was installed, but the
+  //     execution path didn't reach it for any input. VALID case
+  //     (conditional logic) — emit a clear "not called for these inputs"
+  //     warning instead of the scary "transform aborted" message.
+  //   - Callee NOT IN wrappedCalleeNames → wrapCallees couldn't install
+  //     the proxy (not found, frozen namespace, transform aborted). BUG
+  //     case — emit the existing verbose "transform aborted" warning.
+  const wrappedCalleeNames = new Set()
 
   try {
     // Dynamic import of target module
@@ -589,8 +601,85 @@ for (const cluster of clusters) {
     try {
       rawModule = await import(moduleUrl)
     } catch (err) {
+      // Issue #324 — differentiate three failure modes that all surface as
+      // ERR_MODULE_NOT_FOUND / ENOENT, each requiring a different fix:
+      //
+      //   1. File truly missing — `existsSync(absPath)` is false. The
+      //      existing "Cluster file not found" message is correct.
+      //
+      //   2. Missing transitive npm dependency — the cluster file EXISTS,
+      //      but the module imports a package that isn't installed. Node's
+      //      error message is `Cannot find package 'X' imported from Y`
+      //      where Y is NOT absPath. Fix: `npm install X`.
+      //
+      //   3. Extensionless ESM imports — the cluster file EXISTS, but it
+      //      (or a transitive dependency) does `import './foo'` without
+      //      the `.js` extension. Node ESM requires the extension. Node's
+      //      error message is `Cannot find module '/path/to/foo' imported
+      //      from Y` where Y is NOT absPath. Fix: add the extension to
+      //      the source (or run a build that adds it).
+      //
+      // For cases 2 & 3, the existing message ("Cluster file not found at
+      // <absPath>. Compile the project or fix the 'file' field") is wrong
+      // — the file IS at absPath. We surface the real Node error message
+      // so the user can see WHICH module/package failed to resolve, and
+      // give case-specific fix suggestions.
       if (err.code === 'ERR_MODULE_NOT_FOUND' || err.code === 'ENOENT') {
-        throw new Error(`Cluster file not found at ${file} (resolved: ${absPath}). Compile the project or fix the 'file' field in manifest.json.`)
+        const fileExists = existsSync(absPath)
+        if (!fileExists) {
+          // Case 1 — actual missing file. Existing message is correct.
+          throw new Error(
+            `Cluster file not found at ${file} (resolved: ${absPath}). ` +
+            `Check the 'file' field in manifest.json — the path doesn't exist on disk.`
+          )
+        }
+        // File exists — the import failed for a different reason. Surface
+        // the real Node error so the user can see WHICH module/package
+        // failed to resolve (Node's message already includes the path).
+        const nodeMsg = err.message || ''
+        // Node's ERR_MODULE_NOT_FOUND message has two forms:
+        //   "Cannot find package 'X' imported from Y"
+        //   "Cannot find module '/path/to/X' imported from Y"
+        // In both, Y is the file that CONTAINS the failing import — which
+        // is OFTEN absPath (the cluster file itself imports the missing
+        // dep), but it can also be a transitive file. Either way, the
+        // FAILING module is X (the thing that can't be found), NOT Y.
+        //
+        // The previous heuristic ("if Node's message mentions absPath, the
+        // cluster file itself failed") was wrong — it conflated Y (the
+        // importer) with X (the missing import). When absPath imports a
+        // missing dep, absPath appears as Y, but the failure is X.
+        //
+        // Distinguish by inspecting Node's message text:
+        //   "Cannot find package 'X' imported from Y" → missing npm dep
+        //   "Cannot find module '/path/to/X' imported from Y" → extensionless
+        //     import (path-based, no package name in quotes)
+        const isMissingPackage = /Cannot find package ['"][^'"]+['"]/.test(nodeMsg)
+        if (isMissingPackage) {
+          // Case 2 — missing npm dependency
+          const pkgMatch = nodeMsg.match(/Cannot find package ['"]([^'"]+)['"]/)
+          const pkgName = pkgMatch ? pkgMatch[1] : '(unknown)'
+          throw new Error(
+            `Failed to import ${file} — a transitive npm dependency is missing.\n` +
+            `  The cluster file at ${absPath} EXISTS, but it imports a package that isn't installed.\n` +
+            `  Node error: ${nodeMsg}\n` +
+            `  Fix: run \`npm install ${pkgName}\` (or \`npm install\` to install all deps).\n` +
+            `  This is NOT a Regrets issue — the manifest's 'file' field is correct.`
+          )
+        }
+        // Case 3 — extensionless ESM import (or another module-resolution
+        // issue on a transitive file). Surface the full Node error so the
+        // user can see which path failed.
+        throw new Error(
+          `Failed to import ${file} — a transitive module failed to resolve.\n` +
+          `  The cluster file at ${absPath} EXISTS, but it (or one of its imports) ` +
+          `references a module Node can't find.\n` +
+          `  Node error: ${nodeMsg}\n` +
+          `  Common cause: extensionless ESM imports (e.g. \`import './foo'\` instead of \`import './foo.js'\`). ` +
+          `Node ESM requires the full file extension.\n` +
+          `  Fix: add the extension to the failing import in the source file, or run a build step that adds extensions.\n` +
+          `  This is NOT a Regrets issue — the manifest's 'file' field is correct.`
+        )
       }
       throw new Error(`Failed to import ${file}: ${err.message}`)
     }
@@ -692,6 +781,10 @@ for (const cluster of clusters) {
         quiet,
         holderName: HOLDER_NAME,
         importedBindings,
+        // Issue #326: track which callees were successfully wrapped so the
+        // callee-writing block can distinguish "never called (valid)" from
+        // "transform aborted (bug)".
+        wrappedNames: wrappedCalleeNames,
       })
       if (!quiet) {
         console.log(`   Callees: ${callees.join(', ')}`)
@@ -865,6 +958,10 @@ for (const cluster of clusters) {
 
     const testInputs = (inputs && inputs.length > 0) ? inputs : [undefined]
     const results = []
+    // Issue #318 — track inputs that threw during capture (non-expectThrow).
+    // Each entry: { input, error }. Used to print a cluster-level summary
+    // at the end so the user knows which inputs were skipped and why.
+    let clusterSkippedInputs = null
 
     // ─── expectThrow helper ─────────────────────────────────────────────────
     // Input with { __expectThrow: true, value: ... } means the function MUST throw.
@@ -1096,46 +1193,67 @@ for (const cluster of clusters) {
         }
 
         // Dispatch the action (normal path)
-        if (storeType === 'redux') {
-          dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
-        } else if (storeType === 'dispatching') {
-          dispatchFn(storeDispatch.action, inputForArgs)
-        } else if (storeType === 'zustand') {
-          dispatchFn(inputForArgs)
-        }
-
-        const rawOutput = getStateFn()
-        const { result: consumedOutput } = await consumeIterator(rawOutput)
-        let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
-        const output = deepClone(transformedOutput)
-
-        const fpInput = inputForRecord
-
-        let fp
-        if (fingerprintMode === 'schema') {
-          const schema = extractSchema(output)
-          fp = fingerprint(fpInput, schema, fpConfig)
-        } else if (fingerprintMode === 'mixed') {
-          const schema = extractSchema(output)
-          const selectedValues = {}
-          for (const path of valuePaths) {
-            const key = path.replace(/^\$\./, '')
-            const parts = key.split('.')
-            let val = output
-            for (const p of parts) { val = val?.[p] }
-            if (val !== undefined) selectedValues[path] = val
+        //
+        // Issue #318 — partial capture for storeDispatch: wrap the dispatch
+        // + state read in a try/catch so a throwing input doesn't kill the
+        // whole cluster. Same rationale as the function-based path.
+        try {
+          if (storeType === 'redux') {
+            dispatchFn({ type: storeDispatch.action, payload: inputForArgs })
+          } else if (storeType === 'dispatching') {
+            dispatchFn(storeDispatch.action, inputForArgs)
+          } else if (storeType === 'zustand') {
+            dispatchFn(inputForArgs)
           }
-          fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
-        } else if (effectiveFingerprintLevel === 'calls') {
-          const callCounts = reduceToCallCounts(recorder)
-          fp = fingerprint(fpInput, callCounts, fpConfig)
-        } else {
-          fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
-            : fingerprintSequence(recorder, fpConfig)
-        }
 
-        results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
+          const rawOutput = getStateFn()
+          const { result: consumedOutput } = await consumeIterator(rawOutput)
+          let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
+          const output = deepClone(transformedOutput)
+
+          const fpInput = inputForRecord
+
+          let fp
+          if (fingerprintMode === 'schema') {
+            const schema = extractSchema(output)
+            fp = fingerprint(fpInput, schema, fpConfig)
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const path of valuePaths) {
+              const key = path.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const p of parts) { val = val?.[p] }
+              if (val !== undefined) selectedValues[path] = val
+            }
+            fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+          } else if (effectiveFingerprintLevel === 'calls') {
+            const callCounts = reduceToCallCounts(recorder)
+            fp = fingerprint(fpInput, callCounts, fpConfig)
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
+              : fingerprintSequence(recorder, fpConfig)
+          }
+
+          results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
+        } catch (inputErr) {
+          // Issue #318 — partial capture: skip this input, continue to next.
+          if (!quiet) {
+            const inputStr = JSON.stringify(actualInput)
+            const inputDisplay = inputStr.length > 80 ? inputStr.slice(0, 77) + '…' : inputStr
+            console.warn(`   ⚠️  input ${inputDisplay} threw: ${inputErr.message}`)
+            console.warn(`      Skipping this input — cluster will capture with the inputs that don't throw.`)
+            console.warn(`      If this throw is EXPECTED behavior, mark the input with { "__expectThrow": true, "value": <input> }`)
+            console.warn(`      in the manifest to capture it as an error contract instead of skipping.`)
+          }
+          if (!clusterSkippedInputs) clusterSkippedInputs = []
+          clusterSkippedInputs.push({
+            input: inputForRecord,
+            error: String(inputErr.message || inputErr),
+          })
+        }
       }
     } else if (classMethod) {
       // ── Class-based entry ────────────────────────────────────────────────
@@ -1204,66 +1322,87 @@ for (const cluster of clusters) {
         }
 
         // Normal path: call the target method
-        const rawOutput = await instance[classMethod](...args_)
+        //
+        // Issue #318 — partial capture for classMethod: wrap the method
+        // call + downstream in a try/catch so a throwing input doesn't
+        // kill the whole cluster. Same rationale as the function-based path.
+        try {
+          const rawOutput = await instance[classMethod](...args_)
 
-        // Consume generators/iterators into arrays for fingerprinting.
-        const { result: consumedOutput } = await consumeIterator(rawOutput)
+          // Consume generators/iterators into arrays for fingerprinting.
+          const { result: consumedOutput } = await consumeIterator(rawOutput)
 
-        // Apply outputTransform if specified in manifest
-        let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
+          // Apply outputTransform if specified in manifest
+          let transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
-        // trackMutation: snapshot input state before/after call to detect mutations
-        let inputAfterCall = null
-        if (cluster.trackMutation) {
-          inputAfterCall = deepClone(inputForArgs)
-        }
-
-        const output = deepClone(transformedOutput)
-
-        const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
-
-        let fp
-        if (fingerprintMode === 'schema') {
-          const schema = extractSchema(output)
-          fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
-        } else if (fingerprintMode === 'mixed') {
-          const schema = extractSchema(output)
-          const selectedValues = {}
-          for (const path of valuePaths) {
-            const key = path.replace(/^\$\./, '')
-            const parts = key.split('.')
-            let val = output
-            for (const p of parts) { val = val?.[p] }
-            if (val !== undefined) selectedValues[path] = val
+          // trackMutation: snapshot input state before/after call to detect mutations
+          let inputAfterCall = null
+          if (cluster.trackMutation) {
+            inputAfterCall = deepClone(inputForArgs)
           }
-          fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
-        } else if (effectiveFingerprintLevel === 'calls') {
-          const callCounts = reduceToCallCounts(recorder)
-          fp = fingerprint(fpInput, callCounts, { normalize, ignoreFields })
-        } else {
-          fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, maybeMergeSideEffects(output), { normalize, ignoreFields })
-            : fingerprintSequence(recorder, { normalize, ignoreFields })
-        }
 
-        const resultEntry = { input: inputForRecord, output, fp, calls: [...recorder] }
+          const output = deepClone(transformedOutput)
 
-        // Detect input mutation if trackMutation is enabled
-        if (cluster.trackMutation && inputAfterCall !== null) {
-          const inputBefore = inputForRecord
-          const beforeStr = stableStringify(inputBefore)
-          const afterStr = stableStringify(inputAfterCall)
-          resultEntry.inputMutated = beforeStr !== afterStr
-          if (resultEntry.inputMutated) {
-            if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+          const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
+
+          let fp
+          if (fingerprintMode === 'schema') {
+            const schema = extractSchema(output)
+            fp = fingerprint(fpInput, schema, { normalize, ignoreFields })
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const path of valuePaths) {
+              const key = path.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const p of parts) { val = val?.[p] }
+              if (val !== undefined) selectedValues[path] = val
+            }
+            fp = fingerprint(fpInput, { schema, values: selectedValues }, { normalize, ignoreFields })
+          } else if (effectiveFingerprintLevel === 'calls') {
+            const callCounts = reduceToCallCounts(recorder)
+            fp = fingerprint(fpInput, callCounts, { normalize, ignoreFields })
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(fpInput, maybeMergeSideEffects(output), { normalize, ignoreFields })
+              : fingerprintSequence(recorder, { normalize, ignoreFields })
           }
-          // Compute mutation fingerprint for validate.js to compare against
-          resultEntry.mutationFingerprint = fingerprint(inputBefore, inputAfterCall, { normalize, ignoreFields })
-          resultEntry.mutationBefore = inputBefore
-          resultEntry.mutationAfter = inputAfterCall
-        }
 
-        results.push(resultEntry)
+          const resultEntry = { input: inputForRecord, output, fp, calls: [...recorder] }
+
+          // Detect input mutation if trackMutation is enabled
+          if (cluster.trackMutation && inputAfterCall !== null) {
+            const inputBefore = inputForRecord
+            const beforeStr = stableStringify(inputBefore)
+            const afterStr = stableStringify(inputAfterCall)
+            resultEntry.inputMutated = beforeStr !== afterStr
+            if (resultEntry.inputMutated) {
+              if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+            }
+            // Compute mutation fingerprint for validate.js to compare against
+            resultEntry.mutationFingerprint = fingerprint(inputBefore, inputAfterCall, { normalize, ignoreFields })
+            resultEntry.mutationBefore = inputBefore
+            resultEntry.mutationAfter = inputAfterCall
+          }
+
+          results.push(resultEntry)
+        } catch (inputErr) {
+          // Issue #318 — partial capture: skip this input, continue to next.
+          if (!quiet) {
+            const inputStr = JSON.stringify(actualInput)
+            const inputDisplay = inputStr.length > 80 ? inputStr.slice(0, 77) + '…' : inputStr
+            console.warn(`   ⚠️  input ${inputDisplay} threw: ${inputErr.message}`)
+            console.warn(`      Skipping this input — cluster will capture with the inputs that don't throw.`)
+            console.warn(`      If this throw is EXPECTED behavior, mark the input with { "__expectThrow": true, "value": <input> }`)
+            console.warn(`      in the manifest to capture it as an error contract instead of skipping.`)
+          }
+          if (!clusterSkippedInputs) clusterSkippedInputs = []
+          clusterSkippedInputs.push({
+            input: inputForRecord,
+            error: String(inputErr.message || inputErr),
+          })
+        }
       }
     } else if (singletonMethod) {
       // ── Singleton method entry ──────────────────────────────────────────────
@@ -1322,42 +1461,64 @@ for (const cluster of clusters) {
           continue
         }
 
-        const rawOutput = await singleton[singletonMethod](...args_)
+        // Normal path (singleton method).
+        //
+        // Issue #318 — partial capture for singletonMethod: wrap the method
+        // call + downstream in a try/catch so a throwing input doesn't
+        // kill the whole cluster. Same rationale as the function-based path.
+        try {
+          const rawOutput = await singleton[singletonMethod](...args_)
 
-        // Consume generators/iterators into arrays for fingerprinting
-        const { result: consumedOutput } = await consumeIterator(rawOutput)
+          // Consume generators/iterators into arrays for fingerprinting
+          const { result: consumedOutput } = await consumeIterator(rawOutput)
 
-        // Apply outputTransform if specified
-        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
+          // Apply outputTransform if specified
+          const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
-        const output = deepClone(transformedOutput)
-        const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
+          const output = deepClone(transformedOutput)
+          const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
 
-        let fp
-        if (fingerprintMode === 'schema') {
-          const schema = extractSchema(output)
-          fp = fingerprint(fpInput, schema, fpConfig)
-        } else if (fingerprintMode === 'mixed') {
-          const schema = extractSchema(output)
-          const selectedValues = {}
-          for (const path of valuePaths) {
-            const key = path.replace(/^\$\./, '')
-            const parts = key.split('.')
-            let val = output
-            for (const p of parts) { val = val?.[p] }
-            if (val !== undefined) selectedValues[path] = val
+          let fp
+          if (fingerprintMode === 'schema') {
+            const schema = extractSchema(output)
+            fp = fingerprint(fpInput, schema, fpConfig)
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const path of valuePaths) {
+              const key = path.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const p of parts) { val = val?.[p] }
+              if (val !== undefined) selectedValues[path] = val
+            }
+            fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+          } else if (effectiveFingerprintLevel === 'calls') {
+            const callCounts = reduceToCallCounts(recorder)
+            fp = fingerprint(fpInput, callCounts, fpConfig)
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
+              : fingerprintSequence(recorder, fpConfig)
           }
-          fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
-        } else if (effectiveFingerprintLevel === 'calls') {
-          const callCounts = reduceToCallCounts(recorder)
-          fp = fingerprint(fpInput, callCounts, fpConfig)
-        } else {
-          fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
-            : fingerprintSequence(recorder, fpConfig)
-        }
 
-        results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
+          results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
+        } catch (inputErr) {
+          // Issue #318 — partial capture: skip this input, continue to next.
+          if (!quiet) {
+            const inputStr = JSON.stringify(actualInput)
+            const inputDisplay = inputStr.length > 80 ? inputStr.slice(0, 77) + '…' : inputStr
+            console.warn(`   ⚠️  input ${inputDisplay} threw: ${inputErr.message}`)
+            console.warn(`      Skipping this input — cluster will capture with the inputs that don't throw.`)
+            console.warn(`      If this throw is EXPECTED behavior, mark the input with { "__expectThrow": true, "value": <input> }`)
+            console.warn(`      in the manifest to capture it as an error contract instead of skipping.`)
+          }
+          if (!clusterSkippedInputs) clusterSkippedInputs = []
+          clusterSkippedInputs.push({
+            input: inputForRecord,
+            error: String(inputErr.message || inputErr),
+          })
+        }
       }
     } else {
       // ── Function-based entry (original behavior) ───────────────────────
@@ -1527,67 +1688,105 @@ for (const cluster of clusters) {
         }
 
         // ─── Normal (non-expectThrow) path ──────────────────────────────────
-        const rawOutput = await entryFn(...args_)
-
-        // Materialize generator/iterator output if configured
-        const { consumed: wasConsumed, result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutput })
-        if (wasConsumed && materializeOutput) {
-          if (!quiet) console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${consumedOutput.length} items)`)
-        }
-
-        // Apply outputTransform if specified in manifest
-        const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
-
-        // trackMutation: snapshot input state after call to detect mutations
-        let inputAfterCall = null
-        if (cluster.trackMutation) {
-          inputAfterCall = deepClone(inputForArgs)
-        }
-
-        const output = deepClone(transformedOutput)
-
-        const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
-
-        let fp
-        if (fingerprintMode === 'schema') {
-          const schema = extractSchema(output)
-          fp = fingerprint(fpInput, schema, fpConfig)
-        } else if (fingerprintMode === 'mixed') {
-          const schema = extractSchema(output)
-          const selectedValues = {}
-          for (const path of valuePaths) {
-            const key = path.replace(/^\$\./, '')
-            const parts = key.split('.')
-            let val = output
-            for (const p of parts) { val = val?.[p] }
-            if (val !== undefined) selectedValues[path] = val
+        //
+        // Issue #318 — partial capture: if this input throws (and the user
+        // did NOT mark it with expectThrow), we used to let the throw
+        // propagate and fail the ENTIRE cluster — losing results for all
+        // other valid inputs. Now we catch the throw, log a per-input
+        // warning, and skip JUST this input. The cluster still captures
+        // successfully for inputs that didn't throw.
+        //
+        // This is especially important for validation-style functions
+        // that throw on null/undefined input (validator.js's assertString,
+        // etc.). Including null in the inputs array no longer kills the
+        // whole cluster.
+        //
+        // If ALL inputs throw, `results` ends up empty and the cluster
+        // fails with a clear message below (no different from before,
+        // just a better error).
+        let rawOutput
+        try {
+          rawOutput = await entryFn(...args_)
+          // Materialize generator/iterator output if configured
+          const { consumed: wasConsumed, result: consumedOutput } = await consumeIterator(rawOutput, null, { materialize: materializeOutput })
+          if (wasConsumed && materializeOutput) {
+            if (!quiet) console.log(`   🔄 Output materialized: ${rawOutput.constructor?.name || 'iterable'} → Array (${consumedOutput.length} items)`)
           }
-          fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
-        } else if (effectiveFingerprintLevel === 'calls') {
-          const callCounts = reduceToCallCounts(recorder)
-          fp = fingerprint(fpInput, callCounts, fpConfig)
-        } else {
-          fp = fingerprintLevel === 'entry'
-            ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
-            : fingerprintSequence(recorder, fpConfig)
-        }
 
-        results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
+          // Apply outputTransform if specified in manifest
+          const transformedOutput = await applyOutputTransformAsync(consumedOutput, outputTransform, process.cwd())
 
-        // Detect input mutation if trackMutation is enabled
-        if (cluster.trackMutation && inputAfterCall !== null) {
-          const lastResult = results[results.length - 1]
-          const inputBefore = inputForRecord
-          const beforeStr = stableStringify(inputBefore)
-          const afterStr = stableStringify(inputAfterCall)
-          lastResult.inputMutated = beforeStr !== afterStr
-          if (lastResult.inputMutated) {
-            if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+          // trackMutation: snapshot input state after call to detect mutations
+          let inputAfterCall = null
+          if (cluster.trackMutation) {
+            inputAfterCall = deepClone(inputForArgs)
           }
-          // Compute mutation fingerprint for validate.js to compare against
-          lastResult.mutationFingerprint = fingerprint(inputBefore, inputAfterCall, { normalize, ignoreFields })
-          lastResult.mutationBefore = inputBefore
-          lastResult.mutationAfter = inputAfterCall
+
+          const output = deepClone(transformedOutput)
+
+          const fpInput = cluster.multiArgs && Array.isArray(inputForRecord) ? inputForRecord : inputForRecord
+
+          let fp
+          if (fingerprintMode === 'schema') {
+            const schema = extractSchema(output)
+            fp = fingerprint(fpInput, schema, fpConfig)
+          } else if (fingerprintMode === 'mixed') {
+            const schema = extractSchema(output)
+            const selectedValues = {}
+            for (const path of valuePaths) {
+              const key = path.replace(/^\$\./, '')
+              const parts = key.split('.')
+              let val = output
+              for (const p of parts) { val = val?.[p] }
+              if (val !== undefined) selectedValues[path] = val
+            }
+            fp = fingerprint(fpInput, { schema, values: selectedValues }, fpConfig)
+          } else if (effectiveFingerprintLevel === 'calls') {
+            const callCounts = reduceToCallCounts(recorder)
+            fp = fingerprint(fpInput, callCounts, fpConfig)
+          } else {
+            fp = fingerprintLevel === 'entry'
+              ? fingerprint(fpInput, maybeMergeSideEffects(output), fpConfig)
+              : fingerprintSequence(recorder, fpConfig)
+          }
+
+          results.push({ input: inputForRecord, output, fp, calls: [...recorder], sideEffects: [...sideEffectRecorder] })
+
+          // Detect input mutation if trackMutation is enabled
+          if (cluster.trackMutation && inputAfterCall !== null) {
+            const lastResult = results[results.length - 1]
+            const inputBefore = inputForRecord
+            const beforeStr = stableStringify(inputBefore)
+            const afterStr = stableStringify(inputAfterCall)
+            lastResult.inputMutated = beforeStr !== afterStr
+            if (lastResult.inputMutated) {
+              if (!quiet) console.warn(`   ⚠️  Input MUTATION detected in cluster ${id}! Function modified its input.`)
+            }
+            // Compute mutation fingerprint for validate.js to compare against
+            lastResult.mutationFingerprint = fingerprint(inputBefore, inputAfterCall, { normalize, ignoreFields })
+            lastResult.mutationBefore = inputBefore
+            lastResult.mutationAfter = inputAfterCall
+          }
+        } catch (inputErr) {
+          // Issue #318 — partial capture: this input threw but we don't
+          // want to fail the whole cluster. Log a clear per-input warning
+          // and continue to the next input.
+          if (!quiet) {
+            const inputStr = JSON.stringify(actualInput)
+            const inputDisplay = inputStr.length > 80 ? inputStr.slice(0, 77) + '…' : inputStr
+            console.warn(`   ⚠️  input ${inputDisplay} threw: ${inputErr.message}`)
+            console.warn(`      Skipping this input — cluster will capture with the inputs that don't throw.`)
+            console.warn(`      If this throw is EXPECTED behavior, mark the input with { "__expectThrow": true, "value": <input> }`)
+            console.warn(`      in the manifest to capture it as an error contract instead of skipping.`)
+          }
+          // Track skipped inputs for the cluster summary
+          if (!clusterSkippedInputs) clusterSkippedInputs = []
+          clusterSkippedInputs.push({
+            input: inputForRecord,
+            error: String(inputErr.message || inputErr),
+          })
+          // IMPORTANT: do NOT push to results — we want this input excluded
+          // from the .regret file. The next input continues normally.
         }
       }
     }
@@ -1633,6 +1832,41 @@ for (const cluster of clusters) {
           console.error(`      For class-based APIs, use 'classMethod' in manifest or add 'instanceMethods' config.`)
           console.error(`      Example: { "instanceMethods": { "Track": ["addEvent", "buildData"] } }`)
         }
+      }
+    }
+
+    // Issue #318 — if ALL inputs threw (and none were expectThrow), `results`
+    // is empty. We can't pick a golden, so fail the cluster with a clear
+    // message that lists every input that threw. This is the only case
+    // where partial capture can't save the cluster.
+    if (results.length === 0) {
+      const skippedCount = clusterSkippedInputs?.length ?? 0
+      const inputCount = testInputs.length
+      let msg = `All ${inputCount} input(s) threw during capture — no golden fingerprint could be captured.\n`
+      msg += `  Skipped inputs (${skippedCount}):\n`
+      if (clusterSkippedInputs) {
+        for (const s of clusterSkippedInputs) {
+          const inputStr = JSON.stringify(s.input)
+          const inputDisplay = inputStr.length > 80 ? inputStr.slice(0, 77) + '…' : inputStr
+          msg += `    input ${inputDisplay} threw: ${s.error}\n`
+        }
+      }
+      msg += `  To capture this cluster, either:\n`
+      msg += `    1. Remove the throwing inputs from the manifest's "inputs" array.\n`
+      msg += `    2. Mark throwing inputs with { "__expectThrow": true, "value": <input> } to capture them as error contracts.\n`
+      msg += `    3. Fix the function so it handles these inputs without throwing.`
+      throw new Error(msg)
+    }
+
+    // Issue #318 — partial capture summary: if some inputs threw but at
+    // least one succeeded, print a summary so the user knows the cluster
+    // was captured with a reduced input set.
+    if (clusterSkippedInputs && clusterSkippedInputs.length > 0 && !quiet) {
+      console.warn(`   ℹ️  Cluster captured with ${results.length}/${testInputs.length} input(s) — ${clusterSkippedInputs.length} skipped due to throws:`)
+      for (const s of clusterSkippedInputs) {
+        const inputStr = JSON.stringify(s.input)
+        const inputDisplay = inputStr.length > 60 ? inputStr.slice(0, 57) + '…' : inputStr
+        console.warn(`      • ${inputDisplay}: ${s.error}`)
       }
     }
 
@@ -1902,30 +2136,71 @@ for (const cluster of clusters) {
               console.warn(`      but ESM imported bindings cannot be intercepted for callee-contract recording.`)
               console.warn(`      See the earlier wrapCallees warning for remediation options (wrap in a local function, or use sideEffectWatches).`)
             } else {
-              // Issue #263: this warning used to say "declared but never
-              // called during capture" — which was misleading. The callee
-              // MAY have been called many times, but if the source transform
-              // was aborted (shadowing, unsupported pattern, parse error)
-              // AND the module is a frozen ESM namespace OR a CJS module
-              // whose internal calls resolve to local bindings (not
-              // `module.exports.foo`), the proxy simply couldn't see the
-              // call. The user-facing fix is the same in both cases
-              // (refactor or use the explicit `module.exports.foo(...)`
-              // idiom in CJS), but the diagnosis should be accurate.
-              console.warn(`   ⚠️  Callee "${calleeName}" was not intercepted during capture — no contract written (cluster: ${id})`)
-              console.warn(`      This means either:`)
-              console.warn(`        a. The callee was genuinely never called by the entry function for any input.`)
-              console.warn(`        b. The callee WAS called, but the source transform was aborted (shadowing,`)
-              console.warn(`           unsupported declaration pattern, parse error) AND the module's`)
-              console.warn(`           internal calls don't go through a path wrapCallees can intercept`)
-              console.warn(`           (frozen ESM namespace, or CJS bare-name calls without transform).`)
-              console.warn(`      The parent cluster is still captured. To enable callee contracts:`)
-              console.warn(`        - For ESM: ensure the callee is a top-level \`function foo(){}\` or`)
-              console.warn(`          \`export function foo(){}\` or \`export const foo = () => {}\` and`)
-              console.warn(`          not shadowed anywhere in the file.`)
-              console.warn(`        - For CJS: ensure the callee is a top-level \`function foo(){}\` or`)
-              console.warn(`          \`const foo = () => {}\` and not shadowed. Alternatively, call`)
-              console.warn(`          the callee via \`module.exports.foo(...)\` instead of the bare name.`)
+              // Issue #326: distinguish two cases that the previous warning
+              // conflated:
+              //
+              //   (a) Callee WAS successfully wrapped (proxy installed) but
+              //       produced no recordings. This is the VALID case: the
+              //       callee is callable, but the entry function's execution
+              //       path didn't reach it for ANY of the given inputs
+              //       (conditional logic — e.g. `if (cond) callee()` where
+              //       cond was false for all inputs). No bug here; the user
+              //       just needs to add inputs that exercise the callee's
+              //       branch, OR remove the callee from the manifest if the
+              //       branch is intentionally unreachable.
+              //
+              //   (b) Callee was NOT wrapped (wrapCallees couldn't install
+              //       the proxy — not found, frozen ESM namespace, transform
+              //       aborted). This is the BUG case: the callee may be
+              //       called by the entry function, but Regrets can't see
+              //       it. The user needs to refactor the source or fix the
+              //       transform.
+              //
+              // We use `wrappedCalleeNames` (populated by wrapCallees) to
+              // tell these apart. Before #326, both cases got the verbose
+              // case-(b) warning, which confused users in the common
+              // case-(a) scenario (axios's isBuffer/isObject short-circuit).
+              const wasWrapped = wrappedCalleeNames.has(calleeName)
+              if (wasWrapped) {
+                // Case (a) — valid: callee is wrapped but never called.
+                // This is NOT a bug — it's expected when the entry function
+                // has conditional logic that didn't trigger for any input.
+                console.warn(`   ℹ️  Callee "${calleeName}" was not called during capture — no contract written (cluster: ${id})`)
+                console.warn(`      The callee IS wrapped and callable, but the entry function's execution path`)
+                console.warn(`      didn't reach it for any of the ${testInputs.length} input(s). This is normal when`)
+                console.warn(`      the callee sits behind a conditional (e.g. \`if (cond) callee()\` where cond was false).`)
+                console.warn(`      Options:`)
+                console.warn(`        - Add inputs that exercise the branch containing "${calleeName}".`)
+                console.warn(`        - Remove "${calleeName}" from the manifest's "callees" array if the branch is intentionally unreachable.`)
+                console.warn(`        - Leave as-is: validate will FAIL with "callee contract missing" until you do one of the above.`)
+                console.warn(`          (This is intentional — it surfaces the gap so refactors to "${calleeName}" don't slip through undetected.)`)
+              } else {
+                // Case (b) — bug: callee was not wrapped.
+                // Issue #263: this warning used to say "declared but never
+                // called during capture" — which was misleading. The callee
+                // MAY have been called many times, but if the source transform
+                // was aborted (shadowing, unsupported pattern, parse error)
+                // AND the module is a frozen ESM namespace OR a CJS module
+                // whose internal calls resolve to local bindings (not
+                // `module.exports.foo`), the proxy simply couldn't see the
+                // call. The user-facing fix is the same in both cases
+                // (refactor or use the explicit `module.exports.foo(...)`
+                // idiom in CJS), but the diagnosis should be accurate.
+                console.warn(`   ⚠️  Callee "${calleeName}" was not intercepted during capture — no contract written (cluster: ${id})`)
+                console.warn(`      This means either:`)
+                console.warn(`        a. The callee was genuinely never called by the entry function for any input.`)
+                console.warn(`        b. The callee WAS called, but the source transform was aborted (shadowing,`)
+                console.warn(`           unsupported declaration pattern, parse error) AND the module's`)
+                console.warn(`           internal calls don't go through a path wrapCallees can intercept`)
+                console.warn(`           (frozen ESM namespace, or CJS bare-name calls without transform).`)
+                console.warn(`      The parent cluster is still captured. To enable callee contracts:`)
+                console.warn(`        - For ESM: ensure the callee is a top-level \`function foo(){}\` or`)
+                console.warn(`          \`export function foo(){}\` or \`export const foo = () => {}\` and`)
+                console.warn(`          not shadowed anywhere in the file.`)
+                console.warn(`        - For CJS: ensure the callee is a top-level \`function foo(){}\` or`)
+                console.warn(`          \`const foo = () => {}\` and not shadowed. Alternatively, call`)
+                console.warn(`          the callee via \`module.exports.foo(...)\` instead of the bare name.`)
+              }
             }
           }
           // Record that this declared callee produced no contract, so
