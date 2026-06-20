@@ -273,17 +273,55 @@ async function main() {
       if (cluster) targetStack = cluster.stack || 'js'
     } catch { /* default to js */ }
 
+    // #250 — `regret update <id> --reason "..."` must trigger update mode
+    // in the stack-specific validate script. Without --update, validate.js
+    // runs in regular validate mode (updateTarget=null → updateMode=false)
+    // and NEVER writes audit.log — making `regret update` a silent no-op
+    // for audit purposes. The #250 audit.log metadata (gitAuthor, gitSha,
+    // ciRunId) is only emitted from the update path, so the CLI command
+    // documented as "Safe update with audit trail" must actually reach it.
+    //
+    // Translation rules (when the user did NOT already pass --update):
+    //   `regret update <id> --reason "..."` (positional id)
+    //     → JS/TS/CSS (validate.js): `--update --cluster <id> --reason "..."`
+    //         validate.js treats --update as a bare flag (its presence
+    //         triggers update mode; the cluster id comes from --cluster).
+    //     → Python/PHP/Rust/Go: `--update <id> --reason "..."`
+    //         validate.py expects the cluster id as the VALUE of --update.
+    //
+    // If the user already provided --update (advanced usage), pass through
+    // as-is to avoid double-inserting the flag.
+    let translatedArgs
+    if (passThroughArgs.includes('--update')) {
+      // User explicitly passed --update — respect their args verbatim.
+      translatedArgs = passThroughArgs
+    } else if (targetCluster) {
+      // Strip the positional id from passThroughArgs, then re-add it in
+      // the stack-specific --update position.
+      const remainingArgs = passThroughArgs.filter(a => a !== targetCluster)
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'rust' || targetStack === 'go') {
+        translatedArgs = ['--update', targetCluster, ...remainingArgs]
+      } else {
+        translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
+      }
+    } else {
+      // No positional target and no --update flag (rare — e.g. user typed
+      // `regret update --reason "..."` with no cluster). Just prepend
+      // --update; validate.js will emit its own "missing cluster" error.
+      translatedArgs = ['--update', ...passThroughArgs]
+    }
+
     if (targetStack === 'python') {
-      success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs])
+      success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...translatedArgs])
     } else if (targetStack === 'php') {
-      success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs])
+      success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...translatedArgs])
     } else if (targetStack === 'rust') {
-      success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs])
+      success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
-      success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs])
+      success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
     } else {
       // js, ts, css all use validate.js
-      success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs])
+      success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
     }
     break
   }

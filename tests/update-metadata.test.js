@@ -22,6 +22,7 @@ const SCRIPTS_DIR = resolve(import.meta.dirname, '..', 'scripts')
 const VALIDATE_JS = join(SCRIPTS_DIR, 'validate.js')
 const CAPTURE_JS  = join(SCRIPTS_DIR, 'capture.js')
 const HISTORY_JS  = join(SCRIPTS_DIR, 'history.js')
+const REGRET_JS   = join(SCRIPTS_DIR, 'regret.js')
 
 // For tests that need a git repo, we use a TMP dir INSIDE the Regrets
 // working tree (so the .git directory is reachable from cwd lookups).
@@ -284,5 +285,144 @@ export function double(x) { return x * 2 + 200 }
     assert.ok(auditContent.includes('UPDATE  double'), 'audit.log should still include the UPDATE event')
     assert.ok(!auditContent.includes('gitAuthor:'), 'gitAuthor line should be absent when global git config is also unavailable')
     assert.ok(!auditContent.includes('gitSha:'), 'gitSha line should be absent when no HEAD commit exists')
+  })
+})
+
+// ─── E2E via the regret CLI wrapper (#250 end-to-end) ──────────────────────
+//
+// The tests above call validate.js directly with `--update --cluster <id>`.
+// This describe block exercises the user-facing `regret update <id> --reason`
+// command via scripts/regret.js, which translates the positional <id> into
+// the stack-specific --update invocation. Before the fix in this PR, regret.js
+// passed passThroughArgs verbatim — without --update — so validate.js ran in
+// regular validate mode and NEVER wrote audit.log. These tests guard against
+// that regression.
+
+describe('regret update — CLI wrapper translates <id> into --update (e2e)', () => {
+  const CLI_TMP = resolve(join(process.cwd(), 'tests', `__upd_cli_${process.pid}__`))
+
+  function shCli(cmd, args) {
+    const r = spawnSync(cmd, args, { cwd: CLI_TMP, stdio: 'pipe' })
+    return {
+      exitCode: r.status ?? 1,
+      stdout: r.stdout ? r.stdout.toString() : '',
+      stderr: r.stderr ? r.stderr.toString() : '',
+    }
+  }
+
+  function setupCliProject() {
+    mkdirSync(join(CLI_TMP, 'regrets'), { recursive: true })
+    writeFileSync(join(CLI_TMP, 'api.mjs'), `
+export function double(x) { return x * 2 }
+`)
+    writeFileSync(join(CLI_TMP, 'regrets', 'manifest.json'), JSON.stringify({
+      clusters: [{
+        id: 'double',
+        entry: 'double',
+        watches: [],
+        file: 'api.mjs',
+        stack: 'js',
+        fingerprintLevel: 'entry',
+        inputs: [21],
+      }],
+    }, null, 2))
+    shCli('git', ['init', '-q'])
+    shCli('git', ['config', 'user.name', 'CLI Worker'])
+    shCli('git', ['config', 'user.email', 'cli@example.invalid'])
+    shCli('git', ['add', '.'])
+    shCli('git', ['commit', '-q', '-m', 'initial fixture'])
+  }
+
+  function cleanupCliProject() {
+    if (existsSync(CLI_TMP)) rmSync(CLI_TMP, { recursive: true, force: true })
+  }
+
+  before(() => setupCliProject())
+  after(() => cleanupCliProject())
+
+  it('capture succeeds via regret CLI', () => {
+    const r = shCli('node', [REGRET_JS, 'capture'])
+    assert.equal(r.exitCode, 0, `capture failed: ${r.stderr}`)
+    assert.ok(existsSync(join(CLI_TMP, 'regrets', 'double.regret')),
+      'double.regret should exist after capture')
+  })
+
+  it('regret update <id> --reason "..." triggers update mode and writes audit.log', () => {
+    // Change behavior so the hash differs — update mode only writes audit.log
+    // when the cluster's fingerprint actually changed.
+    writeFileSync(join(CLI_TMP, 'api.mjs'), `
+export function double(x) { return x * 2 + 1 }
+`)
+    shCli('git', ['add', '.'])
+    shCli('git', ['commit', '-q', '-m', 'change double behavior'])
+
+    // Remove any stale audit.log from prior tests
+    rmSync(join(CLI_TMP, 'regrets', 'audit.log'), { force: true })
+
+    // The user-facing command — must trigger update mode, not validate mode.
+    const r = shCli('node', [REGRET_JS, 'update', 'double', '--reason', 'cli wrapper e2e test for audit log via regret update command'])
+    assert.equal(r.exitCode, 0,
+      `regret update failed: ${r.stderr}\nstdout: ${r.stdout}`)
+
+    // Update mode prints "🔄 Update mode" — validate mode does NOT.
+    // This is the single most direct assertion that the CLI translation works.
+    assert.match(r.stdout, /Update mode/,
+      'regret update must trigger update mode (not validate mode) in validate.js')
+
+    // audit.log MUST be written — this is the whole point of #250.
+    const auditPath = join(CLI_TMP, 'regrets', 'audit.log')
+    assert.ok(existsSync(auditPath),
+      'audit.log must be written by `regret update` (was previously a silent no-op)')
+
+    const auditContent = readFileSync(auditPath, 'utf8')
+    assert.ok(auditContent.includes('UPDATE  double'),
+      'audit.log should include the UPDATE event for the double cluster')
+    assert.ok(auditContent.includes('gitAuthor: CLI Worker <cli@example.invalid>'),
+      'audit.log should include gitAuthor from git config (proves #250 metadata capture ran)')
+    assert.ok(/gitSha: [0-9a-f]{7,}/.test(auditContent),
+      'audit.log should include gitSha from HEAD commit (proves #250 metadata capture ran)')
+    assert.ok(/chain: [0-9a-f]+/.test(auditContent),
+      'audit.log should include chain hash for tamper-evidence')
+  })
+
+  it('regret history <id> reads the CLI-written audit.log entry', () => {
+    const r = shCli('node', [REGRET_JS, 'history', 'double'])
+    assert.equal(r.exitCode, 0, `history failed: ${r.stderr}`)
+
+    // The history output should show the UPDATE event from the previous test.
+    assert.match(r.stdout, /UPDATE/,
+      'regret history should show the UPDATE event')
+    assert.match(r.stdout, /CLI Worker/,
+      'regret history should show the gitAuthor name')
+    assert.match(r.stdout, /cli wrapper e2e test/,
+      'regret history should show the reason text')
+  })
+
+  it('regret update --reason (too vague) is rejected with exit 1', () => {
+    // The reason validator runs inside validate.js. The CLI wrapper must
+    // forward the exit code so the user gets feedback.
+    const r = shCli('node', [REGRET_JS, 'update', 'double', '--reason', 'too vague'])
+    assert.notEqual(r.exitCode, 0,
+      'regret update with a vague reason must exit non-zero')
+    assert.match(r.stderr + r.stdout, /too vague|reason/i,
+      'output should explain the reason was rejected')
+  })
+
+  it('regret update <id> --reason "..." (no behavior change) exits 0 without writing audit.log', () => {
+    // When the hash is unchanged, update mode is a no-op and audit.log is
+    // not written. This is correct behavior — there's nothing to audit.
+    rmSync(join(CLI_TMP, 'regrets', 'audit.log'), { force: true })
+
+    const r = shCli('node', [REGRET_JS, 'update', 'double', '--reason', 'no behavior change since last capture so no audit entry expected here'])
+    assert.equal(r.exitCode, 0,
+      `regret update with no behavior change should still exit 0: ${r.stderr}`)
+
+    // Should still enter update mode (proving the CLI translation works).
+    assert.match(r.stdout, /Update mode/,
+      'regret update must still enter update mode even when nothing changes')
+
+    // But audit.log should NOT be written (nothing to audit).
+    assert.ok(!existsSync(join(CLI_TMP, 'regrets', 'audit.log')),
+      'audit.log should NOT be written when the cluster hash is unchanged')
   })
 })
