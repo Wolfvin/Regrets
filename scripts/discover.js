@@ -10,8 +10,11 @@
 // approach is two-fold:
 //   1. Wrap ALL function exports with tracing proxies (like createGhost)
 //      and bind `this` to the traced module, so `this.fn()` calls are caught
-//   2. List all function exports as potential watches — the user can trim
-//      the list after review
+//   2. Add to `watches` ONLY the functions that were actually invoked during
+//      the trace (issue #321). Functions that are exported but never called
+//      are listed separately as "available but uncalled" — they are NOT
+//      added to the manifest's watches array. If nothing was called, watches
+//      stays empty and a clear message explains why (self-contained fn).
 //
 // Usage:
 //   node scripts/discover.js --entry parseConfig --file src/utils.js
@@ -307,18 +310,21 @@ async function discover() {
   const calledFns = Object.keys(fnCallCounts)
     .filter(fn => fn !== entryName && !isNodeBuiltin(fn))
 
-  // All exported functions (excluding entry and builtins) — these are potential watches
+  // All exported functions (excluding entry and builtins) — used to surface
+  // "available but uncalled" functions in the human-readable output. They are
+  // NOT added to the manifest's watches array (issue #321).
   const allExportedFns = functionNames
     .filter(fn => fn !== entryName && !isNodeBuiltin(fn))
 
-  // Merge: called functions first (sorted by count), then uncalled exports
+  // Watches ONLY contains functions actually invoked during the trace.
+  // Sorted by call count (desc) for readability. If nothing was called,
+  // watches stays empty — see the message below (issue #321).
   const calledSet = new Set(calledFns)
   const uncalledExports = allExportedFns.filter(fn => !calledSet.has(fn))
 
-  const watches = [
-    ...calledFns.sort((a, b) => (fnCallCounts[b] || 0) - (fnCallCounts[a] || 0)),
-    ...uncalledExports
-  ]
+  const watches = [...calledFns].sort(
+    (a, b) => (fnCallCounts[b] || 0) - (fnCallCounts[a] || 0)
+  )
 
   // Build caller map for human-readable output
   const callerMap = {}
@@ -361,10 +367,15 @@ async function discover() {
   console.log()
 
   if (watches.length === 0) {
-    console.log('  No function exports discovered.')
-    console.log('  The entry function may be a leaf with no exported helpers.')
+    // No callees were traced — issue #321: do NOT fall back to all exports.
+    // Surface a clear message so the user knows this is expected for
+    // self-contained functions (direct internal calls bypass the proxy).
+    console.log('  Tidak ada call lain yang terdeteksi selama trace — watches kosong, ini normal untuk fungsi yang self-contained')
+    if (allExportedFns.length > 0) {
+      console.log(`  (${allExportedFns.length} exported function(s) available in the module but none were invoked through the traced entry.)`)
+    }
   } else {
-    console.log('  Functions discovered:')
+    console.log('  Functions discovered (called during trace → added to watches):')
     console.log(`    ${entryName.padEnd(24)} → entry`)
 
     for (const fn of watches) {
@@ -377,9 +388,15 @@ async function discover() {
           : 'direct call'
         const countStr = info.count > 1 ? ` (${info.count}x)` : ''
         console.log(`    ${fn.padEnd(24)} → ${callerStr}${countStr}`)
-      } else {
-        // This function was exported but not called
-        console.log(`    ${fn.padEnd(24)} → exported (not called during trace)`)
+      }
+    }
+
+    // Surface uncalled exports separately — they are NOT in watches (issue #321)
+    if (uncalledExports.length > 0) {
+      console.log()
+      console.log(`  Exported but NOT called during trace (not added to watches — ${uncalledExports.length} fn${uncalledExports.length === 1 ? '' : 's'}):`)
+      for (const fn of uncalledExports) {
+        console.log(`    ${fn.padEnd(24)} → available (not called)`)
       }
     }
   }
