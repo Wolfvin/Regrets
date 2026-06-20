@@ -1,0 +1,37 @@
+{
+  "clusters": [
+    {
+      "id": "luhn-checksum",
+      "entry": "checksum",
+      "watches": ["checksum"],
+      "file": "src/luhn.lua",
+      "stack": "lua",
+      "fingerprintLevel": "entry",
+      "description": "Compute the Luhn check digit for a number string (without check digit)",
+      "inputs": [
+        "7992739871",
+        "411111111111111",
+        "1234567890",
+        "42",
+        "0"
+      ]
+    },
+    {
+      "id": "luhn-valid",
+      "entry": "valid",
+      "watches": ["valid"],
+      "file": "src/luhn.lua",
+      "stack": "lua",
+      "fingerprintLevel": "entry",
+      "description": "Return true if num_str (including check digit) passes the Luhn check",
+      "inputs": [
+        "79927398713",
+        "79927398710",
+        "4111111111111111",
+        "4111111111111112",
+        "12345678903",
+        "0"
+      ]
+    }
+  ]
+}
