@@ -112,6 +112,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **Python** | `python` | `capture.py` | `validate.py` | Pure functions, class methods, multi-module. See [`references/python.md`](references/python.md) |
 | **PHP** | `php` | `capture_php.php` | `validate_php.php` | Pure functions, class-based output |
 | **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
+| **Lua** | `lua` | `capture_lua.lua` | `validate_lua.lua` | Pure-Lua SHA-256, no deps. Lua 5.3+. See [`references/lua.md`](references/lua.md) |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
 
