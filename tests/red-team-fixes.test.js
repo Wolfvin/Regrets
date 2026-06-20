@@ -20,7 +20,12 @@ import { readFileSync } from 'node:fs'
 const SCRIPTS_DIR = resolve(import.meta.dirname, '..', 'scripts')
 const INSTALL_JS = join(SCRIPTS_DIR, 'install.js')
 
-const TMP = resolve(join(process.cwd(), 'tests', '__red_team_tmp__'))
+// Use a unique tmp dir per test file to avoid parallel-run collisions with
+// tests/install-red-team.test.js (which uses __red_team_tmp__). When both
+// files run in the same `node --test tests/*.test.js` invocation, sharing
+// the same tmp dir causes one file's `cleanupFixtures()` to wipe the
+// other's in-flight fixtures. Distinct dirs eliminate the race.
+const TMP = resolve(join(process.cwd(), 'tests', '__red_team_fixes_tmp__'))
 
 function setupFixtures() {
   mkdirSync(TMP, { recursive: true })

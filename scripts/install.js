@@ -412,6 +412,145 @@ function detectStack(ext) {
   return 'js'
 }
 
+// ─── Class & class-method detection (Issue #270) ──────────────────────────────
+//
+// Problem: `extractExportedFunctions` only matches top-level export patterns
+// (export function, module.exports.X, ...). It does NOT walk class bodies,
+// so when a class is exported via `module.exports = { Calculator }` or
+// `export class Calculator`, only the class name `Calculator` ends up in
+// `publicFns` — the methods (`add`, `multiply`, ...) are invisible to the
+// install.js callee-computation loop.
+//
+// Meanwhile, `analyzer.js` registers class methods as `method_definition`
+// nodes and emits call edges like `{ from: 'multiply', to: 'add' }` for
+// `this.add(...)` inside `multiply`. These edges are dropped by install.js's
+// filter `edges.filter(e => e.from === fnName)` because no `fnName` in
+// `publicFns` matches a method name.
+//
+// Fix: when computing callees for a cluster whose `entry` is a class name,
+// include edges whose `from` is ANY method of that class (and whose `to` is
+// in `definedNames`, so external method names like `arr.map` are still
+// filtered out). This surfaces the analyzer's work in the manifest so the
+// user can see "Calculator has internal method calls to: add" instead of
+// silently getting no callees.
+//
+// This is a conservative fix — we don't try to emit per-method clusters
+// (which would require deeper changes to capture.js's classMethod handling).
+// We only preserve the callee information for the class-level cluster.
+
+/**
+ * Detect top-level class declarations in a JS/TS source file and collect
+ * each class's public method names. Returns a Map<string, string[]> where
+ * the key is the class name and the value is an array of method names.
+ *
+ * Recognized patterns:
+ *   - `class Foo { ... }`                  → Foo: [method names]
+ *   - `export class Foo { ... }`           → Foo: [method names]
+ *   - `export default class Foo { ... }`   → Foo: [method names]
+ *
+ * Method detection: simple regex over the class body — matches lines like
+ *   `methodName(...) {`    `async methodName(...) {`
+ *   `static methodName(...) {`    `get methodName() {`    `set methodName(...) {`
+ * Skips constructor, private (#prefixed), and underscore-prefixed methods
+ * (consistent with extractExportedFunctions's underscore-skip policy).
+ *
+ * For Python: returns an empty Map — Python class methods are tracked
+ * separately via `def` inside `class`, and analyzer.js already registers
+ * them as functions. The install.js callee loop will pick them up via the
+ * normal `edges.filter(e => e.from === fnName)` path because Python's
+ * `extractExportedFunctions` returns ALL top-level `def`s including class
+ * methods (a known quirk; not the bug being fixed here).
+ */
+function detectClassMethods(source, ext) {
+  const classes = new Map()
+  if (ext !== '.js' && ext !== '.mjs' && ext !== '.cjs' && ext !== '.ts' && ext !== '.tsx') {
+    return classes
+  }
+
+  // Find each `class Name {` declaration (with optional `export`/`export default`).
+  // We use a simple brace-matching walk to extract the class body, then
+  // regex-scan the body for method definitions.
+  const classDeclRe = /(?:export\s+(?:default\s+)?)?class\s+([A-Z_$][\w$]*)\s*(?:extends\s+[A-Z_$][\w$.]*)?\s*\{/g
+  let match
+  while ((match = classDeclRe.exec(source)) !== null) {
+    const className = match[1]
+    const bodyStart = match.index + match[0].length - 1  // position of `{`
+    // Walk to find the matching closing brace, respecting strings and comments.
+    let depth = 1
+    let i = bodyStart + 1
+    let inString = false
+    let stringChar = ''
+    let inLineComment = false
+    let inBlockComment = false
+    while (i < source.length && depth > 0) {
+      const ch = source[i]
+      const next = source[i + 1]
+
+      if (inLineComment) {
+        if (ch === '\n') inLineComment = false
+        i++
+        continue
+      }
+      if (inBlockComment) {
+        if (ch === '*' && next === '/') { inBlockComment = false; i += 2; continue }
+        i++
+        continue
+      }
+      if (inString) {
+        if (ch === '\\') { i += 2; continue }
+        if (ch === stringChar) inString = false
+        i++
+        continue
+      }
+
+      if (ch === '/' && next === '/') { inLineComment = true; i += 2; continue }
+      if (ch === '/' && next === '*') { inBlockComment = true; i += 2; continue }
+      if (ch === '"' || ch === "'" || ch === '`') { inString = true; stringChar = ch; i++; continue }
+
+      if (ch === '{') depth++
+      else if (ch === '}') depth--
+      i++
+    }
+
+    const body = source.slice(bodyStart + 1, i - 1)
+    // Match method definitions: optional modifiers, name, optional params, `{`
+    // Examples we want to match:
+    //   add(a, b) {
+    //   async add(a, b) {
+    //   static add(a, b) {
+    //   get value() {
+    //   set value(v) {
+    //   #private() {          ← skipped (private)
+    //   _internal() {         ← skipped (underscore prefix)
+    //   constructor() {       ← skipped
+    const methodRe = /(?:^|\n)\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?([a-zA-Z_$][\w$]*)\s*\([^)]*\)\s*\{/g
+    const methods = []
+    let m
+    while ((m = methodRe.exec(body)) !== null) {
+      const name = m[1]
+      if (name === 'constructor') continue
+      if (name.startsWith('_')) continue
+      // Skip getter/setter accessor names that share the method-re — they're
+      // valid method names but install.js only wraps function-like callees.
+      // (No change in behavior here — we keep them; analyzer edges for
+      //  `this.foo` inside a getter would be matched anyway.)
+      methods.push(name)
+    }
+
+    // Dedupe while preserving first-appearance order.
+    const seen = new Set()
+    const unique = []
+    for (const m of methods) {
+      if (!seen.has(m)) { seen.add(m); unique.push(m) }
+    }
+    if (unique.length > 0) {
+      classes.set(className, unique)
+    }
+  }
+
+  return classes
+}
+
 // ─── Python module path resolver ──────────────────────────────────────────────
 //
 // Issue #279: capture.py expects a Python cluster to declare `module` as a
@@ -636,7 +775,7 @@ function serializeOutput(val) {
  * Skips Python, clusters with user-provided inputs, and clusters whose
  * module cannot be imported.
  */
-async function probeTrivialOutputs(cluster) {
+async function probeTrivialOutputs(cluster, baseDir = projectRoot) {
   // Only probe clusters with auto-generated default inputs
   if (!isAutoGeneratedInputs(cluster.inputs)) return { trivial: false }
 
@@ -645,7 +784,16 @@ async function probeTrivialOutputs(cluster) {
     return { trivial: false }
   }
 
-  const absPath = resolve(projectRoot, cluster.file)
+  // Issue #265 / #294: resolve `cluster.file` relative to the scope's
+  // capture cwd (the package subfolder in workspace mode, the scoped
+  // directory in flat-directory mode), NOT the global projectRoot.
+  // `cluster.file` is stored relative to `scopeRoot` (passed to
+  // installForScope), which may differ from `process.cwd()` when the
+  // user runs `regret install --scope <subdir>` from a parent dir.
+  // Using the wrong base → existsSync() returns false → guard silently
+  // returns `{ trivial: false }` → cluster is captured with NaN/null
+  // outputs.
+  const absPath = resolve(baseDir, cluster.file)
   if (!existsSync(absPath)) return { trivial: false }
 
   let rawModule
@@ -852,12 +1000,33 @@ async function installForScope({
     // languages or when tree-sitter returns no results (e.g. parse errors).
     // This prevents false positives like unclosed strings being interpreted
     // as function declarations by the regex extractor.
+    //
+    // #270 (#312 merge): When a file contains exported classes, the regex
+    // extractor returns the CLASS NAMES (e.g. `Calculator`) while tree-sitter
+    // returns the METHOD NAMES (e.g. `add`, `multiply`). The callee-tracking
+    // logic below (`detectClassMethods` + `callerNames`) depends on class
+    // names being in `publicFns` so it can look up the class's methods.
+    // Strategy: run both extractors. If `extractExportedFunctions` returns
+    // any class names (detected via `detectClassMethods`), prefer the regex
+    // result — that's the only way to surface class-as-cluster behavior.
+    // Otherwise prefer tree-sitter (more accurate for plain function files).
+    //
+    // We compute `classMethodsMap` ONCE here and reuse it in the callee
+    // phase below — avoids a second regex scan of the same source.
+    const classMethodsMap = detectClassMethods(source, ext)
     const lang = await detectLanguage(filePath)
     let fns
     if (lang !== 'unknown') {
       const scope = await analyzeScope(filePath)
       const scopeFns = scope.functions.map(f => f.name)
-      fns = scopeFns.length > 0 ? scopeFns : extractExportedFunctions(source, ext)
+      const regexFns = extractExportedFunctions(source, ext)
+      if (classMethodsMap.size > 0 && regexFns.length > 0) {
+        fns = regexFns
+      } else if (scopeFns.length > 0) {
+        fns = scopeFns
+      } else {
+        fns = regexFns
+      }
     } else {
       fns = extractExportedFunctions(source, ext)
     }
@@ -878,6 +1047,19 @@ async function installForScope({
     //      which are not defined in the same file and therefore cannot be
     //      wrapped as ghost callees anyway.
     //
+    // Issue #270 — class-based code: `extractExportedFunctions` returns
+    // class NAMES (e.g. `Calculator`) but NOT class METHOD names. The
+    // analyzer, however, registers methods as `method_definition` and
+    // emits edges like `{ from: 'multiply', to: 'add' }` for `this.add()`
+    // inside `multiply`. The basic `e.from === fnName` filter would miss
+    // these edges because no `fnName` matches a method name.
+    //
+    // Fix: when `fnName` is a class name (detected via `detectClassMethods`),
+    // ALSO include edges whose `from` is any method of that class — the
+    // methods are the actual call sites inside the class, and their `to`
+    // callees (filtered to in-file defined names) are what the user wants
+    // to see as "Calculator has internal calls to: add, ...".
+    //
     // Failure contract: analyzeScope returns { functions: [], edges: [] }
     // for unknown languages, parse errors, missing WASM grammars, or I/O
     // errors. In all those cases calleesByFn stays empty, no `callees`
@@ -887,20 +1069,41 @@ async function installForScope({
     // We analyze the file once (not once per function) since the AST is
     // shared across all functions in the file. analyzeScope is async
     // (lazy WASM init), so this loop is awaited.
+    // `classMethodsMap` was already computed above (during function-list
+    // resolution) — we reuse it here to avoid a second regex scan.
     const calleesByFn = new Map()
     try {
       const { functions: analysisFns, edges } = await analyzeScope(filePath)
       if (analysisFns.length > 0) {
         const definedNames = new Set(analysisFns.map(f => f.name))
         for (const fnName of publicFns) {
+          // Build the list of "caller names" whose edges we want to include
+          // for this cluster. Normally just [fnName]. But when fnName is a
+          // class, we also include the class's method names — analyzer
+          // edges have `from: <methodName>`, not `from: <className>`, so
+          // we must match on method names to surface class-internal calls.
+          const callerNames = new Set([fnName])
+          const methods = classMethodsMap.get(fnName)
+          if (methods) {
+            for (const m of methods) callerNames.add(m)
+          }
+
           const callees = edges
-            .filter(e => e.from === fnName)
-            // #287: When an edge is a method call (isMethod: true) on an
-            // object that is NOT `this` or `super`, it should NOT be matched
-            // to a bare function with the same name. For example,
+            // #312 (#270): include edges from any caller in `callerNames`
+            // (fnName itself PLUS class method names when fnName is a class
+            // — analyzer edges have `from: <methodName>`, not `from:
+            // <className>`, so we must match on method names to surface
+            // class-internal calls). This is a SUPERSET of the simpler
+            // `e.from === fnName` filter that origin/main used pre-#312.
+            .filter(e => callerNames.has(e.from))
+            // #308 (#287): When an edge is a method call (isMethod: true)
+            // on an object that is NOT `this` or `super`, it should NOT be
+            // matched to a bare function with the same name. For example,
             // `obj.process()` should not resolve to the standalone `process`
             // function. Method calls on `this`/`super` ARE included because
             // they likely refer to class methods defined in the same file.
+            // This filter composes with the `callerNames` filter above —
+            // both must pass for the edge to be included.
             .filter(e => {
               if (!e.isMethod) return true // bare call — always include
               // Method call: only include if receiver is `this` or `super`
@@ -943,18 +1146,6 @@ async function installForScope({
         }
       }
 
-      // Build cluster — stack-dependent field naming.
-      //
-      // JS/TS clusters use `file` (a filesystem path) because capture.js
-      // resolves it via `pathToFileURL(resolve(cwd, file))`.
-      //
-      // Python clusters use `module` (dotted import path) + optional
-      // `pythonPath` (package root to add to sys.path) because capture.py
-      // calls `importlib.import_module(module)`. Issue #279: previously
-      // install.js emitted `file: "src/foo.py"` for Python clusters, which
-      // capture.py fell back to and then crashed with ModuleNotFoundError
-      // (issue #274). The `file` field is intentionally omitted for Python
-      // clusters so the contract is unambiguous: `module` is authoritative.
       const cluster = {
         id: clusterId,
         entry: fnName,
@@ -964,6 +1155,13 @@ async function installForScope({
         inputs: [null, {}],
       }
 
+      // #279 / #309: For Python clusters, emit `module` (dotted import path)
+      // and optional `pythonPath` (package root) instead of `file`. capture.py
+      // expects `module` and falls back to `file` only as a last resort —
+      // but the fallback path uses importlib.import_module(file) which
+      // crashes with ModuleNotFoundError for paths like "src/foo.py" (issue
+      // #274). The `file` field is intentionally omitted for Python clusters
+      // so the contract is unambiguous: `module` is authoritative.
       if (stack === 'python') {
         const { module: pyModule, pythonPath: pyPath } = filePathToPythonModule(filePathForManifest)
         cluster.module = pyModule
@@ -992,6 +1190,24 @@ async function installForScope({
 
   const totalFiles = allFiles.length
   console.log(`Found ${totalFunctions} exported functions across ${totalFiles} files\n`)
+
+  // Issue #296 — empty folder (or folder with only non-source files):
+  // explicitly tell the user no files were found and that no manifest will
+  // be written. Returning `noFiles: true` lets the caller (main / workspace
+  // summary) skip the misleading "Next steps: regret validate" section.
+  if (totalFiles === 0) {
+    console.log(`ℹ️  No source files found in '${scopeLabel}' — manifest not created.`)
+    console.log('   Supported extensions: .js, .mjs, .cjs, .ts, .tsx, .py\n')
+    return {
+      totalFiles: 0,
+      totalFunctions: 0,
+      captured: 0,
+      skipped: 0,
+      trivialSkipped: 0,
+      skippedDetails: [],
+      noFiles: true,
+    }
+  }
 
   if (totalFunctions === 0) {
     console.log('⚠️  No exported functions found.')
@@ -1022,13 +1238,26 @@ async function installForScope({
   // ── Step 5b: Trivial-inputs guard ────────────────────────────────────────────
   let trivialSkipped = 0
   const trivialSkippedIds = []
+  // Issue #268 — preserve the full cluster objects that get trivial-skipped
+  // (with their auto-detected callees intact). When ALL new clusters are
+  // trivial-skipped and there are no existing clusters, we write these
+  // definitions to install-skipped.txt so the user can review/edit/re-run
+  // without losing the analyzer's auto-detected callees info.
+  const trivialSkippedClusters = []
 
   if (newClusters.length > 0 && !dryRun) {
     console.log('Probing auto-generated inputs for trivial output...\n')
 
     const probeResults = []
     for (const cluster of newClusters) {
-      const probe = await probeTrivialOutputs(cluster)
+      // Issue #265 / #294 — pass cwdForCapture (the scope's capture base
+      // dir) so probeTrivialOutputs resolves `cluster.file` against the
+      // correct directory. Without this, workspace mode resolves against
+      // the workspace root (which doesn't contain the package's relative
+      // `cluster.file` path), existsSync() returns false, and the guard
+      // silently returns `{ trivial: false }` — bypassing the trivial
+      // check entirely.
+      const probe = await probeTrivialOutputs(cluster, cwdForCapture)
       probeResults.push({ cluster, probe })
     }
 
@@ -1037,6 +1266,7 @@ async function installForScope({
       if (probe.trivial) {
         trivialSkipped++
         trivialSkippedIds.push(cluster.id)
+        trivialSkippedClusters.push({ cluster, reason: probe.reason })
         process.stderr.write(
           `⚠️  Cluster "${cluster.entry}" skipped — ${probe.reason}. Add meaningful inputs manually in regrets/manifest.json.\n`
         )
@@ -1049,6 +1279,89 @@ async function installForScope({
 
     if (trivialSkipped > 0) {
       console.log('')
+    }
+  }
+
+  // Issue #268 — when ALL new clusters are trivial-skipped and no existing
+  // clusters are present, do NOT write an empty manifest. Instead:
+  //   1. Write install-skipped.txt with each skipped cluster's full
+  //      definition (preserving auto-detected callees) so the user can
+  //      manually edit inputs and re-run, or paste into manifest.json.
+  //   2. Print a clear summary explaining what happened and where to look.
+  //   3. Skip the capture step entirely (no point capturing with [null, {}]
+  //      inputs — they would all fail again).
+  //
+  // When there are existing clusters, we still write the manifest (with
+  // only existing clusters, since newClusters is empty). The user has
+  // already opted into that manifest, so writing it is not "empty without
+  // explanation" — the existing clusters ARE the manifest content.
+  const allNewTrivialSkipped =
+    newClusters.length === 0 &&
+    trivialSkipped > 0 &&
+    existingClusters.length === 0
+
+  if (allNewTrivialSkipped && !dryRun) {
+    const skipLogPath = resolve(manifestDir, 'install-skipped.txt')
+    mkdirSync(manifestDir, { recursive: true })
+    const lines = [
+      'Regrets Install — All Clusters Trivial-Skipped',
+      '================================================',
+      `Date: ${new Date().toISOString()}`,
+      `Scope: ${scopeLabel}`,
+      `Functions found: ${totalFunctions}`,
+      `All ${trivialSkipped} cluster(s) skipped — auto-generated inputs [null, {}]`,
+      'produced trivial outputs (null/undefined/NaN/throws).',
+      '',
+      'The cluster definitions below are preserved WITH their auto-detected',
+      'callees so you can manually edit inputs and re-run. To proceed:',
+      '',
+      '  1. Pick a cluster definition from below.',
+      '  2. Edit "inputs": [null, {}] to meaningful values for that function.',
+      '  3. Paste the edited cluster into regrets/manifest.json (create the',
+      '     file if needed, with format: { "clusters": [ <cluster>, ... ] }).',
+      '  4. Run: regret capture --cluster <cluster-id>',
+      '',
+      'Or run `regret install` again after adding meaningful inputs to a',
+      'manifest.json you create manually — install will detect existing',
+      'clusters by ID and skip re-probing, then capture with your inputs.',
+      '',
+      '═══════════════════════════════════════════════════════════════════════',
+      '',
+    ]
+    for (const { cluster, reason } of trivialSkippedClusters) {
+      lines.push(`Cluster: ${cluster.id}`)
+      lines.push(`Entry:   ${cluster.entry}`)
+      lines.push(`File:    ${cluster.file}`)
+      lines.push(`Stack:   ${cluster.stack}`)
+      lines.push(`Reason:  ${reason}`)
+      if (cluster.callees && cluster.callees.length > 0) {
+        lines.push(`Callees: ${cluster.callees.join(', ')}`)
+      } else {
+        lines.push(`Callees: (none auto-detected)`)
+      }
+      lines.push('')
+      lines.push('Cluster definition (JSON):')
+      lines.push(JSON.stringify(cluster, null, 2))
+      lines.push('')
+      lines.push('───────────────────────────────────────────────────────────────────────')
+      lines.push('')
+    }
+    writeFileSync(skipLogPath, lines.join('\n'), 'utf8')
+
+    console.log(`ℹ️  All ${trivialSkipped} cluster(s) skipped due to trivial inputs.`)
+    console.log(`   No manifest written — cluster definitions (with auto-detected callees)`)
+    console.log(`   saved to: ${relative(projectRoot, skipLogPath)}`)
+    console.log(`   Edit inputs in the cluster definitions, paste into regrets/manifest.json,`)
+    console.log(`   then run: regret capture\n`)
+
+    return {
+      totalFunctions,
+      totalFiles,
+      captured: 0,
+      skipped: 0,
+      trivialSkipped,
+      skippedDetails: [],
+      allTrivialSkipped: true,
     }
   }
 
@@ -1078,6 +1391,9 @@ async function installForScope({
     if (existingIds.size > 0) {
       console.log(`${existingIds.size} existing clusters preserved`)
     }
+    if (trivialSkipped > 0) {
+      console.log(`${trivialSkipped} cluster(s) would be trivial-skipped (not added to manifest)`)
+    }
     console.log('\nRun without --dry-run to write manifest and capture fingerprints.')
     return { totalFunctions, captured: 0, skipped: 0, trivialSkipped, skippedDetails: [], totalFiles }
   }
@@ -1092,6 +1408,57 @@ async function installForScope({
     console.log(`✅ ${manifestRelPath} written (${mergedClusters.length} clusters, ${newClusters.length} new)\n`)
   } else {
     console.log('No new clusters to add — all functions already in manifest.\n')
+  }
+
+  // Issue #268 (partial-skip case) — also surface trivial-skipped cluster
+  // definitions in install-skipped.txt so the user can review them even
+  // when some clusters DID make it into the manifest.
+  if (trivialSkipped > 0 && !allNewTrivialSkipped) {
+    const skipLogPath = resolve(manifestDir, 'install-skipped.txt')
+    const lines = [
+      'Regrets Install — Trivial-Skipped Clusters',
+      '============================================',
+      `Date: ${new Date().toISOString()}`,
+      `Scope: ${scopeLabel}`,
+      '',
+      'The following clusters were skipped because auto-generated inputs',
+      '[null, {}] produced trivial outputs (null/undefined/NaN/throws).',
+      'Other clusters from this scope WERE captured — check manifest.json.',
+      '',
+      'Cluster definitions are preserved below with auto-detected callees',
+      'so you can manually edit inputs and capture them later.',
+      '',
+      '═══════════════════════════════════════════════════════════════════════',
+      '',
+    ]
+    for (const { cluster, reason } of trivialSkippedClusters) {
+      lines.push(`Cluster: ${cluster.id}`)
+      lines.push(`Entry:   ${cluster.entry}`)
+      lines.push(`File:    ${cluster.file}`)
+      lines.push(`Stack:   ${cluster.stack}`)
+      lines.push(`Reason:  ${reason}`)
+      if (cluster.callees && cluster.callees.length > 0) {
+        lines.push(`Callees: ${cluster.callees.join(', ')}`)
+      } else {
+        lines.push(`Callees: (none auto-detected)`)
+      }
+      lines.push('')
+      lines.push('Cluster definition (JSON):')
+      lines.push(JSON.stringify(cluster, null, 2))
+      lines.push('')
+      lines.push('───────────────────────────────────────────────────────────────────────')
+      lines.push('')
+    }
+    // If install-skipped.txt already exists (from runtime-skipped clusters),
+    // append rather than overwrite — both kinds of skips belong together.
+    let existingLog = ''
+    try { existingLog = readFileSync(skipLogPath, 'utf8') } catch { /* no existing log */ }
+    const newContent = lines.join('\n')
+    if (existingLog) {
+      writeFileSync(skipLogPath, existingLog + '\n\n' + newContent, 'utf8')
+    } else {
+      writeFileSync(skipLogPath, newContent, 'utf8')
+    }
   }
 
   // ── Step 8: Run capture ─────────────────────────────────────────────────────
@@ -1163,9 +1530,6 @@ async function installForScope({
       console.log(`⚠️  ${cluster.id} [${relPath}] skipped — ${reasonLabel}`)
       skippedDetails.push({
         id: cluster.id,
-        // Preserve whichever field the cluster actually carries so the
-        // install-skipped.txt log is informative for both JS/TS (file)
-        // and Python (module) clusters.
         file: relPath,
         reason: reasonLabel,
         detail: result.detail || '',
@@ -1211,7 +1575,16 @@ async function installForScope({
 // ─── Print summary for a single scope ────────────────────────────────────────
 
 function printScopeSummary(result, scopeLabel) {
-  const { totalFiles, totalFunctions, captured, skipped, trivialSkipped, skippedDetails } = result
+  const {
+    totalFiles,
+    totalFunctions,
+    captured,
+    skipped,
+    trivialSkipped,
+    skippedDetails,
+    noFiles,
+    allTrivialSkipped,
+  } = result
 
   console.log('')
   console.log('📊 Install Summary')
@@ -1237,6 +1610,27 @@ function printScopeSummary(result, scopeLabel) {
     }
   } else {
     console.log(`   Skipped: 0`)
+  }
+
+  // Issue #296 — empty folder: do NOT print "Next steps: regret validate".
+  // There is no manifest to validate, so suggesting validate is misleading.
+  if (noFiles) {
+    console.log('')
+    console.log(`ℹ️  No source files found in '${scopeLabel}' — nothing to validate.`)
+    console.log('   Add source files (.js, .mjs, .cjs, .ts, .tsx, .py) and re-run.')
+    return
+  }
+
+  // Issue #268 — all clusters trivial-skipped: do NOT suggest validate
+  // (there is no manifest). Direct the user to install-skipped.txt instead.
+  if (allTrivialSkipped) {
+    console.log('')
+    console.log('Next steps:')
+    console.log('• Review install-skipped.txt — cluster definitions with auto-detected callees')
+    console.log('• Edit "inputs" in a cluster definition to meaningful values')
+    console.log('• Paste the edited cluster into regrets/manifest.json')
+    console.log('• Run: regret capture --cluster <cluster-id>')
+    return
   }
 
   console.log('')
@@ -1282,6 +1676,36 @@ async function main() {
 
     if (stat.isFile()) {
       // ── Mode 1: --scope points to a single file ───────────────────────────
+      //
+      // Issue #297 — file without extension (or with an unsupported extension)
+      // must NOT silently be parsed as JavaScript. Previously, install.js set
+      // `allFiles = [singleFilePath]` without any extension check, so files
+      // like `Makefile`, `Dockerfile`, `LICENSE`, or `noext` would fall into
+      // `extractExportedFunctions` with `ext = ''` and the internal regex
+      // could match `function foo()` patterns — producing bogus clusters.
+      //
+      // Fix: validate the extension BEFORE handing off to installForScope.
+      // If the file's extension is not in the supported set (respecting the
+      // `--stack` filter if provided), exit with a clear error. This makes
+      // single-file mode consistent with directory mode (which filters by
+      // extension in `discoverFiles`).
+      const fileExt = extname(absScopePath)
+      const allSupportedExts = [...EXTENSIONS.js, ...EXTENSIONS.ts, ...EXTENSIONS.python]
+      if (!allSupportedExts.includes(fileExt)) {
+        const extLabel = fileExt === '' ? 'no extension' : `'${fileExt}'`
+        console.error(`❌ Scope path '${scopePath}' has unsupported file extension (${extLabel}).`)
+        console.error(`   Supported: ${allSupportedExts.join(', ')}`)
+        console.error(`   If this file truly contains JS/TS/Python source, rename it to use a supported extension.`)
+        process.exit(1)
+      }
+      // If --stack was specified, additionally check the file matches that stack.
+      if (stackFilter && !(EXTENSIONS[stackFilter] || []).includes(fileExt)) {
+        const actualStack = detectStack(fileExt)
+        console.error(`❌ Scope path '${scopePath}' is a '${actualStack}' file but --stack ${stackFilter} was specified.`)
+        console.error(`   Either drop --stack or point --scope at a ${stackFilter} file.`)
+        process.exit(1)
+      }
+
       console.log(`Scope: single file — ${scopePath}\n`)
 
       const result = await installForScope({
@@ -1347,14 +1771,34 @@ async function main() {
         let totalTrivial = 0
         let totalFunctions = 0
         let grandTotalFiles = 0
+        let packagesWithNoFiles = 0
+        let packagesAllTrivialSkipped = 0
 
         for (const { name, result } of allResults) {
-          const status = result.captured > 0 ? '✅' : (result.totalFunctions === 0 ? '⏭️ ' : '⚠️ ')
+          // Issue #296 — distinguish "no files in this package" from
+          // "files present but 0 functions". Both currently get ⏭️, but
+          // the no-files case is more concerning (user pointed --scope at
+          // the wrong folder).
+          let status
+          if (result.noFiles) {
+            status = '⏭️ '
+            packagesWithNoFiles++
+          } else if (result.allTrivialSkipped) {
+            status = '⚠️ '
+            packagesAllTrivialSkipped++
+          } else if (result.captured > 0) {
+            status = '✅'
+          } else if (result.totalFunctions === 0) {
+            status = '⏭️ '
+          } else {
+            status = '⚠️ '
+          }
           const skipParts = []
           if (result.skipped > 0) skipParts.push(`${result.skipped} runtime`)
           if (result.trivialSkipped > 0) skipParts.push(`${result.trivialSkipped} trivial`)
           const skipStr = skipParts.length > 0 ? `, ${skipParts.join(' + ')} skipped` : ''
-          console.log(`  ${status} ${name}: ${result.captured} captured, ${result.totalFiles} file(s)${skipStr}`)
+          const noFilesStr = result.noFiles ? ', no source files' : ''
+          console.log(`  ${status} ${name}: ${result.captured} captured, ${result.totalFiles} file(s)${skipStr}${noFilesStr}`)
           totalCaptured += result.captured
           totalSkipped += result.skipped
           totalTrivial += result.trivialSkipped
@@ -1382,6 +1826,25 @@ async function main() {
           console.log(`   Skipped: 0`)
         }
         console.log(`   ${packagesWithCaptures}/${totalPackages} package(s) have clusters installed`)
+
+        // Issue #296 / #268 — when EVERY package came back empty or all-
+        // trivial-skipped, do not leave the user with the impression that
+        // `regret validate` is the next step. There is no manifest to
+        // validate in any package.
+        if (packagesWithCaptures === 0 && packagesWithNoFiles + packagesAllTrivialSkipped === totalPackages) {
+          console.log('')
+          if (packagesWithNoFiles === totalPackages) {
+            console.log(`ℹ️  No source files found in any of the ${totalPackages} package(s) — nothing to validate.`)
+            console.log('   Add source files (.js, .mjs, .cjs, .ts, .tsx, .py) and re-run.')
+          } else if (packagesAllTrivialSkipped === totalPackages) {
+            console.log(`ℹ️  All ${totalTrivial} cluster(s) across all packages were trivial-skipped.`)
+            console.log('   See install-skipped.txt in each package directory for cluster definitions.')
+            console.log('   Edit inputs, paste into manifest.json, then run: regret capture')
+          } else {
+            console.log(`ℹ️  No clusters were captured across the ${totalPackages} package(s).`)
+            console.log('   See per-package messages above for details.')
+          }
+        }
 
       } else {
         // ── Mode 2: flat directory ──────────────────────────────────────────
