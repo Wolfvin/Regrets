@@ -16,9 +16,24 @@ import { deepClone } from './ghost.js'
  *   - Functions → "__function__" placeholder (JSON.stringify returns undefined)
  *   - Date → ISO string (JSON.stringify drops it to "{}" via .toJSON)
  *   - Symbol → "__symbol__" placeholder (not JSON-serializable)
+ *   - NaN → "__nan__" sentinel (JSON.stringify would emit "null" — issue #322)
+ *   - Infinity → "__infinity__" sentinel (JSON.stringify would emit "null" — issue #322)
+ *   - -Infinity → "__neg_infinity__" sentinel (JSON.stringify would emit "null" — issue #322)
  */
 export function stableStringify(obj, _seen = null) {
   if (obj === null || obj === undefined) return String(obj)
+  // Sentinel handling for non-finite numbers.
+  // JSON.stringify serializes NaN, Infinity, and -Infinity all as "null",
+  // which causes (a) misleading .regret files (OUTPUT null when the function
+  // actually returned NaN) and (b) hash collisions (NaN → null refactor is
+  // undetectable). Short-circuit BEFORE the JSON.stringify fallback so both
+  // top-level and recursively-visited values get distinct sentinel strings.
+  // See issue #322.
+  if (typeof obj === 'number') {
+    if (Number.isNaN(obj)) return '"__nan__"'
+    if (obj === Infinity) return '"__infinity__"'
+    if (obj === -Infinity) return '"__neg_infinity__"'
+  }
   // Handle BigInt — serialize as tagged string for deterministic representation
   // e.g., 18n → "__bigint__:18" — collision-resistant tag prevents confusion with
   // real strings that happen to start with "BigInt:"

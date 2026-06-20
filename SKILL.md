@@ -496,6 +496,31 @@ Properties:
 - **Short** — 7 chars, human memorable (`9jadb`)
 - **Opaque** — reveals nothing about internals, only that contract held
 
+### Sentinel serialization for non-finite numbers (BREAKING — issue #322)
+
+`stableStringify` short-circuits the three non-finite JS number values **before**
+falling through to `JSON.stringify`, because the latter maps all of them to `"null"`:
+
+| Value         | Sentinel              |
+|---------------|-----------------------|
+| `NaN`         | `"__nan__"`           |
+| `Infinity`    | `"__infinity__"`      |
+| `-Infinity`   | `"__neg_infinity__"`  |
+
+This is applied **recursively** — a `NaN` nested inside `{ a: NaN, b: [Infinity] }`
+is also serialized with the sentinels, not collapsed to `null`. As a result:
+
+1. `.regret` files accurately reflect the function's actual return value
+   (no more `OUTPUT null` when the function returned `NaN`).
+2. A refactor that changes `NaN` → `null` (or `Infinity` → `-Infinity`) is
+   now detectable — previously these were silent hash collisions.
+
+**BREAKING CHANGE.** `.regret` files captured before this fix whose output
+contained `NaN`, `Infinity`, or `-Infinity` will now produce a different
+fingerprint. Users must `regret capture` again for affected clusters. The old
+hashes were buggy (collided with `null`), so this is a correctness fix rather
+than a regression.
+
 ### Normalization Rules
 
 Non-deterministic values are normalized before hashing:
