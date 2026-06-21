@@ -1,0 +1,99 @@
+{
+  "clusters": [
+    {
+      "id": "invoice-card-paid",
+      "entry": "InvoiceCard",
+      "file": "src/InvoiceCard.js",
+      "stack": "react",
+      "renderMode": "static",
+      "fingerprintLevel": "entry",
+      "description": "Renders an InvoiceCard for a paid invoice — captures the full HTML structure with status badge, formatted amount, due date, and locale.",
+      "inputs": [
+        {
+          "invoice": {
+            "id": "INV-2026-0042",
+            "amount": 1250000,
+            "currency": "IDR",
+            "status": "paid",
+            "dueDate": "2026-06-30"
+          },
+          "locale": "id-ID"
+        }
+      ]
+    },
+    {
+      "id": "invoice-card-overdue",
+      "entry": "InvoiceCard",
+      "file": "src/InvoiceCard.js",
+      "stack": "react",
+      "renderMode": "static",
+      "fingerprintLevel": "entry",
+      "stripAttrs": ["data-invoice-id"],
+      "description": "Renders an InvoiceCard for an overdue invoice. Strips data-invoice-id so the fingerprint is stable across invoices with different IDs (we want to validate the rendering logic, not the ID).",
+      "inputs": [
+        {
+          "invoice": {
+            "id": "INV-2026-0099",
+            "amount": 75000.5,
+            "currency": "USD",
+            "status": "overdue",
+            "dueDate": "2026-05-15"
+          },
+          "locale": "en-US"
+        }
+      ]
+    },
+    {
+      "id": "invoice-card-multi-status",
+      "entry": "InvoiceCard",
+      "file": "src/InvoiceCard.js",
+      "stack": "react",
+      "renderMode": "static",
+      "fingerprintLevel": "entry",
+      "stripAttrs": ["data-invoice-id"],
+      "description": "Multi-input cluster (Issue #315 parity): captures InvoiceCard across 4 status values (paid, unpaid, overdue, void). Each input becomes part of the .regret INPUTS contract — a refactor that breaks ONE status (e.g., changes only the 'void' label) is caught even when the other three still match the golden hashes. Without the INPUTS line, only the first input would be checked and the breaking change to input[1+] would be invisible.",
+      "inputs": [
+        {
+          "invoice": {
+            "id": "INV-2026-0001",
+            "amount": 100,
+            "currency": "USD",
+            "status": "paid",
+            "dueDate": "2026-07-01"
+          },
+          "locale": "en-US"
+        },
+        {
+          "invoice": {
+            "id": "INV-2026-0002",
+            "amount": 200,
+            "currency": "USD",
+            "status": "unpaid",
+            "dueDate": "2026-07-15"
+          },
+          "locale": "en-US"
+        },
+        {
+          "invoice": {
+            "id": "INV-2026-0003",
+            "amount": 300,
+            "currency": "USD",
+            "status": "overdue",
+            "dueDate": "2026-05-01"
+          },
+          "locale": "en-US"
+        },
+        {
+          "invoice": {
+            "id": "INV-2026-0004",
+            "amount": 400,
+            "currency": "USD",
+            "status": "void",
+            "dueDate": "2026-04-01"
+          },
+          "locale": "en-US"
+        }
+      ]
+    }
+  ]
+}

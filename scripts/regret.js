@@ -268,12 +268,17 @@ async function main() {
   case 'validate': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'css') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs]) && success
-      } else if (stack === 'css') {
-        success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'vue') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'react') {
+        // React components must be re-rendered via renderToStaticMarkup and
+        // fingerprinted against the rendered HTML. validate.js cannot do this
+        // — it would import the component and call it as a function, returning
+        // a React element object whose fingerprint never matches the captured
+        // HTML. Route to validate_react.mjs instead.
+        success = await run('node', [`${SCRIPTS_DIR}/validate_react.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
@@ -325,21 +330,18 @@ async function main() {
       if (cluster) targetStack = cluster.stack || 'js'
     } catch { /* default to js */ }
 
-    // #250 — `regret update <id> --reason "..."` must trigger update mode
-    // in the stack-specific validate script. Without --update, validate.js
-    // runs in regular validate mode (updateTarget=null → updateMode=false)
-    // and NEVER writes audit.log — making `regret update` a silent no-op
-    // for audit purposes. The #250 audit.log metadata (gitAuthor, gitSha,
-    // ciRunId) is only emitted from the update path, so the CLI command
-    // documented as "Safe update with audit trail" must actually reach it.
+    // Update the translation rules comment to include React (validate_react.mjs
+    // follows the same --update <id> shape as Python/PHP/Rust/Go, NOT the
+    // --update --cluster <id> shape used by validate.js).
     //
     // Translation rules (when the user did NOT already pass --update):
     //   `regret update <id> --reason "..."` (positional id)
     //     → JS/TS/CSS (validate.js): `--update --cluster <id> --reason "..."`
     //         validate.js treats --update as a bare flag (its presence
     //         triggers update mode; the cluster id comes from --cluster).
-    //     → Python/PHP/Rust/Go: `--update <id> --reason "..."`
-    //         validate.py expects the cluster id as the VALUE of --update.
+    //     → Python/PHP/Rust/Go/React: `--update <id> --reason "..."`
+    //         validate_react.mjs (and the others) expect the cluster id as
+    //         the VALUE of --update.
     //
     // If the user already provided --update (advanced usage), pass through
     // as-is to avoid double-inserting the flag.
@@ -354,7 +356,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -401,6 +403,10 @@ async function main() {
       success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...translatedArgs])
     } else if (targetStack === 'nim') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...translatedArgs])
+    } else if (targetStack === 'react') {
+      // validate_react.mjs expects --update <id> --reason "..." (same shape as
+      // Python/PHP/Rust/Go), so it goes through the same translatedArgs path.
+      success = await run('node', [`${SCRIPTS_DIR}/validate_react.mjs`, ...translatedArgs])
     } else {
       // js, ts use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -416,13 +422,15 @@ async function main() {
       ? []  // user provided --runs, don't add default
       : ['--drift-mode']
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react') {
+      if (stack === 'js' || stack === 'ts' || stack === 'css') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...driftDefault, ...passThroughArgs]) && success
-      } else if (stack === 'css') {
-        // validate_css.mjs doesn't have drift mode; run regular validate.
-        success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'vue') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...driftDefault, ...passThroughArgs]) && success
+      } else if (stack === 'react') {
+        // Drift detection for React: validate_react.mjs --runs N re-renders
+        // each captured component N times and flags clusters whose hash
+        // differs across runs (sign of non-deterministic render).
+        success = await run('node', [`${SCRIPTS_DIR}/validate_react.mjs`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'php') {
