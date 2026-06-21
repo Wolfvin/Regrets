@@ -180,11 +180,20 @@ while IFS= read -r cluster_line; do
   # Build expected array: one {input, hash?} per input from manifest.
   # The .regret file's HASH line gives us the expected hash for input[0].
   # For inputs 1+, the JS stack uses an INPUTS line (not yet ported here).
-  # For this first Kotlin PR, we validate input[0] against the .regret HASH
-  # and re-derive inputs 1+ for informational purposes (their hashes are
-  # not stored in the .regret file, so we can't compare — but the runner
-  # will print them).
+  # Issue #358 verification: parse the INPUTS line from the .regret file
+  # to get ALL expected hashes (not just the golden). This lets validate
+  # re-check every input, catching breaking refactors that only affect
+  # input 2+. Falls back to golden-only for old .regret files without INPUTS.
   EXPECTED_HASH=$(grep -m1 '^HASH ' "$REGRET_PATH" | sed 's/^HASH   //')
+  INPUTS_LINE=$(grep -m1 '^INPUTS ' "$REGRET_PATH" | sed 's/^INPUTS //')
+
+  # Build the expected array: if INPUTS line exists, use it; else fall back
+  # to golden-only (input 0 gets EXPECTED_HASH, inputs 1+ get null).
+  if [[ -n "$INPUTS_LINE" ]]; then
+    EXPECTED_ARRAY="$INPUTS_LINE"
+  else
+    EXPECTED_ARRAY=""
+  fi
 
   # Compile source + runner.
   COMPILE_DIR="${RUNNER_DIR}/classes-${CLUSTER_ID}"
@@ -205,25 +214,45 @@ while IFS= read -r cluster_line; do
   fi
 
   # Build invocation spec for validate mode: include expected hashes per input.
-  # For inputs 1+, we'd need them in the .regret file — for now, only the
-  # first input's hash is verified (matches the .regret golden). For inputs
-  # 2+, the runner prints their hashes for informational purposes.
-  INVOCATION_SPEC=$(echo "$cluster_line" | node -e "
-    const c = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-    const expectedHash = '${EXPECTED_HASH}';
-    const expected = c.inputs.map((inp, i) => ({
-      input: inp,
-      hash: i === 0 ? expectedHash : null,
-    }));
-    console.log(JSON.stringify({
-      function: c.entry,
-      package: c.kotlinPackage,
-      fileClassName: '${FILE_CLASS_NAME}',
-      multiArgs: c.multiArgs,
-      inputs: c.inputs,
-      expected: expected,
-    }));
-  ")
+  # If the .regret file has an INPUTS line, parse it and pass ALL hashes to
+  # the runner. Otherwise, fall back to golden-only (input 0 only).
+  if [[ -n "$EXPECTED_ARRAY" ]]; then
+    INVOCATION_SPEC=$(echo "$cluster_line" | node -e "
+      const c = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+      const inputsArr = JSON.parse('${EXPECTED_ARRAY}');
+      // inputsArr is [{hash, input, output}, ...] — extract hashes in order
+      const expected = inputsArr.map((e, i) => ({
+        input: c.inputs[i] !== undefined ? c.inputs[i] : e.input,
+        hash: e.hash || null,
+      }));
+      console.log(JSON.stringify({
+        function: c.entry,
+        package: c.kotlinPackage,
+        fileClassName: '${FILE_CLASS_NAME}',
+        multiArgs: c.multiArgs,
+        inputs: c.inputs,
+        expected: expected,
+      }));
+    ")
+  else
+    # Fallback: old .regret file without INPUTS — only validate input 0
+    INVOCATION_SPEC=$(echo "$cluster_line" | node -e "
+      const c = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+      const expectedHash = '${EXPECTED_HASH}';
+      const expected = c.inputs.map((inp, i) => ({
+        input: inp,
+        hash: i === 0 ? expectedHash : null,
+      }));
+      console.log(JSON.stringify({
+        function: c.entry,
+        package: c.kotlinPackage,
+        fileClassName: '${FILE_CLASS_NAME}',
+        multiArgs: c.multiArgs,
+        inputs: c.inputs,
+        expected: expected,
+      }));
+    ")
+  fi
 
   RUNNER_CP="${COMPILE_DIR}:${KOTLIN_LIB_DIR}/kotlin-stdlib.jar"
 
