@@ -7,15 +7,19 @@ clusters, run capture + validate, and the architecture of the runner.
 
 ### Requirements
 
-- **Zig 0.13.0+** on `PATH` or at `$ZIG_BIN`. Verified with 0.13.0; newer
-  versions may work but are untested. Install from <https://ziglang.org/download/>.
+- **Zig 0.14+** on `PATH` or at `$ZIG_BIN`. Verified with 0.16.0; older
+  versions (0.13 and earlier) are **NOT compatible** — the runner template
+  uses `std.heap.DebugAllocator`, `std.StringArrayHashMapUnmanaged`, the
+  `std.ArrayList(T) = .empty` init pattern, `@typeInfo(T).@"fn"`, and
+  `std.os.linux.write/read` for I/O, all of which changed or were removed
+  in 0.14+. Install from <https://ziglang.org/download/>.
 - **Node.js 16+** on `PATH` (used for manifest JSON parsing — bash can't
   parse JSON natively).
 
 ### Verify installation
 
 ```sh
-zig version   # → 0.13.0
+zig version   # → 0.16.0 (or any 0.14+ version)
 node --version  # → v16+ (or higher)
 ```
 
@@ -84,21 +88,36 @@ bash scripts/validate_zig.sh --verbose
 ## Supported Function Signatures
 
 The per-cluster wrapper auto-detects the function's arity and arg types
-via `@typeInfo(@TypeOf(user.fn)).Fn.params`. Currently supported:
+via `@typeInfo(@TypeOf(user.fn)).@"fn".params` (the `.@"fn"` tag was
+named `.Fn` in Zig 0.13 and earlier — renamed in 0.14+ because `fn`
+became a reserved keyword).
+
+Currently supported (extended in this PR to cover red-team patterns):
 
 | Signature | Example | Notes |
 |---|---|---|
-| `(a: i64, b: i64) i64` | `add(a, b)` | Integer arithmetic |
-| `(allocator, name: []const u8, excited: bool) []u8` | `greet(alloc, name, excited)` | Allocator + 2 args |
-| `(allocator, input: []const u8) []u8` | `titleCaseWords(alloc, input)` | Allocator + 1 arg |
-| `(input: []const u8) []u8` | (future) | No-allocator 1-arg (not in proof) |
-| `(a: i64) i64` | (future) | Single integer arg |
+| `(a: i64, b: i64) i64` | `add(a, b)` | Integer arithmetic — original |
+| `(allocator, name: []const u8, excited: bool) []u8` | `greet(alloc, name, excited)` | Allocator + 2 args — original |
+| `(allocator, input: []const u8) []u8` | `titleCaseWords(alloc, input)` | Allocator + 1 arg — original |
+| `(input: []const u8) []u8` | (future) | No-allocator 1-arg |
+| `(a: i64) i64` | (future) | Single integer arg → integer |
+| `(a: i64) bool` | `isEven(n)` | **NEW** — int → bool (red-team) |
+| `(input: []const u8) i64` | `countWords(s)` | **NEW** — string → int, no error union (red-team) |
+| `(allocator, []const u8, i64) []u8` | `repeat(alloc, s, n)` | **NEW** — 3-arg with i64 third param (red-team) |
+| `(i64, i64) !i64` | `safeMul(a, b)` | **NEW** — error union auto-detected via `@typeInfo` (red-team) |
+
+### Error union auto-detection
+
+The wrapper inspects `@typeInfo(return_type)` at comptime. If the return
+is `.error_union`, the wrapper uses `try @call(...)`; otherwise it uses a
+plain `@call(...)`. This means functions like `countWords` (plain `i64`
+return) and `safeMul` (`!i64` return) both work without manifest changes.
 
 ### Unsupported
 
 - Arity > 3 (the wrapper's `callThree` is a stub).
-- Functions returning non-string/non-integer types (e.g. structs, arrays,
-  enums). Future work: extend `nativeToValue` to handle more types.
+- Functions returning struct/array/enum types. Future work: extend the
+  wrapper to handle more return types via `@typeInfo` dispatch.
 - Methods (functions on structs). Future work: add a `method` field to
   the manifest and generate a wrapper that instantiates the struct.
 
@@ -140,14 +159,28 @@ entry: <entry>
 stack: zig
 fingerprintLevel: entry
 multiArgs: <true|false>
-env: {"zig_version":"0.13.0"}
+env: {"zig_version":"0.16.0"}
 ---
 INPUT  <stable-stringified input>
 OUTPUT <stable-stringified output>
 HASH   <7-char base36>
 ```
 
-## Architecture
+## Red-team fixture
+
+`proof/zig_redteam/` exercises patterns NOT covered by `proof/zig/`:
+
+- `i64 → bool` (isEven) — different return type than any proof/zig cluster
+- `[]const u8 → i64` (countWords) — string in, int out, NO error union
+- `(allocator, []const u8, i64) → []u8` (repeat) — 3-arg with i64 third param
+- `(i64, i64) → !i64` (safeMul) — error union (auto-detected via `@typeInfo`)
+
+Run: `bash proof/zig_redteam/run_demo.sh` (3 phases: baseline → valid
+refactor → breaking refactor).
+
+These patterns exposed real gaps in the original wrapper template that
+this PR fixes (error union auto-detection, i64→bool, []const u8→i64,
+3-arg with i64).
 
 ### Shared runner (`regret_runner.zig`)
 
@@ -196,15 +229,27 @@ build dir as `user_source.zig` to work around this. If you see this
 error, make sure the `file` field in your manifest is a relative path
 from the project root (not an absolute path or a path with `..`).
 
-### `error: use of undeclared identifier 'Sha256'`
+### `error: no field named 'Fn' in union 'builtin.Type'`
 
-The runner uses `std.crypto.hash.sha2.Sha256`. If you see this error,
-your Zig version is too old (pre-0.13). Upgrade to 0.13.0+.
+Zig 0.14+ renamed the `@typeInfo` tag from `.Fn` to `.@"fn"` (because
+`fn` became a reserved keyword). The wrapper template in this PR uses
+`.@"fn"` — if you see this error, you're running a wrapper generated by
+an older version of `capture_zig.sh` that used `.Fn`. Re-run capture to
+regenerate.
 
-### `error: no field or member function named 'parseFromSliceLeaky'`
+### `error: root source file struct 'heap' has no member named 'GeneralPurposeAllocator'`
 
-Same as above — Zig 0.13+ required. The JSON API changed in 0.13;
-older versions used `std.json.Parser` which was removed.
+Zig 0.14+ replaced `std.heap.GeneralPurposeAllocator` with
+`std.heap.DebugAllocator`. The runner template in this PR uses
+`DebugAllocator` — if you see this error, you're running a runner
+generated by an older version of `capture_zig.sh`. Re-run capture to
+regenerate.
+
+### `error: no field or member function named 'writeAll' in 'Io.File'`
+
+Zig 0.16+ reworked the I/O API. The runner template in this PR uses
+`std.os.linux.write/read` directly (stable across versions) instead of
+`std.io.getStdOut().writer()`. Re-run capture to regenerate the runner.
 
 ### `UnsupportedSignature` error
 

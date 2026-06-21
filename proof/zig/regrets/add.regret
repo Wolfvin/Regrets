@@ -1,13 +1,13 @@
 cluster: add
 version: 1
 fingerprint: 63qoext
-captured: 2026-06-21T05:43:06.457Z
+captured: 2026-06-21T09:43:16.521Z
 watches: [add]
 entry: add
 stack: zig
 fingerprintLevel: entry
 multiArgs: true
-env: {"zig_version":"0.13.0"}
+env: {"zig_version":"0.16.0"}
 ---
 INPUT  [1,2]
 OUTPUT 3

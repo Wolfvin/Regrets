@@ -1,0 +1,14 @@
+cluster: safe-mul
+version: 1
+fingerprint: 1udz6ou
+captured: 2026-06-21T09:43:15.191Z
+watches: [safeMul]
+entry: safeMul
+stack: zig
+fingerprintLevel: entry
+multiArgs: true
+env: {"zig_version":"0.16.0"}
+---
+INPUT  [3,4]
+OUTPUT 12
+HASH   1udz6ou

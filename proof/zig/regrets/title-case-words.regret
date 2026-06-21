@@ -1,13 +1,13 @@
 cluster: title-case-words
 version: 1
 fingerprint: 4am2hvn
-captured: 2026-06-21T05:43:13.627Z
+captured: 2026-06-21T09:43:18.879Z
 watches: [titleCaseWords]
 entry: titleCaseWords
 stack: zig
 fingerprintLevel: entry
 multiArgs: false
-env: {"zig_version":"0.13.0"}
+env: {"zig_version":"0.16.0"}
 ---
 INPUT  "hello world"
 OUTPUT "Hello World"
