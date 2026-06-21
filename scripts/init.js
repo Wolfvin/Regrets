@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css']
+const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'react', 'vue']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -147,6 +147,24 @@ const templates = {
         ]
       }
     ]
+  },
+  vue: {
+    clusters: [
+      {
+        id: 'greeting-card',
+        entry: 'GreetingCard',
+        watches: ['GreetingCard'],
+        file: 'src/GreetingCard.mjs',
+        stack: 'vue',
+        fingerprintLevel: 'entry',
+        description: 'Vue 3 component rendered to HTML via @vue/server-renderer — replace with your actual cluster definitions',
+        inputs: [
+          { name: 'World' },
+          { name: 'Vue' },
+          { name: '' }
+        ]
+      }
+    ]
   }
 }
 
@@ -221,6 +239,13 @@ if (stack === 'css') {
   console.log(`📦 Note for CSS stack: CSS uses the JS runner (capture.js / validate.js).`)
   console.log(`   Your module should export a function that takes CSS input and returns the transformed output.`)
   console.log(`   See references/css-stack-guide.md for PostCSS, Sass, and CSS-in-JS examples.`)
+}
+if (stack === 'vue') {
+  console.log()
+  console.log(`📦 Note for Vue stack: requires vue@3 + @vue/server-renderer@3 as devDependencies.`)
+  console.log(`   npm install --save-dev vue @vue/server-renderer`)
+  console.log(`   Your component file (.mjs / .js) should export the component as a named export matching the manifest 'entry' field.`)
+  console.log(`   See proof/vue_demo/ for a working end-to-end example.`)
 }
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)
