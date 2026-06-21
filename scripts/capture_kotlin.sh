@@ -682,7 +682,12 @@ while IFS= read -r cluster_line; do
     continue
   fi
 
-  # Parse runner output: extract first INPUT/OUTPUT/HASH triplet as golden.
+  # Parse runner output: extract ALL INPUT/OUTPUT/HASH triplets.
+  # The first triplet is the golden (stored as INPUT/OUTPUT/HASH lines).
+  # All triplets (including the golden) are stored in an INPUTS line as a
+  # JSON array, matching the JS #315 INPUTS feature. This lets validate
+  # re-check EVERY input, not just the golden — critical for catching
+  # breaking refactors that only affect input 2+.
   GOLDEN_INPUT=$(echo "$RUNNER_OUTPUT" | grep -m1 '^INPUT ' | sed 's/^INPUT  //')
   GOLDEN_OUTPUT=$(echo "$RUNNER_OUTPUT" | grep -m1 '^OUTPUT ' | sed 's/^OUTPUT //')
   GOLDEN_HASH=$(echo "$RUNNER_OUTPUT" | grep -m1 '^HASH ' | sed 's/^HASH   //')
@@ -693,6 +698,21 @@ while IFS= read -r cluster_line; do
     FAILED_COUNT=$((FAILED_COUNT + 1))
     continue
   fi
+
+  # Build INPUTS line: array of {hash, input, output} for every input.
+  # We use node to parse the runner output (which prints INPUT/OUTPUT/HASH
+  # per input, separated by "---") and emit a single JSON array.
+  INPUTS_LINE=$(echo "$RUNNER_OUTPUT" | node -e "
+    const lines = require('fs').readFileSync('/dev/stdin','utf8').split('\n');
+    const triples = [];
+    let cur = {};
+    for (const line of lines) {
+      if (line.startsWith('INPUT '))  cur.input  = JSON.parse(line.substring(6).trim());
+      else if (line.startsWith('OUTPUT ')) cur.output = JSON.parse(line.substring(7).trim());
+      else if (line.startsWith('HASH '))   { cur.hash = line.substring(5).trim(); triples.push(cur); cur = {}; }
+    }
+    process.stdout.write(JSON.stringify(triples));
+  ")
 
   # Write the .regret file.
   REGRET_PATH="${REGRET_DIR}/${CLUSTER_ID}.regret"
@@ -715,6 +735,9 @@ while IFS= read -r cluster_line; do
     echo "INPUT  ${GOLDEN_INPUT}"
     echo "OUTPUT ${GOLDEN_OUTPUT}"
     echo "HASH   ${GOLDEN_HASH}"
+    # INPUTS line: store ALL input→hash pairs so validate can re-check every input.
+    # Matches the JS #315 INPUTS feature format.
+    echo "INPUTS ${INPUTS_LINE}"
   } > "$REGRET_PATH"
 
   [[ $QUIET -eq 1 ]] || echo "    ✓ ${REGRET_PATH#${PROJECT_DIR}/}"
