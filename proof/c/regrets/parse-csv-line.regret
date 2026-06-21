@@ -1,0 +1,12 @@
+cluster: parse-csv-line
+version: 1
+fingerprint: 8xifg6f
+captured: 2026-06-21T05:40:17.000000+00:00
+watches: [demo_parse_csv_line]
+entry: regret_parse_csv_line
+stack: c
+fingerprintLevel: entry
+---
+INPUT  "\"hello, world\",42,\"quoted, field\""
+OUTPUT ["hello, world","42","quoted, field"]
+HASH   8xifg6f

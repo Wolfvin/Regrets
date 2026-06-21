@@ -73,3 +73,6 @@ regrets/_regret_capture/
 regrets/_regret_validate/
 # Local dotnet install (for workers who install it user-locally)
 .dotnet/
+# ===== Regrets build artifacts =====
+.regret-c-build/
+.regret-java-classes/

@@ -1,0 +1,49 @@
+{
+  "clusters": [
+    {
+      "id": "add",
+      "entry": "regret_add",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_add"],
+      "inputs": [[2, 3]],
+      "description": "Integer addition — two-arg function"
+    },
+    {
+      "id": "fibonacci",
+      "entry": "regret_fibonacci",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_fibonacci"],
+      "inputs": [10],
+      "description": "10th Fibonacci number (single-arg function)"
+    },
+    {
+      "id": "reverse",
+      "entry": "regret_reverse",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_reverse"],
+      "inputs": ["Hello, World!"],
+      "description": "Reverse a string"
+    },
+    {
+      "id": "parse-csv-line",
+      "entry": "regret_parse_csv_line",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_parse_csv_line"],
+      "inputs": ["\"hello, world\",42,\"quoted, field\""],
+      "description": "CSV line parser with quoted-field handling"
+    },
+    {
+      "id": "format-bytes",
+      "entry": "regret_format_bytes",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_format_bytes"],
+      "inputs": [1073741824],
+      "description": "Format 1 GiB in binary units"
+    }
+  ]
+}
