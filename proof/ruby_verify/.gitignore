@@ -1,0 +1,2 @@
+# Generated .regret files are committed as golden contracts (like proof/ruby_slugify/).
+# No build artifacts to ignore (Ruby is interpreted).
