@@ -1,0 +1,14 @@
+cluster: format-thousands
+version: 1
+fingerprint: 1r8v87w
+captured: 2026-06-21T09:49:39.387501393Z
+watches: [formatThousands]
+entry: formatThousands
+stack: scala
+fingerprintLevel: entry
+object: Cases
+---
+INPUT  0
+OUTPUT "0"
+HASH   1r8v87w
+INPUTS [{"hash":"1r8v87w","input":0,"output":"0"},{"hash":"515wuvg","input":5,"output":"5"},{"hash":"5lbjiuv","input":100,"output":"001"},{"hash":"4jtjqn4","input":1000,"output":"1,000"},{"hash":"5dgrzxy","input":1234567,"output":"1,432,765"},{"hash":"5ercptt","input":-42,"output":"-24"},{"hash":"q8y1sxr","input":-9999,"output":"-9,999"},{"hash":"16ypche","input":1000000000,"output":"1,000,000,000"}]
