@@ -1,0 +1,13 @@
+cluster: fibonacci
+version: 1
+fingerprint: 587q30m
+captured: 2026-06-21T04:39:51.926785353Z
+watches: [fibonacci]
+entry: fibonacci
+stack: java
+class: DemoMathUtils
+fingerprintLevel: entry
+---
+INPUT  10
+OUTPUT 55
+HASH   587q30m
