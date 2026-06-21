@@ -1,0 +1,12 @@
+cluster: jq-count-vowels
+version: 1
+fingerprint: 5izc285
+captured: 2026-06-21T08:15:52.944344+00:00
+entry: count_vowels
+stack: jq
+file: ../functions.jq
+INPUTS 1dmnmhg 3oc1qof 230jh8k i4pp207
+---
+INPUT  "hello"
+OUTPUT 2
+HASH   5izc285
