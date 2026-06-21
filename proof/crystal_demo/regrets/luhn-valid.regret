@@ -1,0 +1,14 @@
+cluster: luhn-valid
+version: 1
+fingerprint: 4fuaajp
+captured: 2026-06-21T05:46:15Z
+watches: [luhn_valid]
+entry: luhn_valid
+stack: crystal
+fingerprintLevel: entry
+file: strings.cr
+---
+INPUT  "79927398713"
+OUTPUT true
+HASH   4fuaajp
+INPUTS [{"hash":"4fuaajp","input":"79927398713","output":true},{"hash":"2fpdjxr","input":"4111111111111111","output":true},{"hash":"6gklegf","input":"12345678903","output":true}]

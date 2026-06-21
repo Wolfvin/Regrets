@@ -1,7 +1,7 @@
 cluster: form-input
 version: 1
 fingerprint: 54rtxog
-captured: 2026-06-21T07:46:10.303Z
+captured: 2026-06-21T10:40:45.584Z
 entry: .form-input
 stack: css
 file: ../form.css

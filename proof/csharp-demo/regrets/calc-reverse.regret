@@ -1,0 +1,15 @@
+cluster: calc-reverse
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-20T18:01:58.674222+00:00
+watches: [ReverseString]
+entry: ReverseString
+stack: csharp
+fingerprintLevel: entry
+class: RegretDemo.Calculator
+env: {"runtime":"dotnet","version":"8.0.28"}
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s
+INPUTS [{"input":"Regrets","output":"stergeR","hash":"h0sx12s","threw":false}, {"input":"racecar","output":"racecar","hash":"4uyjrfr","threw":false}, {"input":"","output":"","hash":"5oge4st","threw":false}]

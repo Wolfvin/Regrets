@@ -1,0 +1,79 @@
+{
+  "clusters": [
+    {
+      "id": "jq-greet",
+      "entry": "greet",
+      "file": "../functions.jq",
+      "stack": "jq",
+      "description": "Return a greeting message",
+      "inputs": [
+        "World",
+        "Alice",
+        "jq"
+      ]
+    },
+    {
+      "id": "jq-slugify",
+      "entry": "slugify",
+      "file": "../functions.jq",
+      "stack": "jq",
+      "description": "Convert a string to a URL-friendly slug",
+      "inputs": [
+        "Hello World",
+        "Goodbye, World!",
+        "Make It Simple"
+      ]
+    },
+    {
+      "id": "jq-to-lower",
+      "entry": "to_lower",
+      "file": "../functions.jq",
+      "stack": "jq",
+      "description": "Convert a string to lowercase",
+      "inputs": [
+        "HELLO",
+        "Make",
+        "WORLD"
+      ]
+    },
+    {
+      "id": "jq-addtwice",
+      "entry": "addtwice",
+      "file": "../functions.jq",
+      "stack": "jq",
+      "description": "Add the first argument to itself, then add the second argument",
+      "multiArgs": true,
+      "inputs": [
+        [3, 4],
+        [0, 0],
+        [10, -5]
+      ]
+    },
+    {
+      "id": "jq-is-numeric",
+      "entry": "is_numeric",
+      "file": "../functions.jq",
+      "stack": "jq",
+      "description": "Check if a value is a number",
+      "inputs": [
+        42,
+        "abc",
+        3.14,
+        true
+      ]
+    },
+    {
+      "id": "jq-count-vowels",
+      "entry": "count_vowels",
+      "file": "../functions.jq",
+      "stack": "jq",
+      "description": "Count the number of vowels in a string",
+      "inputs": [
+        "hello",
+        "aeiou",
+        "rhythm",
+        "The quick brown fox"
+      ]
+    }
+  ]
+}
