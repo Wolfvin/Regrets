@@ -1,0 +1,12 @@
+cluster: make-join-with
+version: 1
+fingerprint: 5kl3h8z
+captured: 2026-06-21T07:40:39.171422+00:00
+entry: join_with
+stack: make
+file: ../slugify.mk
+INPUTS 37h61k9 ltatkad 1y412op
+---
+INPUT  ["-", "a b c"]
+OUTPUT "a-b-c"
+HASH   5kl3h8z

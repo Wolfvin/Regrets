@@ -1,0 +1,12 @@
+cluster: make-is-numeric
+version: 1
+fingerprint: 119ctib
+captured: 2026-06-21T07:40:40.027274+00:00
+entry: is_numeric
+stack: make
+file: ../slugify.mk
+INPUTS 1ztvsk0 1njmrdm 2b8d3ax 2kje57n
+---
+INPUT  "42"
+OUTPUT "true"
+HASH   119ctib

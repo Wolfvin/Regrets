@@ -1,0 +1,12 @@
+cluster: make-greet
+version: 1
+fingerprint: 3r4qbnf
+captured: 2026-06-21T07:40:38.741536+00:00
+entry: greet
+stack: make
+file: ../slugify.mk
+INPUTS 2xnxp9l grq5k2e 2vvprtn
+---
+INPUT  "World"
+OUTPUT "Hello, World!"
+HASH   3r4qbnf
