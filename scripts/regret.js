@@ -240,6 +240,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'awk') {
         success = await run('node', [`${SCRIPTS_DIR}/capture_awk.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'capture', ...passThroughArgs]) && success
       }
     }
     break
@@ -264,6 +266,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'awk') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_awk.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...passThroughArgs]) && success
       }
     }
     break
@@ -335,6 +339,8 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
+    } else if (targetStack === 'scala') {
+      success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...translatedArgs])
     } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -364,6 +370,11 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
+      } else if (stack === 'scala') {
+        // Scala drift detection: run validate with multiple runs; each run
+        // re-invokes the function. Pure functions should produce identical
+        // fingerprints every time.
+        console.log(`  ⏭️  Scala drift detection: run \`capture_scala.sh validate --runs N\` manually`)
       }
     }
     break
@@ -395,6 +406,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', '--fail-fast', ...passThroughArgs]) && success
       }
     }
     break
@@ -429,6 +442,10 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        // Truth capture for Scala delegates to validate (which re-runs and re-records).
+        // For now, this is a no-op: Scala truth capture would need a separate truth_scala.ts.
+        console.log(`  ⏭️  Scala truth capture not yet supported — use \`regret capture\` instead`)
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
