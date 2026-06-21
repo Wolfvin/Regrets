@@ -20,6 +20,7 @@ for the bash wrapper to parse.
 | `scripts/_nim_harness_gen.cjs` | Node helper called by both wrappers. Renders the per-cluster harness Nim source from the cluster JSON. |
 | `scripts/_nim_regret_write.cjs` | Node helper called by `capture_nim.sh`. Writes the `.regret` file from the harness output. |
 | `proof/nim_slugify/` | Working example with 2 clusters on a real URL-slug generator. Includes `run_demo.sh` that walks through baseline → valid refactor (PASS) → breaking refactor (FAIL). |
+| `proof/nim_redteam/` | Red-team fixture with 4 clusters exercising patterns NOT covered by the slugify demo: `int → int` (fibonacci), `seq[int] → int` (sumSquares), `seq[int] → tuple[a, b]` (maxPair), `int → int` with raise (safeDivideByTwo). Includes `run_demo.sh`. |
 
 ## Manifest Schema (Nim-specific)
 
@@ -76,6 +77,30 @@ proc add*(input: JsonNode): JsonNode =
 ```
 
 Then capture `add` with object inputs like `{"a": 1, "b": 2}`.
+
+### Tuple outputs
+
+Nim's `std/json` ships `%` overloads for objects, seqs, options, tables, and
+primitives, but **not for tuples**. The `fingerprint_nim.nim` module fills this
+gap with a generic `%` overload for `T: tuple` that converts a tuple to a
+`JObject` whose keys are the tuple's field names (named tuples) or stringified
+indices `"0"`, `"1"`, ... (anonymous tuples).
+
+This means procs that return tuples "just work" out of the box:
+
+```nim
+proc maxPair*(xs: seq[int]): tuple[a: int, b: int] =
+  let sorted = xs.sorted(Descending)
+  result = (sorted[0], sorted[1])
+```
+
+The captured `.regret` OUTPUT will be `{"a":9,"b":6}` (sorted keys, matching
+the Ruby adapter's tuple→Hash convention). Cross-stack parity is preserved as
+long as the equivalent JSON object is produced on the other stack.
+
+For tuple fields whose type lacks a `%` overload (e.g. custom ref types), the
+field value is stringified via `$val` rather than failing the compile — this
+keeps the harness forgiving for user-defined types.
 
 ## Source code conventions
 

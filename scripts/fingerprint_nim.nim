@@ -11,7 +11,36 @@
 #
 # Parity verified manually with Python (see proof/nim_slugify/PARITY.md).
 
-import std/[json, hashes, strutils, tables, sets, options, times, sequtils, algorithm, pegs, math]
+import std/[json, hashes, strutils, tables, sets, options, times, sequtils, algorithm, pegs, math, typetraits]
+
+# ─── Tuple → JsonNode overload ───────────────────────────────────────────────
+# Nim's std/json defines `%` for objects, seqs, options, tables, and primitives,
+# but NOT for tuples. Without this overload, any proc that returns a tuple cannot
+# be captured by the harness — the `%entrySym(...)` call fails with "ambiguous
+# call" because no `%` overload matches.
+#
+# We define `%` for tuples as a JSON object whose keys are the tuple's field
+# names (named tuples) or stringified indices "0", "1", ... (anonymous tuples).
+# This matches the Ruby adapter convention (tuple → Hash) and preserves
+# cross-stack hash parity when the equivalent JSON object is produced.
+#
+# Limitation: tuple fields whose type lacks a `%` overload are stringified via
+# `$val` rather than failing — this is more forgiving than std/json's behavior
+# for objects, and matches what a user would expect from a snapshot tool.
+
+proc `%`*[T: tuple](t: T): JsonNode =
+  result = newJObject()
+  var idx = 0
+  for name, val in fieldPairs(t):
+    # fieldPairs yields empty name for anonymous tuples; fall back to "0", "1", ...
+    let key = if name.len > 0: name else: $idx
+    when compiles(%val):
+      result[key] = %val
+    else:
+      # Field type lacks a `%` overload — stringify rather than fail compile.
+      # This keeps the harness robust to user-defined types inside tuples.
+      result[key] = newJString($val)
+    inc idx
 
 # ─── SHA-256 (clean-room FIPS 180-4 implementation) ──────────────────────────
 # Nim 2.2.0 stdlib does not include std/sha256, so we implement it directly.
