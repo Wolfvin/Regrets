@@ -1,0 +1,12 @@
+cluster: reverse
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-21T05:05:31Z
+entry: Reverse
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s
+INPUTS [{"hash":"5hnum9u","input":"regrets","output":"sterger"},{"hash":"2e0jclf","input":"level","output":"level"}]

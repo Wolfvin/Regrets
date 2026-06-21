@@ -985,7 +985,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
-| Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
+| Go | Generated test files + `go test` | Value / Schema / Mixed | **Working** — see `references/go.md` |
 | PHP | Ghost decorator (manual wrapping) | Value / Schema / Mixed | See `references/php.md` |
 | C# (.NET 8+) | Reflection via `Assembly.LoadFrom` + `MethodInfo.Invoke` | Value (default) + multi-input (issue #315) | See `references/csharp.md` and `proof/csharp-demo/` |
 | Lua | `dofile()` + vendored pure-Lua SHA-256 | Value (default) | **Working** — see `references/lua.md` |
@@ -1213,7 +1213,7 @@ regression-testing/
 │   ├── health.py               ← cluster health report (Python)
 │   ├── capture_react.mjs       ← React component render capture
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
-│   ├── capture_go.sh           ← Go cluster capture runner (community preview)
+│   ├── capture_go.sh           ← Go cluster capture runner (working)
 │   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)
 │   ├── validate_kotlin.sh      ← Kotlin cluster validate runner (community preview)
 │   ├── capture_lua.lua         ← Lua cluster capture runner (pure-Lua SHA-256, no deps)
@@ -1237,7 +1237,7 @@ regression-testing/
     ├── update-protocol.md      ← safe update + audit trail rules (with hash chain)
     ├── python.md               ← Python stack — full implementation
     ├── rust.md                 ← Rust stack — trait wrapping + cargo test
-    ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
+    ├── go.md                   ← Go stack — generated test files + go test (Working)
     ├── ruby.md                 ← Ruby stack — top-level fn / class method / instance method
     ├── csharp.md               ← C# (.NET 8+) stack — reflection + dotnet runner
     ├── lua.md                  ← Lua stack — dofile + pure-Lua SHA-256 (Working)

@@ -1,0 +1,12 @@
+cluster: base64-encode
+version: 1
+fingerprint: 3db5bgz
+captured: 2026-06-21T05:38:45Z
+entry: Base64Encode
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "Hello"
+OUTPUT "SGVsbG8="
+HASH   3db5bgz
+INPUTS [{"hash":"5oge4st","input":"","output":""},{"hash":"3wtd9cs","input":"The quick brown fox","output":"VGhlIHF1aWNrIGJyb3duIGZveA=="}]

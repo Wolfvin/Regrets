@@ -1,0 +1,12 @@
+cluster: count-vowels
+version: 1
+fingerprint: 5izc285
+captured: 2026-06-21T05:05:31Z
+entry: CountVowels
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "hello"
+OUTPUT 2
+HASH   5izc285
+INPUTS [{"hash":"4352i39","input":"aeiou","output":5},{"hash":"62s8gfd","input":"xyz","output":0}]

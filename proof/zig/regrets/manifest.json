@@ -1,0 +1,47 @@
+{
+  "projectName": "zig-proof",
+  "clusters": [
+    {
+      "id": "add",
+      "entry": "add",
+      "file": "src/example.zig",
+      "stack": "zig",
+      "fingerprintLevel": "entry",
+      "description": "Integer addition (two i64 args → i64 result)",
+      "multiArgs": true,
+      "inputs": [
+        [1, 2],
+        [10, 20],
+        [0, 0],
+        [-5, 7]
+      ]
+    },
+    {
+      "id": "greet",
+      "entry": "greet",
+      "file": "src/example.zig",
+      "stack": "zig",
+      "fingerprintLevel": "entry",
+      "description": "Greeting with optional excitement (String, Boolean → String)",
+      "multiArgs": true,
+      "inputs": [
+        ["world", true],
+        ["world", false],
+        ["", true]
+      ]
+    },
+    {
+      "id": "title-case-words",
+      "entry": "titleCaseWords",
+      "file": "src/example.zig",
+      "stack": "zig",
+      "fingerprintLevel": "entry",
+      "description": "Title-case the first letter of each word in a string",
+      "inputs": [
+        "hello world",
+        "the quick brown fox",
+        ""
+      ]
+    }
+  ]
+}
