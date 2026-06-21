@@ -1,0 +1,12 @@
+cluster: product-badge-full
+version: 1
+fingerprint: 34686uz
+captured: 2026-06-21T08:14:38.353Z
+watches: [ProductBadge]
+entry: ProductBadge
+stack: react
+renderMode: static
+---
+INPUT  {"product":{"name":"Widget Pro","price":29.99,"inStock":true},"showStock":true,"tags":["new","sale"]}
+OUTPUT "<div class=\"product-badge badge-stock-yes\" style=\"padding:8px\"><h3>Widget Pro</h3><span class=\"price\">$29.99</span><span class=\"stock\">In Stock</span><ul class=\"tags\"><li>new</li><li>sale</li></ul></div>"
+HASH   34686uz
