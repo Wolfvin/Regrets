@@ -231,7 +231,9 @@ sub json_serialize {
 }
 
 sub write_regret_file {
-    my ($cluster, $input, $output, $fp, $out_dir) = @_;
+    my ($cluster, $input, $output, $fp, $out_dir, $extra_inputs) = @_;
+    # $extra_inputs: arrayref of {input, output, hash} for inputs 1+ (issue #315
+    # multi-input contract). Empty/undef means single-input — no INPUTS line.
     my $cid = $cluster->{id};
     my $regret_path = File::Spec->catfile($out_dir, "$cid.regret");
     my $timestamp = strftime('%Y-%m-%dT%H:%M:%S.000000+00:00', gmtime());
@@ -270,6 +272,14 @@ sub write_regret_file {
     push @lines, 'OUTPUT ' . json_serialize($output);
     push @lines, "HASH   $fp";
 
+    # Multi-input INPUTS line (issue #315 parity). The first input is already
+    # represented by INPUT/OUTPUT/HASH above; the INPUTS line contains inputs
+    # 1+ as a JSON array of {input, output, hash} objects. JS validate.js
+    # parses this as `goldenInputs` and re-validates every entry.
+    if ($extra_inputs && @$extra_inputs) {
+        push @lines, 'INPUTS ' . json_serialize($extra_inputs);
+    }
+
     open my $fh, '>', $regret_path or die "❌ Cannot write $regret_path: $!\n";
     print $fh join("\n", @lines), "\n";
     close $fh;
@@ -305,45 +315,93 @@ sub main {
 
         print "  📦 Cluster: $cid (entry: $entry)\n" unless $quiet;
 
-        # Capture the FIRST input as the golden contract (matches capture.js
-        # behavior for fingerprintLevel: "entry"). Multi-input support would
-        # require the INPUTS line (issue #315) — TODO for a follow-up PR.
-        my $input = $inputs[0];
+        # ── Multi-input capture (issue #315 parity) ──────────────────────────
+        # Process ALL inputs. The first input becomes the canonical
+        # INPUT/OUTPUT/HASH trio. Inputs 1+ are appended as an INPUTS line
+        # (JSON array of {input, output, hash} objects). validate_perl.pl
+        # re-validates every input — a regression on input #2+ that
+        # preserves input #1's output is correctly detected as FAIL.
+        #
+        # Pre-#315 behavior (single-input only) caused silent false-passes
+        # for multi-input clusters — that's the same gap that closed the
+        # duplicate Lua PRs (#380, #381) and Bash PR #392.
+        my $first_input;
+        my $first_output;
+        my $first_fp;
+        my @extra_inputs;  # for inputs 1+
+        my $cluster_failed = 0;
+        my $cluster_trivial_skipped = 0;
 
-        my $result = eval { invoke_entry($cluster, $input) };
-        if (my $err = $@) {
-            print "     ❌ Failed to invoke: $err\n" unless $quiet;
+        for my $i (0 .. $#inputs) {
+            my $input = $inputs[$i];
+            my $result = eval { invoke_entry($cluster, $input) };
+            if (my $err = $@) {
+                print "     ❌ Failed to invoke (input #$i): $err\n" unless $quiet;
+                $cluster_failed = 1;
+                last;
+            }
+            if ($result->{error}) {
+                print "     ⚠️  Invocation threw (input #$i): $result->{error}\n" unless $quiet;
+                $cluster_failed = 1;
+                last;
+            }
+            my $output = $result->{output};
+
+            # Trivial Input Guard — only applies to the first input (the
+            # golden). Trivial outputs on inputs 1+ are still recorded in
+            # the INPUTS line so validate can detect regressions that turn
+            # a non-trivial output into a trivial one (or vice versa).
+            if ($i == 0 && is_trivial_output($output)) {
+                print "     ⏭️  Skipped: trivial output (null/undefined) on first input\n" unless $quiet;
+                $cluster_trivial_skipped = 1;
+                last;
+            }
+
+            my $fp = fingerprint($input, $output);
+
+            if ($i == 0) {
+                $first_input  = $input;
+                $first_output = $output;
+                $first_fp     = $fp;
+            } else {
+                push @extra_inputs, {
+                    input  => $input,
+                    output => $output,
+                    hash   => $fp,
+                };
+            }
+
+            if ($verbose) {
+                my $label = $i == 0 ? 'golden' : "input[$i]";
+                print "     │ $label: " . substr(json_serialize($input), 0, 60)
+                    . " → " . substr(json_serialize($output), 0, 60)
+                    . " (fp: $fp)\n";
+            }
+        }
+
+        if ($cluster_failed) {
             $failed++;
             next;
         }
-
-        if ($result->{error}) {
-            print "     ⚠️  Invocation threw: $result->{error}\n" unless $quiet;
-            $failed++;
-            next;
-        }
-
-        my $output = $result->{output};
-
-        # Trivial Input Guard
-        if (is_trivial_output($output)) {
-            print "     ⏭️  Skipped: trivial output (null/undefined)\n" unless $quiet;
+        if ($cluster_trivial_skipped) {
             $skipped++;
             next;
         }
 
-        my $fp = fingerprint($input, $output);
+        my $regret_path = write_regret_file(
+            $cluster, $first_input, $first_output, $first_fp, $out_dir, \@extra_inputs
+        );
 
-        my $regret_path = write_regret_file($cluster, $input, $output, $fp, $out_dir);
-
-        print "     ✅ Fingerprint: $fp\n" unless $quiet;
+        my $n_inputs = 1 + scalar(@extra_inputs);
+        print "     ✅ Fingerprint: $first_fp ($n_inputs input"
+            . ($n_inputs > 1 ? 's' : '') . ")\n" unless $quiet;
         print "     📄 Saved: regrets/$cid.regret\n" unless $quiet;
 
-        if ($verbose) {
+        if ($verbose && !$quiet) {
             print "     ┌─ $cid call trace ──────────────────\n";
-            print "     │ Input:  " . substr(json_serialize($input), 0, 120) . "\n";
-            print "     │ Output: " . substr(json_serialize($output), 0, 120) . "\n";
-            print "     │ Hash:   $fp\n";
+            print "     │ Input:  " . substr(json_serialize($first_input), 0, 120) . "\n";
+            print "     │ Output: " . substr(json_serialize($first_output), 0, 120) . "\n";
+            print "     │ Hash:   $first_fp\n";
         }
 
         $passed++;

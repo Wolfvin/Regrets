@@ -38,11 +38,17 @@ my $cluster_filter;
 my $manifest_path;
 my $quiet = 0;
 my $help = 0;
+my $fail_fast = 0;
+my $update_target;
+my $update_reason;
 
 GetOptions(
     'cluster=s'  => \$cluster_filter,
     'manifest=s' => \$manifest_path,
     'quiet'      => \$quiet,
+    'fail-fast'  => \$fail_fast,
+    'update=s'   => \$update_target,
+    'reason=s'   => \$update_reason,
     'help|h'     => \$help,
 ) or die "Invalid args. Use --help.\n";
 
@@ -55,6 +61,8 @@ Usage:
   perl scripts/validate_perl.pl --cluster my-cluster     # validate one
   perl scripts/validate_perl.pl --manifest ./regrets/manifest.json
   perl scripts/validate_perl.pl --quiet                  # only print failures
+  perl scripts/validate_perl.pl --fail-fast              # exit on first failure
+  perl scripts/validate_perl.pl --update <id> --reason "..."  # re-capture + update golden
 
 Exit code: 0 if all PASSed, 1 if any FAILed.
 USAGE
@@ -96,6 +104,14 @@ sub parse_regret {
             $data{output} = undef if $@ && $s ne 'undefined';
         } elsif ($line =~ /^HASH\s+(\S+)$/) {
             $data{hash} = $1;
+        } elsif ($line =~ /^INPUTS\s+(.*)$/) {
+            # Multi-input contract (issue #315 parity). Format:
+            #   INPUTS [{"input":..,"output":..,"hash":..}, ...]
+            # The first input is already represented by INPUT/OUTPUT/HASH;
+            # the INPUTS line contains inputs 1+ as a JSON array.
+            my $s = $1;
+            $data{inputs} = eval { decode_json($s) };
+            $data{inputs} = [] if $@ || ref($data{inputs}) ne 'ARRAY';
         }
     }
 
@@ -188,6 +204,33 @@ sub main {
         $manifest = decode_json($content);
     }
 
+    # ── --update mode: re-capture the target cluster, then validate ──────
+    # Mirrors validate_php.php's --update behavior. The audit.log write is
+    # a stub (capture_perl.pl doesn't write audit.log yet) — the golden .regret
+    # is updated in-place by the re-capture. This is sufficient for the CLI
+    # dispatch (`regret update --cluster <perl-cluster>`) to work end-to-end.
+    if ($update_target) {
+        unless (defined $update_reason && $update_reason =~ /\S/) {
+            die "❌ --update requires --reason\n   Example: --update my-cluster --reason \"describe why behavior changed\"\n";
+        }
+        # Basic reason length check (mirrors PHP's str_word_count >= 4)
+        my @words = ($update_reason =~ /\S+/g);
+        if (@words < 4) {
+            die "❌ --reason is too vague: \"$update_reason\"\n   Be specific. e.g. \"tax rate updated from 11% to 12% per new regulation\"\n";
+        }
+        print "🔄 Update mode — re-capturing cluster '$update_target'...\n" unless $quiet;
+        my $capture_script = File::Spec->catfile($FindBin::Bin, 'capture_perl.pl');
+        my @cap_args = ('perl', $capture_script, '--cluster', $update_target);
+        push @cap_args, '--manifest', $manifest_path if defined $manifest_path;
+        push @cap_args, '--quiet' if $quiet;
+        system(@cap_args) == 0
+            or die "❌ Re-capture failed for '$update_target'\n";
+        print "✅ Re-captured '$update_target' — golden .regret updated.\n" unless $quiet;
+        # In update mode we don't run validate (the golden is now whatever
+        # capture produced — validate would trivially PASS). Exit 0.
+        exit 0;
+    }
+
     my $regret_dir = File::Spec->catdir(getcwd(), 'regrets');
     die "❌ regrets/ directory not found\n" unless -d $regret_dir;
 
@@ -254,6 +297,7 @@ sub main {
 
         my $golden_hash = $data->{hash};
         my $input = $data->{input};
+        my $extra_inputs = $data->{inputs} // [];  # inputs 1+ from INPUTS line
 
         unless (defined $golden_hash) {
             print "  ❌ $cid — no HASH line in .regret file\n" unless $quiet;
@@ -261,7 +305,9 @@ sub main {
             next;
         }
 
-        # Re-invoke
+        # ── Validate the FIRST input (INPUT/OUTPUT/HASH) ─────────────────────
+        my $cluster_failed = 0;
+
         my $result = eval { invoke_entry($meta, $input) };
         if (my $err = $@) {
             print "  ❌ $cid — failed to invoke: $err\n" unless $quiet;
@@ -278,13 +324,58 @@ sub main {
         my $output = $result->{output};
         my $live_hash = fingerprint($input, $output);
 
-        if ($live_hash eq $golden_hash) {
-            print "  ✅ $cid — $golden_hash — PASS\n" unless $quiet;
-            $passed++;
-        } else {
+        if ($live_hash ne $golden_hash) {
             print "  ❌ $cid — golden: $golden_hash, live: $live_hash — FAIL\n";
             $failed++;
+            if ($fail_fast) {
+                print "\n  --fail-fast: stopping on first failure.\n" unless $quiet;
+                last;
+            }
+            next;
         }
+
+        # ── Validate inputs 1+ from the INPUTS line (issue #315 parity) ─────
+        # A validator that only checks the first INPUT line would silently
+        # PASS a regression that only affects input #2+. We iterate the
+        # INPUTS array and re-validate every entry — any mismatch FAILs
+        # the cluster even if the first input still matches.
+        for my $i (0 .. $#$extra_inputs) {
+            my $entry = $extra_inputs->[$i];
+            my $in  = $entry->{input};
+            my $expected_hash = $entry->{hash};
+
+            my $r = eval { invoke_entry($meta, $in) };
+            if (my $err = $@) {
+                print "  ❌ $cid — INPUTS[" . ($i + 1) . "] failed to invoke: $err\n";
+                $cluster_failed = 1;
+                last;
+            }
+            if ($r->{error}) {
+                print "  ❌ $cid — INPUTS[" . ($i + 1) . "] invocation threw: $r->{error}\n";
+                $cluster_failed = 1;
+                last;
+            }
+            my $live = fingerprint($in, $r->{output});
+            if ($live ne $expected_hash) {
+                print "  ❌ $cid — INPUTS[" . ($i + 1) . "] hash mismatch (golden: $expected_hash, live: $live)\n";
+                $cluster_failed = 1;
+                last;
+            }
+        }
+
+        if ($cluster_failed) {
+            $failed++;
+            if ($fail_fast) {
+                print "\n  --fail-fast: stopping on first failure.\n" unless $quiet;
+                last;
+            }
+            next;
+        }
+
+        my $n_inputs = 1 + scalar(@$extra_inputs);
+        print "  ✅ $cid — $golden_hash — PASS ($n_inputs input"
+            . ($n_inputs > 1 ? 's' : '') . ")\n" unless $quiet;
+        $passed++;
     }
 
     print "\n" unless $quiet;
