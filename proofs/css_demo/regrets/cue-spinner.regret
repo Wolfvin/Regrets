@@ -1,0 +1,11 @@
+cluster: cue-spinner
+version: 1
+fingerprint: 4hsro63
+captured: 2026-06-21T10:58:59.287Z
+entry: .cue-spinner
+stack: css
+file: ../demo.css
+---
+INPUT  {"selector":".cue-spinner"}
+OUTPUT ["animation: cue-spin 0.8s linear infinite"]
+HASH   4hsro63

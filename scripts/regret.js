@@ -222,12 +222,14 @@ async function main() {
   case 'capture': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'css') {
+      if (stack === 'js' || stack === 'ts') {
         success = await run('node', [`${SCRIPTS_DIR}/capture.js`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = await run('python3', [`${SCRIPTS_DIR}/capture.py`, ...passThroughArgs]) && success
       } else if (stack === 'react') {
         success = await run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'css') {
+        success = await run('node', [`${SCRIPTS_DIR}/capture_css.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'vue') {
         success = await run('node', [`${SCRIPTS_DIR}/capture_vue.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
@@ -258,8 +260,10 @@ async function main() {
   case 'validate': {
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs]) && success
+      } else if (stack === 'css') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'vue') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
@@ -360,6 +364,13 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
+    } else if (targetStack === 'css') {
+      // validate_css.mjs expects --update <id> --reason "..." (same shape as
+      // PHP/Rust/Go/React) — strip the bare --update flag if present.
+      const validateArgs = translatedArgs.includes('--update')
+        ? translatedArgs.filter(a => a !== '--update')
+        : translatedArgs
+      success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, ...validateArgs])
     } else if (targetStack === 'scala') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'c') {
@@ -367,7 +378,7 @@ async function main() {
     } else if (targetStack === 'vue') {
       success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...translatedArgs])
     } else {
-      // js, ts, css all use validate.js
+      // js, ts use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
     }
     break
@@ -381,8 +392,11 @@ async function main() {
       ? []  // user provided --runs, don't add default
       : ['--drift-mode']
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...driftDefault, ...passThroughArgs]) && success
+      } else if (stack === 'css') {
+        // validate_css.mjs doesn't have drift mode; run regular validate.
+        success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'vue') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'python') {
@@ -423,8 +437,10 @@ async function main() {
     }
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'css') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'vue') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
@@ -691,8 +707,10 @@ async function main() {
     console.warn('   standard CI/CD gate. Falling back to guard...\n')
     const stacks = detectStacks()
     for (const stack of stacks) {
-      if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
+      if (stack === 'js' || stack === 'ts' || stack === 'react') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'css') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'vue') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {

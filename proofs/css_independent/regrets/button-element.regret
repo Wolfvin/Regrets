@@ -1,0 +1,11 @@
+cluster: button-element
+version: 1
+fingerprint: 2z2m0ky
+captured: 2026-06-21T10:59:00.262Z
+entry: button
+stack: css
+file: ../form.css
+---
+INPUT  {"selector":"button"}
+OUTPUT ["font-family: inherit"]
+HASH   2z2m0ky
