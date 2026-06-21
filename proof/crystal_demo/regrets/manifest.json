@@ -1,0 +1,40 @@
+{
+  "clusters": [
+    {
+      "id": "reverse",
+      "entry": "reverse",
+      "watches": ["reverse"],
+      "file": "strings.cr",
+      "stack": "crystal",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello", "regrets", "level"]
+    },
+    {
+      "id": "count-vowels",
+      "entry": "count_vowels",
+      "watches": ["count_vowels"],
+      "file": "strings.cr",
+      "stack": "crystal",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello", "aeiou", "xyz"]
+    },
+    {
+      "id": "ascii-sum",
+      "entry": "ascii_sum",
+      "watches": ["ascii_sum"],
+      "file": "strings.cr",
+      "stack": "crystal",
+      "fingerprintLevel": "entry",
+      "inputs": ["abc", "hello", "Lua"]
+    },
+    {
+      "id": "luhn-valid",
+      "entry": "luhn_valid",
+      "watches": ["luhn_valid"],
+      "file": "strings.cr",
+      "stack": "crystal",
+      "fingerprintLevel": "entry",
+      "inputs": ["79927398713", "4111111111111111", "12345678903"]
+    }
+  ]
+}
