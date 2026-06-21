@@ -111,7 +111,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **JavaScript / TypeScript** | `js` or `ts` | `capture.js` | `validate.js` | CJS, ESM, React components. TS projects: add `"preBuild": "npm run build"` to manifest |
 | **Python** | `python` | `capture.py` | `validate.py` | Pure functions, class methods, multi-module. See [`references/python.md`](references/python.md) |
 | **PHP** | `php` | `capture_php.php` | `validate_php.php` | Pure functions, class-based output |
-| **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
+| **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Working |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
 
