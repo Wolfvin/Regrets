@@ -234,6 +234,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
+      } else if (stack === 'java') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -252,6 +254,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'java') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
       }
     }
     break

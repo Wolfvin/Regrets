@@ -1,0 +1,13 @@
+cluster: parse-csv-line
+version: 1
+fingerprint: 8xifg6f
+captured: 2026-06-21T04:39:51.930241372Z
+watches: [parseCsvLine]
+entry: parseCsvLine
+stack: java
+class: DemoMathUtils
+fingerprintLevel: entry
+---
+INPUT  "\"hello, world\",42,\"quoted, field\""
+OUTPUT ["hello, world","42","quoted, field"]
+HASH   8xifg6f
