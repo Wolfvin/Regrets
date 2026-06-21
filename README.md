@@ -120,6 +120,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **Ruby** | `ruby` | `capture_ruby.rb` | `validate_ruby.rb` | Pure functions, class methods. See [`references/ruby.md`](references/ruby.md) |
 | **Nim** | `nim` | `capture_nim.sh` | `validate_nim.sh` | Top-level `proc` with `*` export. See [`references/nim.md`](references/nim.md) |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
+| **Bash** | `bash` | `capture_bash.sh` | `validate_bash.sh` | Community Preview. See [`references/bash.md`](references/bash.md) |
 
 ### Stack-specific examples
 
@@ -140,6 +141,8 @@ node scripts/regret.js capture    # stack: "go" → dispatches to capture_go.sh
 
 # Nim
 node scripts/regret.js capture    # stack: "nim" → dispatches to capture_nim.sh
+# Bash
+node scripts/regret.js capture    # stack: "bash" → dispatches to capture_bash.sh
 ```
 
 > Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions. [`proof/ruby_slugify/`](proof/ruby_slugify/) — 2 Ruby clusters for URL slug generation, all green; demo script walks through baseline → valid refactor (still PASS) → breaking refactor (FAIL).

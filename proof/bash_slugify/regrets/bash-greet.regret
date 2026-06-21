@@ -1,0 +1,13 @@
+cluster: bash-greet
+version: 1
+fingerprint: 3r4qbnf
+captured: 2026-06-21T05:05:27Z
+watches: []
+entry: greet
+stack: bash
+fingerprintLevel: entry
+file: lib/slugify.sh
+---
+INPUT  "World"
+OUTPUT "Hello, World!"
+HASH   3r4qbnf
