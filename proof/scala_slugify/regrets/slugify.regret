@@ -1,7 +1,7 @@
 cluster: slugify
 version: 1
-fingerprints: 615ytfn,2gaag5y,47iw4ku,2r8ubcm,1hgst4y,5oge4st
-captured: 2026-06-21T04:59:03.689209550Z
+fingerprint: 615ytfn
+captured: 2026-06-21T07:59:23.409019209Z
 watches: [slugify]
 entry: slugify
 stack: scala
@@ -11,18 +11,4 @@ object: Slugify
 INPUT  "Hello, World!"
 OUTPUT "hello-world"
 HASH   615ytfn
-INPUT  "Hello, World! This is a TEST."
-OUTPUT "hello-world-this-is-a-test"
-HASH   2gaag5y
-INPUT  "  multiple   spaces  "
-OUTPUT "multiple-spaces"
-HASH   47iw4ku
-INPUT  "already-slugified"
-OUTPUT "already-slugified"
-HASH   2r8ubcm
-INPUT  "Mix3d C4se AND Symbols!@#"
-OUTPUT "mix3d-c4se-and-symbols"
-HASH   1hgst4y
-INPUT  ""
-OUTPUT ""
-HASH   5oge4st
+INPUTS [{"hash":"615ytfn","input":"Hello, World!","output":"hello-world"},{"hash":"2gaag5y","input":"Hello, World! This is a TEST.","output":"hello-world-this-is-a-test"},{"hash":"47iw4ku","input":"  multiple   spaces  ","output":"multiple-spaces"},{"hash":"2r8ubcm","input":"already-slugified","output":"already-slugified"},{"hash":"1hgst4y","input":"Mix3d C4se AND Symbols!@#","output":"mix3d-c4se-and-symbols"},{"hash":"5oge4st","input":"","output":""}]
