@@ -1,0 +1,66 @@
+{
+  "clusters": [
+    {
+      "id": "make-slugify",
+      "entry": "slugify",
+      "file": "../slugify.mk",
+      "stack": "make",
+      "description": "Convert a string to a URL-friendly slug",
+      "inputs": [
+        "Hello World",
+        "Goodbye, World!",
+        "Make It Simple"
+      ]
+    },
+    {
+      "id": "make-greet",
+      "entry": "greet",
+      "file": "../slugify.mk",
+      "stack": "make",
+      "description": "Return a greeting message",
+      "inputs": [
+        "World",
+        "Alice",
+        "Make"
+      ]
+    },
+    {
+      "id": "make-join-with",
+      "entry": "join_with",
+      "file": "../slugify.mk",
+      "stack": "make",
+      "description": "Join space-separated words with a separator",
+      "multiArgs": true,
+      "inputs": [
+        ["-", "a b c"],
+        [",", "1 2 3"],
+        ["_", "hello world foo"]
+      ]
+    },
+    {
+      "id": "make-to-lower",
+      "entry": "to_lower",
+      "file": "../slugify.mk",
+      "stack": "make",
+      "description": "Convert a string to lowercase",
+      "inputs": [
+        "HELLO",
+        "Make",
+        "WORLD"
+      ]
+    },
+    {
+      "id": "make-is-numeric",
+      "entry": "is_numeric",
+      "file": "../slugify.mk",
+      "stack": "make",
+      "description": "Check if a string is a valid integer 0-100",
+      "inputs": [
+        "42",
+        "abc",
+        "0",
+        "999"
+      ]
+    }
+  ]
+}

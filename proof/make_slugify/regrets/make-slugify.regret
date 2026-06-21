@@ -1,0 +1,12 @@
+cluster: make-slugify
+version: 1
+fingerprint: 2m64ijm
+captured: 2026-06-21T07:40:38.320418+00:00
+entry: slugify
+stack: make
+file: ../slugify.mk
+INPUTS 49x6gza 21u7g84 2u6ytn8
+---
+INPUT  "Hello World"
+OUTPUT "hello-world"
+HASH   2m64ijm

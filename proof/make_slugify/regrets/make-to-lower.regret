@@ -1,0 +1,12 @@
+cluster: make-to-lower
+version: 1
+fingerprint: 4oxfivb
+captured: 2026-06-21T07:40:39.606464+00:00
+entry: to_lower
+stack: make
+file: ../slugify.mk
+INPUTS 62l52zz 2vvprtn 24d77bf
+---
+INPUT  "HELLO"
+OUTPUT "hello"
+HASH   4oxfivb
