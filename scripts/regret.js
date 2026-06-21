@@ -248,6 +248,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'cpp') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_cpp.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_bash.sh`, ...passThroughArgs]) && success
       } else if (stack === 'awk') {
         success = await run('node', [`${SCRIPTS_DIR}/capture_awk.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'scala') {
@@ -290,6 +292,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'cpp') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_cpp.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...passThroughArgs]) && success
       } else if (stack === 'awk') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_awk.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'scala') {
@@ -385,6 +389,10 @@ async function main() {
         ? translatedArgs.filter(a => a !== '--update')
         : translatedArgs
       success = await run('node', [`${SCRIPTS_DIR}/validate_css.mjs`, ...validateArgs])
+    } else if (targetStack === 'bash') {
+      // Bash update mode: re-capture then validate (audit.log not yet supported for bash)
+      // For now, dispatch to validate_bash.sh which will re-validate after manual re-capture
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...translatedArgs])
     } else if (targetStack === 'scala') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'c') {
@@ -431,6 +439,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
+      } else if (stack === 'bash') {
+        console.log(`  ⏭️  Bash drift detection: not yet supported (bash output is deterministic by default)`)
       } else if (stack === 'scala') {
         // Scala drift detection: run validate with multiple runs; each run
         // re-invokes the function. Pure functions should produce identical
@@ -479,6 +489,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'scala') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'c') {
@@ -525,6 +537,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...passThroughArgs]) && success
       } else if (stack === 'scala') {
         // Truth capture for Scala delegates to validate (which re-runs and re-records).
         // For now, this is a no-op: Scala truth capture would need a separate truth_scala.ts.
@@ -759,6 +773,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'nim') {
@@ -912,6 +928,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   react   → capture_react.mjs / validate.js
   rust    → capture_rust.sh (capture + validate via cargo test)
   go      → capture_go.sh (Community Preview)
+  bash    → capture_bash.sh / validate_bash.sh (Community Preview)
 `)
     break
 }

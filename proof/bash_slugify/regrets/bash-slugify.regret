@@ -1,0 +1,14 @@
+cluster: bash-slugify
+version: 1
+fingerprint: 2m64ijm
+captured: 2026-06-21T05:05:27Z
+watches: []
+entry: slugify
+stack: bash
+fingerprintLevel: entry
+file: lib/slugify.sh
+---
+INPUT  "Hello World"
+OUTPUT "hello-world"
+HASH   2m64ijm
+INPUTS  [{"input":"Hello, World!","output":"hello-world","hash":"615ytfn"},{"input":"Multiple   Spaces   Here","output":"multiple-spaces-here","hash":"3oviqyr"},{"input":"  trim me  ","output":"trim-me","hash":"5s40w7n"},{"input":"UPPERCASE-test","output":"uppercase-test","hash":"2ibt4kh"}]

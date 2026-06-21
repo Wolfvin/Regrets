@@ -1,0 +1,28 @@
+{
+  "clusters": [
+    {
+      "id": "bash-slugify",
+      "entry": "slugify",
+      "file": "lib/slugify.sh",
+      "stack": "bash",
+      "inputs": [
+        "Hello World",
+        "Hello, World!",
+        "Multiple   Spaces   Here",
+        "  trim me  ",
+        "UPPERCASE-test"
+      ],
+      "watches": [],
+      "description": "Slugify a string: lowercase, replace non-alphanumerics with hyphens, collapse and trim."
+    },
+    {
+      "id": "bash-greet",
+      "entry": "greet",
+      "file": "lib/slugify.sh",
+      "stack": "bash",
+      "inputs": ["World"],
+      "watches": [],
+      "description": "Greet a name — used for single-input non-array test."
+    }
+  ]
+}
