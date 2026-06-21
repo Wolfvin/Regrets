@@ -37,9 +37,16 @@ declare module "regret-testing" {
   export interface ScanSuggestion {
     id: string;
     entry: string;
+    /** @default [] — empty for fingerprintLevel:'entry' mode (parity with install.js). */
+    watches: string[];
     file: string;
     stack: string;
-    watches: string[];
+    /** @default 'entry' — matches install.js default fingerprintLevel. */
+    fingerprintLevel: 'entry' | 'full' | 'watched';
+    /** Default probe inputs (matches install.js DEFAULT_PROBE_INPUTS). */
+    inputs: Array<null | string | number | boolean | object | Array<unknown>>;
+    /** Best-effort callee list via analyzeScope. Omitted when empty (matches install.js). */
+    callees?: string[];
   }
 
   export interface ScanResult {
