@@ -1,0 +1,77 @@
+{
+  "clusters": [
+    {
+      "id": "add",
+      "entry": "regret_add",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_add"],
+      "inputs": [[2, 3]],
+      "description": "Integer addition — two-arg free function"
+    },
+    {
+      "id": "fibonacci",
+      "entry": "regret_fibonacci",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_fibonacci"],
+      "inputs": [10],
+      "description": "10th Fibonacci number (single-arg free function)"
+    },
+    {
+      "id": "reverse",
+      "entry": "regret_reverse",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_reverse"],
+      "inputs": ["Hello, World!"],
+      "description": "Reverse a string via std::string"
+    },
+    {
+      "id": "parse-csv-line",
+      "entry": "regret_parse_csv_line",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_parse_csv_line"],
+      "inputs": ["\"hello, world\",42,\"quoted, field\""],
+      "description": "CSV line parser — returns std::vector<std::string>"
+    },
+    {
+      "id": "format-bytes",
+      "entry": "regret_format_bytes",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["demo_format_bytes"],
+      "inputs": [1073741824],
+      "description": "Format 1 GiB in binary units"
+    },
+    {
+      "id": "factorial",
+      "entry": "regret_factorial",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["MathUtils::factorial"],
+      "inputs": [5],
+      "description": "Class-method example: MathUtils.factorial(5) = 120"
+    },
+    {
+      "id": "gcd",
+      "entry": "regret_gcd",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["MathUtils::gcd"],
+      "inputs": [[48, 36]],
+      "multiArgs": true,
+      "description": "Class-method example: MathUtils.gcd(48, 36) = 12"
+    },
+    {
+      "id": "is-palindrome",
+      "entry": "regret_is_palindrome",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["MathUtils::is_palindrome"],
+      "inputs": ["A man, a plan, a canal: Panama"],
+      "description": "Class-method example: returns true for palindrome"
+    }
+  ]
+}

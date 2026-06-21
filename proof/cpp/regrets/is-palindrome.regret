@@ -1,0 +1,12 @@
+cluster: is-palindrome
+version: 1
+fingerprint: d45e16p
+captured: 2026-06-21T04:34:36.000000+00:00
+watches: [MathUtils::is_palindrome]
+entry: regret_is_palindrome
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "A man, a plan, a canal: Panama"
+OUTPUT true
+HASH   d45e16p
