@@ -1,0 +1,13 @@
+cluster: csv-field-count
+version: 1
+fingerprint: 5w898ft
+captured: 2026-06-21T05:21:34.811Z
+watches: [csv_field_count]
+entry: csv_field_count.awk
+stack: awk
+file: csv_field_count.awk
+fingerprintLevel: entry
+---
+INPUT  "\"hello, world\",42,\"quoted, field\""
+OUTPUT "3"
+HASH   5w898ft
