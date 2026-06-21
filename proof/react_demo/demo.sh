@@ -63,11 +63,18 @@ PY
 run "node ../../scripts/validate_react.mjs"
 
 banner "STEP 4 — Update golden with audit trail (accept the breaking change)"
-# Use --update to rewrite the golden .regret + append audit.log entry
+# Use --update to rewrite the golden .regret + append audit.log entry.
+#
+# NOTE: changing statusLabel('paid') affects BOTH invoice-card-paid (input is
+# a paid invoice) AND invoice-card-multi-status (its inputs[0] is also a paid
+# invoice). Both clusters must be updated, otherwise Step 5 will still FAIL
+# on multi-status. This mirrors real-world refactoring: a label change can
+# ripple through multiple captured contracts, and each must be re-goldened.
 run "node ../../scripts/validate_react.mjs --update invoice-card-paid --reason 'status label changed from Paid to Settled per new branding guideline'"
+run "node ../../scripts/validate_react.mjs --update invoice-card-multi-status --reason 'status label changed from Paid to Settled per new branding guideline (multi-status inputs[0] is a paid invoice)'"
 echo
-echo "--- regrets/audit.log (last entry) ---"
-tail -10 regrets/audit.log 2>/dev/null || echo "(no audit.log)"
+echo "--- regrets/audit.log (last 2 entries) ---"
+tail -20 regrets/audit.log 2>/dev/null || echo "(no audit.log)"
 
 banner "STEP 5 — Validate after update (should PASS again — golden now matches)"
 run "node ../../scripts/validate_react.mjs"
@@ -78,5 +85,6 @@ cp "$BACKUP" "$SRC"
 echo
 echo "--- Restoring baseline: re-capturing original InvoiceCard.js ---"
 run "node ../../scripts/capture_react.mjs --cluster invoice-card-paid"
+run "node ../../scripts/capture_react.mjs --cluster invoice-card-multi-status"
 echo
 echo "Demo complete."
