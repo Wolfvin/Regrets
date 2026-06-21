@@ -667,6 +667,8 @@ If you prefer calling individual scripts directly (per-stack):
   "regret:health:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh health",
   "regret:capture:kotlin": "bash ../../The-skill/regresion-testing/scripts/capture_kotlin.sh",
   "regret:validate:kotlin": "bash ../../The-skill/regresion-testing/scripts/validate_kotlin.sh",
+  "regret:capture:lua": "lua ../../The-skill/regresion-testing/scripts/capture_lua.lua",
+  "regret:validate:lua": "lua ../../The-skill/regresion-testing/scripts/validate_lua.lua",
   "regret:health": "node ../../The-skill/regresion-testing/scripts/health.js",
   "regret:drift": "node ../../The-skill/regresion-testing/scripts/validate.js --runs 5",
   "regret:drift:py": "python ../../The-skill/regresion-testing/scripts/validate.py --runs 5",
@@ -986,6 +988,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
 | PHP | Ghost decorator (manual wrapping) | Value / Schema / Mixed | See `references/php.md` |
 | C# (.NET 8+) | Reflection via `Assembly.LoadFrom` + `MethodInfo.Invoke` | Value (default) + multi-input (issue #315) | See `references/csharp.md` and `proof/csharp-demo/` |
+| Lua | `dofile()` + vendored pure-Lua SHA-256 | Value (default) | **Working** — see `references/lua.md` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
@@ -1213,6 +1216,10 @@ regression-testing/
 │   ├── capture_go.sh           ← Go cluster capture runner (community preview)
 │   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)
 │   ├── validate_kotlin.sh      ← Kotlin cluster validate runner (community preview)
+│   ├── capture_lua.lua         ← Lua cluster capture runner (pure-Lua SHA-256, no deps)
+│   ├── validate_lua.lua        ← Lua cluster regression validator
+│   ├── fingerprint_lua.lua     ← Lua hashing logic — stable_stringify + base36 + fingerprint
+│   ├── sha2.lua                ← vendored pure-Lua SHA-256 (FIPS 180-4, public-domain)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
 │   ├── contest.py              ← chain testing for Python stack clusters
 │   ├── diff.js                 ← output diff — shows what changed when RED
@@ -1233,6 +1240,7 @@ regression-testing/
     ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
     ├── ruby.md                 ← Ruby stack — top-level fn / class method / instance method
     ├── csharp.md               ← C# (.NET 8+) stack — reflection + dotnet runner
+    ├── lua.md                  ← Lua stack — dofile + pure-Lua SHA-256 (Working)
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant
@@ -1299,6 +1307,7 @@ regression-testing/
    - React → `references/react.md`
    - Extension → `references/extension.md`
    - Go → `references/go.md`
+   - Lua → `references/lua.md`
    - Class-based → `references/class-based.md`
 6. **`references/guard-and-drift.md`** — When and how to use the `guard` and `drift` commands for deployment gating and non-determinism detection.
 
@@ -1326,6 +1335,10 @@ What stack is the target project?
 │   ├── Capture → bash scripts/capture_go.sh capture
 │   ├── Validate → bash scripts/capture_go.sh validate
 │   └── Health → bash scripts/capture_go.sh health
+├── Lua
+│   ├── Capture → lua scripts/capture_lua.lua
+│   ├── Validate → lua scripts/validate_lua.lua
+│   └── (Health uses the shared node scripts/health.js — reads the same audit.log)
 └── Browser Extension
     └── Extract pure logic first → then use JS/TS scripts
 └── Esolang Interpreter
