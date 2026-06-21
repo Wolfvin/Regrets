@@ -268,3 +268,38 @@ describe('Java stack (no java installed)', () => {
     }
   })
 })
+
+describe('Java stack — verify_java_stack.sh', () => {
+  // The one-command end-to-end verifier. Skipped when java is missing.
+  const VERIFY_SH = join(SCRIPTS_DIR, 'verify_java_stack.sh')
+
+  itIfJava('verify_java_stack.sh exists and is executable', () => {
+    assert.ok(existsSync(VERIFY_SH), `missing ${VERIFY_SH}`)
+    const r = spawnSync('bash', ['-n', VERIFY_SH], { encoding: 'utf8' })
+    assert.equal(r.status, 0, `verify_java_stack.sh has a syntax error:\n${r.stderr}`)
+  })
+
+  itIfJava('verify_java_stack.sh PASSes end-to-end (capture + refactor + parity)', { timeout: 60000 }, () => {
+    // Run the verifier from the repo root so its relative paths resolve.
+    const r = spawnSync('bash', [VERIFY_SH], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    })
+    assert.equal(r.status, 0,
+      `verify_java_stack.sh exited ${r.status} (expected 0)\n--- stdout ---\n${r.stdout}\n--- stderr ---\n${r.stderr}`)
+    // The summary line should report all checks PASSed.
+    assert.match(r.stdout, /All Java stack checks PASSed/, 'summary line missing')
+    // All 6 verify sections must have run.
+    for (const section of [
+      'Check prerequisites',
+      'Capture (write .regret files)',
+      'Validate baseline',
+      'Apply VALID refactor',
+      'Apply BREAKING refactor',
+      'cross-stack fingerprint parity',
+    ]) {
+      assert.ok(r.stdout.includes(section),
+        `verify_java_stack.sh missing section: ${section}`)
+    }
+  })
+})
