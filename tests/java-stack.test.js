@@ -60,6 +60,17 @@ function setupProject() {
         watches: ['reverse'],
         inputs: ['Hello, World!'],
       },
+      {
+        // Edge-case cluster: returns a Map with NaN / +Infinity / -Infinity
+        // nested inside. Used by the cross-stack parity test for the
+        // __nan__ / __infinity__ / __neg_infinity__ sentinels.
+        id: 'stats',
+        entry: 'computeStats', method: 'computeStats',
+        class: 'DemoMathUtils',
+        stack: 'java', fingerprintLevel: 'entry',
+        watches: ['computeStats'],
+        inputs: [0],
+      },
     ],
   }, null, 2))
 }
@@ -114,7 +125,7 @@ describe('Java stack', () => {
     run(CAPTURE_SH)
     const r = run(VALIDATE_SH)
     assert.equal(r.status, 0, `validate should PASS for unchanged code:\n${r.stdout}\n${r.stderr}`)
-    assert.match(r.stdout, /Passed: 3/)
+    assert.match(r.stdout, /Passed: 4/)
   })
 
   itIfJava('Java fingerprint matches JS fingerprint() (cross-stack parity)', () => {
@@ -130,6 +141,28 @@ describe('Java stack', () => {
       const jsHash = fingerprint(c.input, c.output)
       assert.equal(javaHash, jsHash, `parity mismatch for ${c.id}: Java=${javaHash} JS=${jsHash}`)
     }
+  })
+
+  itIfJava('cross-stack parity holds for non-finite sentinels (NaN/Infinity) and nested objects', () => {
+    // Uses the `computeStats` method which returns a Map<String,Object> with
+    // insertion order {input, reciprocal, negReciprocal, nanField} containing
+    // NaN, +Infinity, -Infinity. After stableStringify the canonical form is
+    //   {"input":0,"nanField":"__nan__","negReciprocal":"__neg_infinity__","reciprocal":"__infinity__"}
+    // — JS fingerprint() must produce the same hash as the Java capture for
+    // the equivalent JS object. This guards the issue #322 sentinel paths
+    // and recursive key sorting, which the basic int/string demos never hit.
+    run(CAPTURE_SH)
+    const regret = readRegret('stats')
+    const javaHash = extractHash(regret)
+    const jsHash = fingerprint(0, {
+      input: 0,
+      reciprocal: Infinity,
+      negReciprocal: -Infinity,
+      nanField: NaN,
+    })
+    assert.equal(javaHash, jsHash,
+      `parity mismatch for stats: Java=${javaHash} JS=${jsHash}\n` +
+      `Java OUTPUT line: ${extractOutput(regret)}`)
   })
 
   itIfJava('validate PASSes for a valid refactor (output preserved)', () => {
@@ -165,7 +198,7 @@ describe('Java stack', () => {
 
       const r = run(VALIDATE_SH)
       assert.equal(r.status, 0, `valid refactor should PASS:\n${r.stdout}\n${r.stderr}`)
-      assert.match(r.stdout, /Passed: 3/)
+      assert.match(r.stdout, /Passed: 4/)
     } finally {
       copyFileSync(backup, JAVA_FILE)
       rmSync(backup, { force: true })

@@ -625,6 +625,16 @@ public class RegretJava {
         }
 
         // ── Stringify (standard, not sorted — used for display) ──
+        // Matches JS JSON.stringify semantics for the .regret file's OUTPUT line:
+        //   - NaN / +Infinity / -Infinity  →  "null"   (invalid JSON otherwise)
+        //   - Whole-valued doubles          →  written as int ("0", not "0.0")
+        //   - Other doubles                 →  Double.toString (matches JS Number→string)
+        // Cross-stack note: JS uses `JSON.stringify(output)` for the OUTPUT line,
+        // so the .regret file produced by Java must be byte-identical to one
+        // produced by JS for the same output value. Without this normalization,
+        // a Java-captured .regret file containing NaN/Infinity cannot be parsed
+        // by validate's Json.parse (which only accepts standard JSON tokens),
+        // and a JS validate would also choke on the bare `NaN`/`Infinity` words.
         static String stringify(Object o) {
             StringBuilder sb = new StringBuilder();
             writeStandard(o, sb);
@@ -634,7 +644,30 @@ public class RegretJava {
         private static void writeStandard(Object o, StringBuilder sb) {
             if (o == null) { sb.append("null"); return; }
             if (o instanceof String) { writeString((String) o, sb); return; }
-            if (o instanceof Boolean || o instanceof Number) { sb.append(o.toString()); return; }
+            if (o instanceof Boolean) { sb.append(o.toString()); return; }
+            if (o instanceof Number) {
+                Number n = (Number) o;
+                // JS JSON.stringify(NaN) === "null", JSON.stringify(Infinity) === "null".
+                // Emit "null" for any non-finite double so the OUTPUT line stays
+                // valid JSON (parseable by both Java's Json.parse and JS JSON.parse).
+                if (n instanceof Double || n instanceof Float) {
+                    double d = n.doubleValue();
+                    if (Double.isNaN(d) || Double.isInfinite(d)) {
+                        sb.append("null");
+                        return;
+                    }
+                    // JS JSON.stringify(0.0) === "0" (no decimal point for whole doubles).
+                    if (d == Math.floor(d) && Math.abs(d) < 1e21) {
+                        sb.append(Long.toString((long) d));
+                        return;
+                    }
+                    sb.append(Double.toString(d));
+                    return;
+                }
+                // Integer/Long/Short/Byte — pass through as-is.
+                sb.append(n.toString());
+                return;
+            }
             if (o instanceof Character) { writeString(o.toString(), sb); return; }
             if (o instanceof List) {
                 sb.append('[');
@@ -1004,5 +1037,31 @@ final class DemoMathUtils {
             unitIdx++;
         }
         return String.format("%.2f %s", v, units[unitIdx]);
+    }
+
+    /**
+     * Compute a stats map that deliberately includes non-finite numeric
+     * sentinels (NaN, +Infinity, -Infinity) and a nested structure with
+     * insertion order != sorted order.
+     *
+     * <p>This method exists to exercise the {@code __nan__},
+     * {@code __infinity__}, and {@code __neg_infinity__} sentinels in
+     * {@link RegretJava.Json#stableStringify} plus recursive key sorting —
+     * paths that the basic demo functions (add/fibonacci/reverse/etc.) never
+     * trigger because they return plain primitives or strings. The
+     * cross-stack parity verifier
+     * ({@code proof/java/verify-parity.mjs}) uses this to confirm the Java
+     * fingerprint matches the JS fingerprint for these edge cases.
+     *
+     * @param x denominator; pass {@code 0} to trigger the Infinity paths
+     * @return a map with insertion order {input, reciprocal, negReciprocal, nanField}
+     */
+    public static java.util.Map<String, Object> computeStats(double x) {
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("input", x);
+        out.put("reciprocal", 1.0 / x);        // +Infinity when x == 0
+        out.put("negReciprocal", -1.0 / x);    // -Infinity when x == 0
+        out.put("nanField", 0.0 / 0.0);        // always NaN
+        return out;
     }
 }

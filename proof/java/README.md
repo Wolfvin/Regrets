@@ -7,15 +7,16 @@ End-to-end demo that the Java capture+validate stack is functional.
 ```
 proof/java/
 ├── README.md                    ← this file
-├── verify-parity.mjs            ← cross-stack fingerprint parity check
+├── verify-parity.mjs            ← cross-stack fingerprint parity check (6 cases)
 ├── demo-refactor-flow.sh        ← end-to-end PASS/FAIL demo script
 └── regrets/
-    ├── manifest.json            ← 5 Java clusters (add, fibonacci, reverse, parseCsvLine, formatBytes)
+    ├── manifest.json            ← 6 Java clusters (add, fibonacci, reverse, parseCsvLine, formatBytes, stats)
     ├── add.regret               ← captured contract
     ├── fibonacci.regret
     ├── reverse.regret
     ├── parse-csv-line.regret
-    └── format-bytes.regret
+    ├── format-bytes.regret
+    └── stats.regret             ← edge-case parity: NaN / Infinity / nested Map
 ```
 
 The capture target is `DemoMathUtils`, a top-level non-public class that
@@ -54,4 +55,7 @@ bash demo-refactor-flow.sh
 - ✅ validate FAILs (non-zero exit) for a **breaking refactor** that
   changes output (off-by-one in `fibonacci`)
 - ✅ Java fingerprint is byte-identical to JS `fingerprint()` for the
-  same (input, output) pair — verified by `verify-parity.mjs`
+  same (input, output) pair — verified by `verify-parity.mjs` across 6
+  cases including the `stats` cluster which exercises the `__nan__`,
+  `__infinity__`, `__neg_infinity__` sentinels (issue #322) and
+  recursive key sorting on a nested `Map<String,Object>`

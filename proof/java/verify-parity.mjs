@@ -14,6 +14,15 @@ const cases = [
   { name: 'parse-csv',    input: '"hello, world",42,"quoted, field"',
                             output: ['hello, world', '42', 'quoted, field'] },
   { name: 'format-bytes', input: 1073741824,                         output: '1.00 GiB' },
+  // Edge-case parity: exercises the __nan__, __infinity__, __neg_infinity__
+  // sentinels in stableStringify (issue #322) plus recursive key sorting.
+  // The Java side inserts keys in order {input, reciprocal, negReciprocal, nanField};
+  // after alphabetical sorting the canonical form is
+  //   {"input":0,"nanField":"__nan__","negReciprocal":"__neg_infinity__","reciprocal":"__infinity__"}
+  // — JS fingerprint() must produce the same hash for the equivalent JS object.
+  { name: 'stats',        input: 0,
+                            output: { input: 0, reciprocal: Infinity,
+                                      negReciprocal: -Infinity, nanField: NaN } },
 ]
 
 let failures = 0

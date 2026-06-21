@@ -55,6 +55,17 @@
       "watches": ["formatBytes"],
       "inputs": [1073741824],
       "description": "Format 1 GiB in binary units"
+    },
+    {
+      "id": "stats",
+      "entry": "computeStats",
+      "method": "computeStats",
+      "class": "DemoMathUtils",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["computeStats"],
+      "inputs": [0],
+      "description": "Edge-case parity: nested Map with NaN, +Infinity, -Infinity sentinels and unsorted insertion order"
     }
   ]
 }
