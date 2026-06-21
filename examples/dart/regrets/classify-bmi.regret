@@ -1,0 +1,13 @@
+cluster: classify-bmi
+version: 1
+fingerprint: 3jnqnr4
+captured: 2026-06-21T05:06:35.945690Z
+watches: [classifyBmi]
+entry: classifyBmi
+stack: dart
+fingerprintLevel: entry
+file: lib/math_utils.dart
+---
+INPUT  17.0
+OUTPUT "Underweight"
+HASH   3jnqnr4

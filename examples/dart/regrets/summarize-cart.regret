@@ -1,0 +1,13 @@
+cluster: summarize-cart
+version: 1
+fingerprint: 2rw7gy8
+captured: 2026-06-21T05:06:36.793467Z
+watches: [summarizeCart]
+entry: summarizeCart
+stack: dart
+fingerprintLevel: entry
+file: lib/math_utils.dart
+---
+INPUT  [{"name":"Nasi Goreng","price":25000,"qty":2},{"name":"Es Teh","price":5000,"qty":1}]
+OUTPUT {"subtotal":55000,"tax":6050,"total":61050,"itemCount":3}
+HASH   2rw7gy8

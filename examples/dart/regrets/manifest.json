@@ -1,0 +1,59 @@
+{
+  "clusters": [
+    {
+      "id": "format-rupiah",
+      "entry": "formatRupiah",
+      "file": "lib/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["formatRupiah"],
+      "description": "Format integer as Indonesian Rupiah currency string",
+      "inputs": [
+        0,
+        1500000,
+        9999,
+        123456789,
+        -75000
+      ]
+    },
+    {
+      "id": "classify-bmi",
+      "entry": "classifyBmi",
+      "file": "lib/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["classifyBmi"],
+      "description": "Classify BMI per WHO categories",
+      "inputs": [
+        17.0,
+        22.5,
+        27.3,
+        31.2,
+        18.5,
+        25.0,
+        30.0
+      ]
+    },
+    {
+      "id": "summarize-cart",
+      "entry": "summarizeCart",
+      "file": "lib/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["summarizeCart"],
+      "description": "Compute subtotal, tax (11% PPN), total, and item count for a cart",
+      "inputs": [
+        [
+          {"name": "Nasi Goreng", "price": 25000, "qty": 2},
+          {"name": "Es Teh", "price": 5000, "qty": 1}
+        ],
+        [
+          {"name": "Ayam Bakar", "price": 35000, "qty": 1},
+          {"name": "Es Jeruk", "price": 8000, "qty": 3},
+          {"name": "Kerupuk", "price": 3000, "qty": 2}
+        ],
+        []
+      ]
+    }
+  ]
+}

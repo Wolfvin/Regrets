@@ -1,0 +1,13 @@
+cluster: format-rupiah
+version: 1
+fingerprint: 56z4nqt
+captured: 2026-06-21T05:06:34.002621Z
+watches: [formatRupiah]
+entry: formatRupiah
+stack: dart
+fingerprintLevel: entry
+file: lib/math_utils.dart
+---
+INPUT  0
+OUTPUT "Rp 0"
+HASH   56z4nqt

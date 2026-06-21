@@ -1,0 +1,10 @@
+# Dart build artifacts
+.dart_tool/
+.pub/
+
+# Regret capture output (golden contracts — committed separately as .regret files,
+# but intermediate lock files / temp artifacts are excluded)
+*.regret.tmp
+
+# Keep .regret files (golden contracts) — DO NOT ignore them.
+# Keep pubspec.yaml, pubspec.lock (declares crypto dep).
