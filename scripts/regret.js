@@ -230,6 +230,8 @@ async function main() {
         success = await run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/capture_php.php`, ...passThroughArgs]) && success
+      } else if (stack === 'perl') {
+        success = await run('perl', [`${SCRIPTS_DIR}/capture_perl.pl`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
@@ -248,6 +250,8 @@ async function main() {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs]) && success
+      } else if (stack === 'perl') {
+        success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
@@ -315,6 +319,11 @@ async function main() {
       success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...translatedArgs])
     } else if (targetStack === 'php') {
       success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...translatedArgs])
+    } else if (targetStack === 'perl') {
+      // validate_perl.pl does not support --update mode; run regular validate
+      // with --cluster filter (re-capture is the Perl update path).
+      const validateArgs = translatedArgs.filter(a => a !== '--update')
+      success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, ...validateArgs])
     } else if (targetStack === 'rust') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
