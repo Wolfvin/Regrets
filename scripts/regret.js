@@ -230,12 +230,24 @@ async function main() {
         success = await run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/capture_php.php`, ...passThroughArgs]) && success
+      } else if (stack === 'ruby') {
+        success = await run('ruby', [`${SCRIPTS_DIR}/capture_ruby.rb`, ...passThroughArgs]) && success
+      } else if (stack === 'csharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_csharp.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_bash.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'awk') {
+        success = await run('node', [`${SCRIPTS_DIR}/capture_awk.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'capture', ...passThroughArgs]) && success
+      } else if (stack === 'c') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_c.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'java') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -250,12 +262,24 @@ async function main() {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs]) && success
+      } else if (stack === 'ruby') {
+        success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...passThroughArgs]) && success
+      } else if (stack === 'csharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_csharp.sh`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'awk') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_awk.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'c') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'java') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -303,7 +327,7 @@ async function main() {
       // Strip the positional id from passThroughArgs, then re-add it in
       // the stack-specific --update position.
       const remainingArgs = passThroughArgs.filter(a => a !== targetCluster)
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'rust' || targetStack === 'go') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -319,6 +343,10 @@ async function main() {
       success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...translatedArgs])
     } else if (targetStack === 'php') {
       success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...translatedArgs])
+    } else if (targetStack === 'ruby') {
+      success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...translatedArgs])
+    } else if (targetStack === 'csharp') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_csharp.sh`, ...translatedArgs])
     } else if (targetStack === 'rust') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
@@ -327,6 +355,10 @@ async function main() {
       // Bash update mode: re-capture then validate (audit.log not yet supported for bash)
       // For now, dispatch to validate_bash.sh which will re-validate after manual re-capture
       success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...translatedArgs])
+    } else if (targetStack === 'scala') {
+      success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...translatedArgs])
+    } else if (targetStack === 'c') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...translatedArgs])
     } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -348,12 +380,23 @@ async function main() {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...driftDefault, ...passThroughArgs]) && success
+      } else if (stack === 'ruby') {
+        success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...driftDefault, ...passThroughArgs]) && success
+      } else if (stack === 'csharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_csharp.sh`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
       } else if (stack === 'bash') {
         console.log(`  ⏭️  Bash drift detection: not yet supported (bash output is deterministic by default)`)
+      } else if (stack === 'scala') {
+        // Scala drift detection: run validate with multiple runs; each run
+        // re-invokes the function. Pure functions should produce identical
+        // fingerprints every time.
+        console.log(`  ⏭️  Scala drift detection: run \`capture_scala.sh validate --runs N\` manually`)
+      } else if (stack === 'c') {
+        console.log(`  ⏭️  C drift detection: run validate_c.sh with --runs flag manually`)
       }
     }
     break
@@ -377,12 +420,20 @@ async function main() {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'ruby') {
+        success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'csharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_csharp.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'c') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     break
@@ -409,12 +460,22 @@ async function main() {
         success = await run('python3', [`${SCRIPTS_DIR}/truth.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/truth_php.php`, ...passThroughArgs]) && success
+      } else if (stack === 'ruby') {
+        console.log(`  ⏭️  Ruby truth capture: not yet supported — use ruby scripts/capture_ruby.rb + ruby scripts/validate_ruby.rb --runs 5 for now`)
+      } else if (stack === 'csharp') {
+        console.log(`  ⏭️  C# truth capture: not yet supported — use bash scripts/validate_csharp.sh --runs 5 for drift detection`)
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'scala') {
+        // Truth capture for Scala delegates to validate (which re-runs and re-records).
+        // For now, this is a no-op: Scala truth capture would need a separate truth_scala.ts.
+        console.log(`  ⏭️  Scala truth capture not yet supported — use \`regret capture\` instead`)
+      } else if (stack === 'c') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -599,12 +660,18 @@ async function main() {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'ruby') {
+        success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'csharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_csharp.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'rust') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'c') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     if (success) {

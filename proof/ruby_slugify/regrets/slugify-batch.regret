@@ -1,0 +1,13 @@
+cluster: slugify-batch
+version: 1
+fingerprint: 2tph9ny
+captured: 2026-06-20T17:46:43.338966Z
+watches: [slugify_batch, slugify]
+entry: slugify_batch
+stack: ruby
+fingerprintLevel: entry
+file: lib/slugify.rb
+---
+INPUT  ["Hello, World!","Café résumé","---trailing---"]
+OUTPUT ["hello-world","caf-r-sum","trailing"]
+HASH   2tph9ny

@@ -1,0 +1,54 @@
+{
+  "clusters": [
+    {
+      "id": "add-basic",
+      "entry": "MathUtils.add",
+      "file": "lib/MathUtils.fs",
+      "stack": "fsharp",
+      "fingerprintLevel": "entry",
+      "watches": ["MathUtils.add"],
+      "description": "Increment an integer by 1",
+      "inputs": [2, 5, 0, -1, 100]
+    },
+    {
+      "id": "classify-bmi",
+      "entry": "MathUtils.classifyBmi",
+      "file": "lib/MathUtils.fs",
+      "stack": "fsharp",
+      "fingerprintLevel": "entry",
+      "watches": ["MathUtils.classifyBmi"],
+      "description": "Classify BMI per WHO categories",
+      "inputs": [17.0, 22.5, 27.3, 31.2, 18.5, 25.0, 30.0]
+    },
+    {
+      "id": "format-rupiah",
+      "entry": "MathUtils.formatRupiah",
+      "file": "lib/MathUtils.fs",
+      "stack": "fsharp",
+      "fingerprintLevel": "entry",
+      "watches": ["MathUtils.formatRupiah"],
+      "description": "Format integer as Indonesian Rupiah currency string",
+      "inputs": [0, 1500000, 9999, 123456789, -75000]
+    },
+    {
+      "id": "summarize-cart",
+      "entry": "MathUtils.summarizeCart",
+      "file": "lib/MathUtils.fs",
+      "stack": "fsharp",
+      "fingerprintLevel": "entry",
+      "watches": ["MathUtils.summarizeCart"],
+      "description": "Compute subtotal, 11% PPN tax, total, and item count for a cart",
+      "inputs": [
+        [
+          {"name": "Nasi Goreng", "price": 25000, "qty": 2},
+          {"name": "Es Teh", "price": 5000, "qty": 1}
+        ],
+        [
+          {"name": "Ayam Bakar", "price": 35000, "qty": 1},
+          {"name": "Es Jeruk", "price": 8000, "qty": 3},
+          {"name": "Kerupuk", "price": 3000, "qty": 2}
+        ]
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+cluster: classify-bmi
+version: 1
+fingerprint: 3jnqnr4
+captured: 2026-06-21T07:35:25.5160772Z
+watches: [MathUtils.classifyBmi]
+entry: MathUtils.classifyBmi
+stack: fsharp
+fingerprintLevel: entry
+file: lib/MathUtils.fs
+---
+INPUT  17.0
+OUTPUT "Underweight"
+HASH   3jnqnr4

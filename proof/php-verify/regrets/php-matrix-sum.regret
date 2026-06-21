@@ -1,0 +1,15 @@
+cluster: php-matrix-sum
+version: 1
+fingerprint: 6b038lx
+captured: 2026-06-21T06:26:34+00:00
+watches: [matrix_sum]
+entry: matrix_sum
+stack: php
+fingerprintLevel: entry
+multiArgs: true
+file: src/MathUtils.php
+---
+INPUT  [[[1,2],[3,4]],[[5,6],[7,8]]]
+OUTPUT [[6,8],[10,12]]
+HASH   6b038lx
+INPUTS [{"input":[[[10,20],[30,40]],[[1,2],[3,4]]],"output":[[11,22],[33,44]],"hash":"di6ecl9"}]

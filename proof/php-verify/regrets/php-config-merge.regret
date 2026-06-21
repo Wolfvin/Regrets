@@ -1,0 +1,15 @@
+cluster: php-config-merge
+version: 1
+fingerprint: 643l7no
+captured: 2026-06-21T06:26:34+00:00
+watches: [merge]
+entry: ConfigHelper::merge
+stack: php
+fingerprintLevel: entry
+multiArgs: true
+file: src/MathUtils.php
+---
+INPUT  [{"env":"dev","port":3000},{"port":8080}]
+OUTPUT {"env":"dev","port":8080}
+HASH   643l7no
+INPUTS [{"input":[{"a":1,"b":2},{"b":3,"c":4}],"output":{"a":1,"b":3,"c":4},"hash":"1u27ad8"}]

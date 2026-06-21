@@ -1,0 +1,13 @@
+cluster: sum-column
+version: 1
+fingerprint: 19la9jf
+captured: 2026-06-21T05:21:34.788Z
+watches: []
+entry: sum_column.awk
+stack: awk
+file: sum_column.awk
+fingerprintLevel: entry
+---
+INPUT  "1\n2\n3\n4\n5\n"
+OUTPUT "15"
+HASH   19la9jf

@@ -1,0 +1,66 @@
+{
+  "projectName": "php-verify",
+  "clusters": [
+    {
+      "id": "php-crc32",
+      "entry": "RegretVerify\\crc32",
+      "watches": ["RegretVerify\\crc32"],
+      "file": "src/VerifyLib.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "CRC32 (zip polynomial) of 'Hello' — table-driven checksum (no hash() builtin)",
+      "inputs": [
+        "Hello"
+      ]
+    },
+    {
+      "id": "php-base64-encode",
+      "entry": "RegretVerify\\base64_encode",
+      "watches": ["RegretVerify\\base64_encode"],
+      "file": "src/VerifyLib.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "Base64 encode 'Hello' — bitwise ops + lookup table (no base64_encode builtin)",
+      "inputs": [
+        "Hello"
+      ]
+    },
+    {
+      "id": "php-levenshtein",
+      "entry": "RegretVerify\\levenshtein",
+      "watches": ["RegretVerify\\levenshtein"],
+      "file": "src/VerifyLib.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "Levenshtein edit distance (kitten→sitting) — 2D DP matrix with nested loops",
+      "inputs": [
+        ["kitten", "sitting"]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "php-is-valid-ipv4",
+      "entry": "RegretVerify\\is_valid_ipv4",
+      "watches": ["RegretVerify\\is_valid_ipv4"],
+      "file": "src/VerifyLib.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "Validate IPv4 '192.168.1.1' — multi-delimiter parser + range check",
+      "inputs": [
+        "192.168.1.1"
+      ]
+    },
+    {
+      "id": "php-fnv1a",
+      "entry": "RegretVerify\\fnv1a",
+      "watches": ["RegretVerify\\fnv1a"],
+      "file": "src/VerifyLib.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "FNV-1a 32-bit hash of 'Hello' — multiply + XOR per byte",
+      "inputs": [
+        "Hello"
+      ]
+    }
+  ]
+}

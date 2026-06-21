@@ -1,0 +1,12 @@
+cluster: jq-greet
+version: 1
+fingerprint: 3r4qbnf
+captured: 2026-06-21T08:15:51.235360+00:00
+entry: greet
+stack: jq
+file: ../functions.jq
+INPUTS 2xnxp9l grq5k2e 54wenp2
+---
+INPUT  "World"
+OUTPUT "Hello, World!"
+HASH   3r4qbnf

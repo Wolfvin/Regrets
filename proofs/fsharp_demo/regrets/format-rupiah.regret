@@ -1,0 +1,13 @@
+cluster: format-rupiah
+version: 1
+fingerprint: 56z4nqt
+captured: 2026-06-21T07:35:45.3905396Z
+watches: [MathUtils.formatRupiah]
+entry: MathUtils.formatRupiah
+stack: fsharp
+fingerprintLevel: entry
+file: lib/MathUtils.fs
+---
+INPUT  0
+OUTPUT "Rp 0"
+HASH   56z4nqt

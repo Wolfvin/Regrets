@@ -1,0 +1,12 @@
+cluster: fibonacci
+version: 1
+fingerprint: 587q30m
+captured: 2026-06-21T05:40:17.000000+00:00
+watches: [demo_fibonacci]
+entry: regret_fibonacci
+stack: c
+fingerprintLevel: entry
+---
+INPUT  10
+OUTPUT 55
+HASH   587q30m

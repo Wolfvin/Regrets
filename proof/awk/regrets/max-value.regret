@@ -1,0 +1,13 @@
+cluster: max-value
+version: 1
+fingerprint: ergyfa1
+captured: 2026-06-21T05:21:34.815Z
+watches: []
+entry: max_value.awk
+stack: awk
+file: max_value.awk
+fingerprintLevel: entry
+---
+INPUT  "3\n1\n4\n1\n5\n9\n2\n6\n"
+OUTPUT "9"
+HASH   ergyfa1

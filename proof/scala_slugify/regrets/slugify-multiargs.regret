@@ -1,0 +1,16 @@
+cluster: slugify-multiargs
+version: 1
+fingerprints: 4nsxacg,tdx2q0f
+captured: 2026-06-21T04:59:04.789918472Z
+watches: [slugify]
+entry: slugify
+stack: scala
+fingerprintLevel: entry
+object: Slugify
+---
+INPUT  ["Hello World","ignored second arg"]
+OUTPUT "hello-world"
+HASH   4nsxacg
+INPUT  ["TEST Input",42]
+OUTPUT "test-input"
+HASH   tdx2q0f

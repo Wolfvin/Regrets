@@ -1,0 +1,15 @@
+cluster: calc-add
+version: 1
+fingerprint: 13mxb0z
+captured: 2026-06-20T18:01:58.641223+00:00
+watches: [Add]
+entry: Add
+stack: csharp
+fingerprintLevel: entry
+class: RegretDemo.Calculator
+env: {"runtime":"dotnet","version":"8.0.28"}
+---
+INPUT  [2,3]
+OUTPUT 5
+HASH   13mxb0z
+INPUTS [{"input":[10,20],"output":30,"hash":"560s4tf","threw":false}, {"input":[-5,7],"output":2,"hash":"41dkf14","threw":false}, {"input":[0,0],"output":0,"hash":"536pw5k","threw":false}, {"input":[100,200],"output":300,"hash":"65bacti","threw":false}]

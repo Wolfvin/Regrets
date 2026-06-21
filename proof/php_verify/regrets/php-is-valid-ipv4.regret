@@ -1,0 +1,13 @@
+cluster: php-is-valid-ipv4
+version: 1
+fingerprint: 5fyfbp9
+captured: 2026-06-21T06:59:05+00:00
+watches: [RegretVerify\is_valid_ipv4]
+entry: RegretVerify\is_valid_ipv4
+stack: php
+fingerprintLevel: entry
+file: src/VerifyLib.php
+---
+INPUT  "192.168.1.1"
+OUTPUT true
+HASH   5fyfbp9

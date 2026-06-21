@@ -1,0 +1,12 @@
+cluster: add
+version: 1
+fingerprint: 63qoext
+captured: 2026-06-21T05:05:31Z
+entry: Add
+stack: go
+fingerprintLevel: entry
+---
+INPUT  [1,2]
+OUTPUT 3
+HASH   63qoext
+INPUTS [{"hash":"560s4tf","input":[10,20],"output":30},{"hash":"31t5rs1","input":[-5,5],"output":0}]

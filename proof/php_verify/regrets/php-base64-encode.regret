@@ -1,0 +1,13 @@
+cluster: php-base64-encode
+version: 1
+fingerprint: 3db5bgz
+captured: 2026-06-21T06:59:05+00:00
+watches: [RegretVerify\base64_encode]
+entry: RegretVerify\base64_encode
+stack: php
+fingerprintLevel: entry
+file: src/VerifyLib.php
+---
+INPUT  "Hello"
+OUTPUT "SGVsbG8="
+HASH   3db5bgz
