@@ -4,7 +4,7 @@
 
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { validate, check, chain } from '../scripts/api.js'
+import { validate, check, chain, scan } from '../scripts/api.js'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
@@ -236,6 +236,104 @@ describe('chain()', () => {
     } catch (err) {
       // Expected for missing chains.json
       assert.ok(err)
+    }
+  })
+})
+
+// ─── scan() ──────────────────────────────────────────────────────────────────
+
+describe('scan()', () => {
+  before(() => setupFixtures())
+  after(() => cleanupFixtures())
+
+  it('returns suggestions array with expected shape (issue #289)', async () => {
+    const { suggestions } = await scan({ cwd: TMP })
+    assert.ok(Array.isArray(suggestions), 'suggestions should be an array')
+    assert.ok(suggestions.length > 0, 'should find at least one suggestion in fixtures')
+
+    const s = suggestions[0]
+    // #289: scan() must emit the SAME shape as install.js
+    assert.ok('id' in s, 'suggestion has id')
+    assert.ok('entry' in s, 'suggestion has entry')
+    assert.ok('file' in s, 'suggestion has file')
+    assert.ok('stack' in s, 'suggestion has stack')
+    assert.ok('watches' in s, 'suggestion has watches')
+    assert.ok('fingerprintLevel' in s, 'suggestion has fingerprintLevel (#289 fix)')
+    assert.ok('inputs' in s, 'suggestion has inputs (#289 fix)')
+    assert.ok('callees' in s, 'suggestion has callees (#289 fix)')
+  })
+
+  it('watches is [] (NOT [fnName]) — matches install.js (issue #289)', async () => {
+    const { suggestions } = await scan({ cwd: TMP })
+    for (const s of suggestions) {
+      assert.deepEqual(s.watches, [],
+        `suggestion ${s.id}: watches should be [] (not [${s.entry}]) — matches install.js shape`)
+    }
+  })
+
+  it('fingerprintLevel is "entry" — matches install.js (issue #289)', async () => {
+    const { suggestions } = await scan({ cwd: TMP })
+    for (const s of suggestions) {
+      assert.equal(s.fingerprintLevel, 'entry',
+        `suggestion ${s.id}: fingerprintLevel should be 'entry'`)
+    }
+  })
+
+  it('inputs is [null, {}] — matches install.js default probes (issue #289)', async () => {
+    const { suggestions } = await scan({ cwd: TMP })
+    for (const s of suggestions) {
+      assert.deepEqual(s.inputs, [null, {}],
+        `suggestion ${s.id}: inputs should be [null, {}]`)
+    }
+  })
+
+  it('callees is [] (present but empty) — matches install.js shape (issue #289)', async () => {
+    const { suggestions } = await scan({ cwd: TMP })
+    for (const s of suggestions) {
+      assert.deepEqual(s.callees, [],
+        `suggestion ${s.id}: callees should be []`)
+    }
+  })
+
+  it('detects export class X (#292 parity with install.js)', async () => {
+    // Create a class-only module — install.js detects it, scan() must too
+    writeFileSync(join(TMP, 'class-only.mjs'),
+      'export class Calculator {\n  add(a, b) { return a + b }\n}\n')
+    try {
+      const { suggestions } = await scan({ cwd: TMP, dir: '.', stack: 'js' })
+      const classSuggestion = suggestions.find(s => s.entry === 'Calculator')
+      assert.ok(classSuggestion, 'should detect export class Calculator (#292 parity)')
+    } finally {
+      try { rmSync(join(TMP, 'class-only.mjs')) } catch {}
+    }
+  })
+
+  it('does NOT detect function names in comments (#286 parity with install.js)', async () => {
+    // The comment mentions `export const phantom` — scan() must NOT create a cluster for it
+    writeFileSync(join(TMP, 'with-comment.mjs'),
+      '// ESM module with `export const phantom = () => ...` callees\n' +
+      'export const real = (s) => s.toLowerCase()\n')
+    try {
+      const { suggestions } = await scan({ cwd: TMP, dir: '.', stack: 'js' })
+      const entries = suggestions.map(s => s.entry)
+      assert.ok(entries.includes('real'), 'should detect `real`')
+      assert.ok(!entries.includes('phantom'),
+        'should NOT detect `phantom` (only mentioned in comment — #286 parity)')
+    } finally {
+      try { rmSync(join(TMP, 'with-comment.mjs')) } catch {}
+    }
+  })
+
+  it('detects export { foo, bar } named export list (#271 parity)', async () => {
+    writeFileSync(join(TMP, 'named-exports.mjs'),
+      'function foo() { return 1 }\nfunction bar() { return 2 }\nexport { foo, bar }\n')
+    try {
+      const { suggestions } = await scan({ cwd: TMP, dir: '.', stack: 'js' })
+      const entries = suggestions.map(s => s.entry)
+      assert.ok(entries.includes('foo'), 'should detect foo from export { foo, bar }')
+      assert.ok(entries.includes('bar'), 'should detect bar from export { foo, bar }')
+    } finally {
+      try { rmSync(join(TMP, 'named-exports.mjs')) } catch {}
     }
   })
 })

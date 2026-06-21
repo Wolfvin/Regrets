@@ -764,11 +764,22 @@ export async function scan(options = {}) {
         const content = readFileSync(filePath, 'utf8')
         const relPath = relative(cwd, filePath)
 
-        // Find exported function names (simple regex-based scan)
+        // #286 parity: strip comments before regex matching so function names
+        // mentioned in comments don't produce phantom clusters. Mirrors
+        // install.js's `strippedSource` approach.
+        const strippedSource = content
+          .replace(/\/\/.*$/gm, '')
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+
+        // Find exported function names. Patterns mirror install.js's
+        // extractExportedFunctions so scan() and install produce the same
+        // set of clusters for the same file.
         const exportPatterns = [
           /export\s+function\s+(\w+)/g,
-          /export\s+const\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function)/g,
-          /export\s+async\s+function\s+(\w+)/g,
+          /export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g,
+          /export\s+default\s+function\s+(\w+)/g,
+          /export\s+class\s+(\w+)/g,           // #292 parity
+          /export\s+default\s+class\s+(\w+)/g,  // #292 parity
           /exports\.(\w+)\s*=\s*function/g,
           /module\.exports\.(\w+)\s*=\s*function/g,
           /module\.exports\.(\w+)\s*=/g,
@@ -777,23 +788,47 @@ export async function scan(options = {}) {
         const fns = new Set()
         for (const pattern of exportPatterns) {
           let match
-          while ((match = pattern.exec(content)) !== null) {
+          while ((match = pattern.exec(strippedSource)) !== null) {
             fns.add(match[1])
           }
         }
 
+        // #271 parity: Named export list — `export { foo, bar }`
+        // install.js extracts these; scan() must too or it'll miss clusters
+        // that install.js finds.
+        const namedExportList = strippedSource.matchAll(/export\s*\{([^}]*)\}/g)
+        for (const m of namedExportList) {
+          const items = m[1].split(',')
+          for (const item of items) {
+            const trimmed = item.trim()
+            if (!trimmed) continue
+            const asMatch = trimmed.match(/\bas\s+(\w+)$/)
+            if (asMatch) {
+              fns.add(asMatch[1])
+            } else {
+              const identMatch = trimmed.match(/^(\w+)$/)
+              if (identMatch) fns.add(identMatch[1])
+            }
+          }
+        }
+
         // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
-        const cjsObjExports = extractCjsObjectExports(content)
+        const cjsObjExports = extractCjsObjectExports(strippedSource)
         for (const name of cjsObjExports) fns.add(name)
 
         for (const fnName of fns) {
           const clusterId = fnName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')
+          // #289 fix: emit the SAME shape as install.js so MCP agents and
+          // CLI users get compatible manifests.
           suggestions.push({
             id: clusterId,
             entry: fnName,
             file: relPath,
             stack,
-            watches: [fnName],
+            watches: [],                      // #289: was [fnName], now [] (matches install.js)
+            fingerprintLevel: 'entry',         // #289: was missing, now explicit (matches install.js)
+            inputs: [null, {}],                // #289: was missing, now matches install.js default probes
+            callees: [],                       // #289: was missing, now present-but-empty (install.js omits when empty, but scan() includes for shape consistency)
           })
         }
       } catch { /* skip unreadable files */ }
