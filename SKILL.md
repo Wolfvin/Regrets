@@ -986,7 +986,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
-| Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
+| Go | Generated test files + `go test` | Value / Schema / Mixed | **Working** — see `references/go.md` |
 | PHP | Ghost decorator (manual wrapping) | Value / Schema / Mixed | See `references/php.md` |
 | C# (.NET 8+) | Reflection via `Assembly.LoadFrom` + `MethodInfo.Invoke` | Value (default) + multi-input (issue #315) | See `references/csharp.md` and `proof/csharp-demo/` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
@@ -1215,7 +1215,7 @@ regression-testing/
 │   ├── capture_vue.mjs         ← Vue 3 component SSR capture
 │   ├── validate_vue.mjs        ← Vue 3 component SSR validator
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
-│   ├── capture_go.sh           ← Go cluster capture runner (community preview)
+│   ├── capture_go.sh           ← Go cluster capture runner (working)
 │   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)
 │   ├── validate_kotlin.sh      ← Kotlin cluster validate runner (community preview)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
@@ -1235,7 +1235,7 @@ regression-testing/
     ├── update-protocol.md      ← safe update + audit trail rules (with hash chain)
     ├── python.md               ← Python stack — full implementation
     ├── rust.md                 ← Rust stack — trait wrapping + cargo test
-    ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
+    ├── go.md                   ← Go stack — generated test files + go test (Working)
     ├── ruby.md                 ← Ruby stack — top-level fn / class method / instance method
     ├── csharp.md               ← C# (.NET 8+) stack — reflection + dotnet runner
     ├── react.md                ← React/JSX stack — render fingerprinting
