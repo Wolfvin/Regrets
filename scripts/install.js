@@ -1246,6 +1246,24 @@ async function installForScope({
       const callees = calleesByFn.get(fnName)
       if (callees && callees.length > 0) {
         cluster.callees = callees
+
+        // Issue #270 — class-level cluster with method-derived callees:
+        // the callees were sourced from method-call edges inside the class
+        // body (e.g. `multiply -> add` inside `class Calculator`). They are
+        // preserved on the class-level cluster so the user can see them,
+        // but `regret validate` will only re-invoke the class constructor
+        // with the cluster's `inputs` — it does NOT automatically re-run
+        // each method. For per-method callee re-validation, the user should
+        // manually create per-method clusters with `classMethod` config.
+        // We emit a one-line info message so the limitation is discoverable
+        // instead of buried in the manifest JSON.
+        if (classMethodsMap.has(fnName)) {
+          console.log(
+            `   ℹ️  Cluster "${clusterId}" is a class with method-derived callees [${callees.join(', ')}].\n` +
+            `      These are preserved for visibility but NOT auto-re-validated.\n` +
+            `      For full callee re-validation, add per-method clusters with "classMethod" config.`
+          )
+        }
       }
 
       clusters.push(cluster)
