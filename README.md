@@ -113,7 +113,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **PHP** | `php` | `capture_php.php` | `validate_php.php` | Pure functions, class-based output |
 | **Ruby** | `ruby` | `capture_ruby.rb` | `validate_ruby.rb` | Top-level functions, class methods, instance methods. See [`references/ruby.md`](references/ruby.md) and [`proof/ruby_slugify/`](proof/ruby_slugify/) |
 | **C# (.NET 8+)** | `csharp` | `capture_csharp.sh` | `validate_csharp.sh` | Reflection-based; public static methods. See [`references/csharp.md`](references/csharp.md) and [`proof/csharp-demo/`](proof/csharp-demo/) |
-| **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
+| **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Working |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
 | **Kotlin** | `kotlin` | `capture_kotlin.sh` | `validate_kotlin.sh` | Community Preview. Top-level functions only (callee wrapping + class methods on roadmap). See [`references/kotlin.md`](references/kotlin.md) |
 | **Ruby** | `ruby` | `capture_ruby.rb` | `validate_ruby.rb` | Pure functions, class methods. See [`references/ruby.md`](references/ruby.md) |

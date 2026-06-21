@@ -1,0 +1,13 @@
+cluster: format-bytes
+version: 1
+fingerprint: 4zbjvg6
+captured: 2026-06-21T04:39:51.937370729Z
+watches: [formatBytes]
+entry: formatBytes
+stack: java
+class: DemoMathUtils
+fingerprintLevel: entry
+---
+INPUT  1073741824
+OUTPUT "1.00 GiB"
+HASH   4zbjvg6

@@ -2,9 +2,27 @@
 
 Regression fingerprinting for Go projects using generated test files and `go test` capture.
 
-## Status: Community Preview
+## Status: Working — capture + validate implemented
 
-Go stack support is in **Community Preview** — the core fingerprint algorithm is implemented, but the capture/validate flow requires more manual setup than JS/Python stacks. This is based on real-world testing against the `baris-inandi/bfgo` project (a Brainfuck compiler/interpreter in Go).
+Go stack support is now **working end-to-end** — both `capture_go.sh capture` and `capture_go.sh validate` generate and run real Go test files that invoke entry functions via reflection, compute cross-stack-compatible fingerprints, and write/compare `.regret` files. This is based on real-world testing against the `baris-inandi/bfgo` project (a Brainfuck compiler/interpreter in Go) and the built-in test fixture at `tests/fixtures/go-example/`.
+
+**Verification:** run `bash scripts/verify_go_stack.sh` from the repo root to see a full end-to-end demo (capture → validate PASS for no-change and valid-refactor, FAIL for breaking change, plus cross-stack fingerprint parity with JS).
+
+### What's implemented
+
+- **Capture**: `bash scripts/capture_go.sh capture` generates `regrets/regret_helpers_test.go` + `regrets/regret_capture_test.go`, runs `go test`, writes `.regret` files for each cluster.
+- **Validate**: `bash scripts/capture_go.sh validate` generates `regrets/regret_helpers_test.go` + `regrets/regret_validate_test.go`, re-invokes each entry function with the saved input, compares the live fingerprint to the golden, reports PASS/FAIL.
+- **Single-cluster**: `bash scripts/capture_go.sh --cluster <id>` (capture) or `bash scripts/capture_go.sh validate --cluster <id>`.
+- **Cross-stack parity**: Go fingerprints match JS fingerprints for the same input/output (verified for int, string, array, NaN/Inf sentinels).
+- **Reflect-based invocation**: handles single-arg, multi-arg (`multiArgs: true`), and zero-arg functions via `reflect.Call`.
+- **Partial capture (#318 parity)**: if one input throws, the cluster still captures with the remaining inputs (matching the JS stack's behavior).
+- **INPUTS line**: multi-input clusters store additional results in an `INPUTS` line, and validate re-checks all of them.
+- **NaN/Inf sentinels (#322 parity)**: Go `stableStringify` matches JS behavior for NaN → `"__nan__"`, +Inf → `"__infinity__"`, -Inf → `"__neg_infinity__"`.
+
+### What's NOT yet implemented (deferred to follow-up PRs)
+
+- **Callee contracts** (`<parent>.calls.<callee>.regret`): Go has no runtime Proxy, so callee wrapping requires test-generated recording wrappers — a larger feature.
+- **expectThrow support**: Go capture doesn't yet read `{ __expectThrow: true, value: <input> }` input markers.
 
 ---
 
@@ -532,23 +550,23 @@ Or add as Makefile targets:
 
 ```makefile
 regret-capture-go:
-	bash skills/regresion-testing/scripts/capture_go.sh capture
+        bash skills/regresion-testing/scripts/capture_go.sh capture
 
 regret-validate-go:
-	bash skills/regresion-testing/scripts/capture_go.sh validate
+        bash skills/regresion-testing/scripts/capture_go.sh validate
 
 regret-health-go:
-	bash skills/regresion-testing/scripts/capture_go.sh health
+        bash skills/regresion-testing/scripts/capture_go.sh health
 ```
 
 Or use Go's native tooling:
 
 ```makefile
 regret-capture-go:
-	go test -v -run TestRegretCapture ./regrets/
+        go test -v -run TestRegretCapture ./regrets/
 
 regret-validate-go:
-	go test -v -run TestRegretValidate ./regrets/
+        go test -v -run TestRegretValidate ./regrets/
 ```
 
 ---
