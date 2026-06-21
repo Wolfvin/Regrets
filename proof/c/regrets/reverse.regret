@@ -1,0 +1,12 @@
+cluster: reverse
+version: 1
+fingerprint: 1ky49hx
+captured: 2026-06-21T05:40:17.000000+00:00
+watches: [demo_reverse]
+entry: regret_reverse
+stack: c
+fingerprintLevel: entry
+---
+INPUT  "Hello, World!"
+OUTPUT "!dlroW ,olleH"
+HASH   1ky49hx
