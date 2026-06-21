@@ -56,3 +56,27 @@ Desktop.ini
 .vscode/
 .idea/
 *.sublime-*
+
+# ===== Regrets stack build dirs =====
+# Each language stack creates a temp build dir for runner compilation.
+# These are regenerated on each capture/validate run.
+.regret-zig-build/
+.regret-kotlin-build/
+# ===== .NET / C# (Regrets C# capture+validate harness) =====
+# dotnet SDK build artifacts
+bin/
+obj/
+*.user
+*.suo
+.vs/
+# Regrets C# harness regenerates these temp dirs on every capture/validate run
+regrets/_regret_capture/
+regrets/_regret_validate/
+# Local dotnet install (for workers who install it user-locally)
+.dotnet/
+# ===== Regrets build artifacts =====
+.regret-c-build/
+.regret-java-classes/
+.regret-rust-build/
+.regret-go-build/
+.regret-cpp-build/

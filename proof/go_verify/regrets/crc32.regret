@@ -1,0 +1,12 @@
+cluster: crc32
+version: 1
+fingerprint: 4y0t4az
+captured: 2026-06-21T05:38:45Z
+entry: CRC32
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "Hello"
+OUTPUT 4157704578
+HASH   4y0t4az
+INPUTS [{"hash":"ug4qxgh","input":"","output":0},{"hash":"183d68z","input":"The quick brown fox","output":3074782430}]

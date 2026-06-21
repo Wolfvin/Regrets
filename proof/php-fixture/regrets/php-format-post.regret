@@ -1,0 +1,14 @@
+cluster: php-format-post
+version: 1
+fingerprint: 2jd35rs
+captured: 2026-06-20T17:46:34+00:00
+watches: [format_post]
+entry: format_post
+stack: php
+fingerprintLevel: entry
+normalize: [timestamps]
+file: src/PostFormatter.php
+---
+INPUT  {"title":"Hello World","body":"This is a long body that needs to be truncated to one hundred characters. Lorem ipsum dolor sit amet, consectetur adipiscing elit."}
+OUTPUT {"title":"Hello World","slug":"hello-world","published_at":"2026-06-20T17:46:34+00:00","summary":"This is a long body that needs to be truncated to one hundred characters. Lorem ipsum dolor sit amet"}
+HASH   2jd35rs

@@ -1,0 +1,13 @@
+cluster: php-crc32
+version: 1
+fingerprint: 4y0t4az
+captured: 2026-06-21T06:59:05+00:00
+watches: [RegretVerify\crc32]
+entry: RegretVerify\crc32
+stack: php
+fingerprintLevel: entry
+file: src/VerifyLib.php
+---
+INPUT  "Hello"
+OUTPUT 4157704578
+HASH   4y0t4az

@@ -87,15 +87,18 @@ function parse_regret(string $content): array
     $inputLine = null;
     $outputLine = null;
     $hashLine = null;
+    $inputsLine = null;  // Issue #315 parity: multi-input contract line
 
     foreach ($lines as $line) {
-        if (str_starts_with($line, 'INPUT ')) $inputLine = $line;
+        if (str_starts_with($line, 'INPUT ') && !str_starts_with($line, 'INPUTS ')) $inputLine = $line;
         if (str_starts_with($line, 'OUTPUT ')) $outputLine = $line;
         if (str_starts_with($line, 'HASH ')) $hashLine = $line;
+        if (str_starts_with($line, 'INPUTS ')) $inputsLine = $line;  // Issue #315
     }
 
     $parsedInput = null;
     $parsedOutput = null;
+    $goldenInputs = null;  // Issue #315: parsed INPUTS line (array of {input, output, hash})
 
     if ($inputLine) {
         $inputStr = preg_replace('/^INPUT\s+/', '', $inputLine);
@@ -105,12 +108,20 @@ function parse_regret(string $content): array
         $outputStr = preg_replace('/^OUTPUT\s+/', '', $outputLine);
         $parsedOutput = $outputStr === 'undefined' ? null : json_decode($outputStr, true);
     }
+    if ($inputsLine) {
+        $inputsStr = preg_replace('/^INPUTS\s+/', '', $inputsLine);
+        $decoded = json_decode($inputsStr, true);
+        if (is_array($decoded)) {
+            $goldenInputs = $decoded;
+        }
+    }
 
     return [
         ...$meta,
         'input' => $parsedInput,
         'output' => $parsedOutput,
         'goldenHash' => $hashLine ? trim(preg_replace('/^HASH\s+/', '', $hashLine)) : null,
+        'goldenInputs' => $goldenInputs,  // Issue #315
         'raw' => $content,
     ];
 }
@@ -163,15 +174,14 @@ function run_cluster(array $clusterDef, array $regret, int $runs): array
     $hashes = [];
     $hashesPerInput = [];
     $lastOutput = null;
+    $firstOutput = null;  // output corresponding to $hashes[0] — used by --update
+    $liveInputs = [];     // Issue #315: per-input {input, output, hash} for ALL inputs
 
-    // Determine which inputs to validate
+    // Issue #315 parity: validate ALL inputs from manifest, not just the first.
+    // Breaking changes that only affect inputs[1+] would be invisible (false GREEN)
+    // if we only compare the first input's hash.
     $allInputs = $clusterDef['inputs'] ?? [$regret['input']];
-    $inputsToValidate = [$regret['input']];
-    foreach ($allInputs as $inp) {
-        if (json_encode($inp) !== json_encode($regret['input'])) {
-            $inputsToValidate[] = $inp;
-        }
-    }
+    $inputsToValidate = $allInputs;
 
     for ($i = 0; $i < $runs; $i++) {
         foreach ($inputsToValidate as $currentInput) {
@@ -200,6 +210,9 @@ function run_cluster(array $clusterDef, array $regret, int $runs): array
             }
 
             $lastOutput = $output;
+            if ($firstOutput === null) {
+                $firstOutput = $output;  // captured on the very first iteration (PR #347 fix)
+            }
             $fpInput = $multiArgs && is_array($inputForFp) ? $inputForFp : $inputForFp;
 
             // Determine fingerprint
@@ -229,6 +242,13 @@ function run_cluster(array $clusterDef, array $regret, int $runs): array
 
             $hashes[] = $fp;
 
+            // Issue #315: track per-input data for multi-input validation.
+            // liveInputs[i] is {input, output, hash} — parallels inputsToValidate.
+            // Only record on the first run ($i === 0) to avoid duplicates.
+            if ($i === 0) {
+                $liveInputs[] = ['input' => deep_clone($currentInput), 'output' => $output, 'hash' => $fp];
+            }
+
             // Track per-input hashes for drift detection
             $inputKey = json_encode($currentInput);
             if (!isset($hashesPerInput[$inputKey])) {
@@ -238,12 +258,12 @@ function run_cluster(array $clusterDef, array $regret, int $runs): array
         }
     }
 
-    return ['hashes' => $hashes, 'hashesPerInput' => $hashesPerInput, 'lastOutput' => $lastOutput];
+    return ['hashes' => $hashes, 'hashesPerInput' => $hashesPerInput, 'lastOutput' => $lastOutput, 'firstOutput' => $firstOutput, 'liveInputs' => $liveInputs];
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
 
-function update_regret(string $regretPath, array $regret, string $newHash, $liveOutput, string $reason): array
+function update_regret(string $regretPath, array $regret, string $newHash, $liveOutput, string $reason, array $liveInputs = []): array
 {
     $oldHash = $regret['goldenHash'];
     $now = (new \DateTime('now', new \DateTimeZone('UTC')))->format('c');
@@ -254,6 +274,27 @@ function update_regret(string $regretPath, array $regret, string $newHash, $live
     $newContent = preg_replace('/^captured: .+$/m', "captured: {$now}", $newContent);
     $newContent = preg_replace('/^OUTPUT .+$/m', "OUTPUT " . json_encode($liveOutput, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $newContent);
     $newContent = preg_replace('/^HASH .+$/m', "HASH   {$newHash}", $newContent);
+
+    // Issue #315 parity: refresh the INPUTS line with new per-input hashes.
+    // Build new INPUTS payload from liveInputs[1+] (liveInputs[0] is the top-level entry).
+    if (count($liveInputs) > 1) {
+        $inputsPayload = [];
+        for ($li = 1; $li < count($liveInputs); $li++) {
+            $inputsPayload[] = [
+                'input'  => $liveInputs[$li]['input'],
+                'output' => $liveInputs[$li]['output'],
+                'hash'   => $liveInputs[$li]['hash'],
+            ];
+        }
+        $newInputsLine = "INPUTS " . json_encode($inputsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        // Replace existing INPUTS line or append after HASH line
+        if (preg_match('/^INPUTS .+$/m', $newContent)) {
+            $newContent = preg_replace('/^INPUTS .+$/m', $newInputsLine, $newContent);
+        } else {
+            // Insert after HASH line (matches capture.js order)
+            $newContent = preg_replace('/^(HASH .+)$/m', "$1\n" . $newInputsLine, $newContent);
+        }
+    }
 
     file_put_contents($regretPath, $newContent);
 
@@ -321,9 +362,50 @@ foreach ($regretFiles as $file) {
         $hashes = $runResult['hashes'];
         $hashesPerInput = $runResult['hashesPerInput'];
         $lastOutput = $runResult['lastOutput'];
+        $firstOutput = $runResult['firstOutput'];
+        $liveInputs = $runResult['liveInputs'];
 
         $liveHash = $hashes[0];
         $isMatch = $liveHash === $regret['goldenHash'];
+
+        // ── Issue #315 parity: multi-input contract check ────────────────────
+        // When the .regret file has a INPUTS line (regret.goldenInputs),
+        // validate EVERY stored input's hash against the live re-run — not
+        // just the first. A breaking change that only affects inputs[1+]
+        // would otherwise be invisible (false GREEN).
+        //
+        // goldenInputs covers inputs[1+] (the first input is the top-level
+        // INPUT/OUTPUT/HASH trio). liveInputs[i] is the parallel live result.
+        // We match by INPUT VALUE (json_encode) to handle reordering.
+        $multiInputFailures = [];
+        if (is_array($regret['goldenInputs'] ?? null) && count($regret['goldenInputs']) > 0) {
+            foreach ($regret['goldenInputs'] as $goldenEntry) {
+                if (!is_array($goldenEntry)) continue;
+                $goldenInputStr = json_encode($goldenEntry['input']);
+                // Find the matching live input by value
+                $matchedLive = null;
+                foreach ($liveInputs as $li) {
+                    if (json_encode($li['input']) === $goldenInputStr) {
+                        $matchedLive = $li;
+                        break;
+                    }
+                }
+                if (!$matchedLive) {
+                    // Golden input no longer in manifest — can't re-run; skip
+                    continue;
+                }
+                if ($matchedLive['hash'] !== $goldenEntry['hash']) {
+                    $multiInputFailures[] = [
+                        'input'      => $goldenEntry['input'],
+                        'goldenHash' => $goldenEntry['hash'],
+                        'liveHash'   => $matchedLive['hash'],
+                    ];
+                }
+            }
+            if (count($multiInputFailures) > 0) {
+                $isMatch = false;  // any input mismatch FAILs the cluster
+            }
+        }
 
         // Per-input drift detection
         $isDrift = false;
@@ -343,7 +425,9 @@ foreach ($regretFiles as $file) {
                 echo "  ℹ️  {$idPadded} unchanged — no update needed\n";
                 $results[] = ['id' => $id, 'pass' => true];
             } else {
-                $updateResult = update_regret($regretPath, $regret, $liveHash, $lastOutput, $updateReason);
+                // BUGFIX (PR #347): --update must write the FIRST input's output,
+                // not the last, because HASH is computed from the first input.
+                $updateResult = update_regret($regretPath, $regret, $liveHash, $firstOutput ?? $lastOutput, $updateReason, $liveInputs);
                 echo "  ✅ {$idPadded} {$updateResult['oldHash']} → {$updateResult['newHash']}  UPDATED\n";
                 $results[] = ['id' => $id, 'pass' => true, 'updated' => true];
             }
@@ -359,7 +443,15 @@ foreach ($regretFiles as $file) {
         } else {
             $icon = $isMatch ? '✅' : '❌';
             $hstr = $isMatch ? $regret['goldenHash'] : "{$regret['goldenHash']} → {$liveHash}";
-            echo "  {$icon} {$idPadded} " . str_pad($hstr, 22) . " " . ($isMatch ? 'PASS' : 'FAIL') . "\n";
+            $suffix = $isMatch ? 'PASS' : 'FAIL';
+            // Show multi-input failure details
+            if (count($multiInputFailures) > 0) {
+                $suffix .= ' (multi-input)';
+            }
+            echo "  {$icon} {$idPadded} " . str_pad($hstr, 22) . " {$suffix}\n";
+            foreach ($multiInputFailures as $mif) {
+                echo "    ⚠ input " . json_encode($mif['input']) . ": {$mif['goldenHash']} → {$mif['liveHash']}\n";
+            }
             $results[] = ['id' => $id, 'pass' => $isMatch, 'golden' => $regret['goldenHash'], 'live' => $liveHash];
         }
     } catch (\Throwable $err) {

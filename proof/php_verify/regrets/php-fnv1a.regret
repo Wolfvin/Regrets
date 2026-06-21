@@ -1,0 +1,13 @@
+cluster: php-fnv1a
+version: 1
+fingerprint: 5pyfuaz
+captured: 2026-06-21T06:59:05+00:00
+watches: [RegretVerify\fnv1a]
+entry: RegretVerify\fnv1a
+stack: php
+fingerprintLevel: entry
+file: src/VerifyLib.php
+---
+INPUT  "Hello"
+OUTPUT 4116459851
+HASH   5pyfuaz

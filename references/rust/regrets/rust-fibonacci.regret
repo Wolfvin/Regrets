@@ -1,0 +1,12 @@
+cluster: rust-fibonacci
+version: 1
+fingerprint: 5m8e79v
+captured: 2026-06-20T17:52:16+00:00
+watches: [fibonacci]
+entry: fibonacci
+stack: rust
+fingerprintLevel: entry
+---
+INPUT  0
+OUTPUT 0
+HASH   5m8e79v

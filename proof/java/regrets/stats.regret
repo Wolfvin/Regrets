@@ -1,0 +1,13 @@
+cluster: stats
+version: 1
+fingerprint: 221fkrn
+captured: 2026-06-21T04:39:51.939666838Z
+watches: [computeStats]
+entry: computeStats
+stack: java
+class: DemoMathUtils
+fingerprintLevel: entry
+---
+INPUT  0
+OUTPUT {"input":0,"reciprocal":null,"negReciprocal":null,"nanField":null}
+HASH   221fkrn
