@@ -631,3 +631,252 @@ describe('Vue stack — non-breaking refactor + multi-run + dispatch', () => {
     rmSync(initTmp, { recursive: true, force: true })
   })
 })
+
+// ─── Issue #315 parity — multi-input INPUTS line ──────────────────────────────
+
+describe('Vue stack — Issue #315 multi-input INPUTS line parity', () => {
+  before(() => {
+    rmSync(TMP, { recursive: true, force: true })
+    setupProject({ 'Hello.js': HELLO_COMPONENT, 'Counter.js': COUNTER_COMPONENT })
+  })
+  beforeEach(() => {
+    rmSync(join(TMP, 'regrets'), { recursive: true, force: true })
+    mkdirSync(join(TMP, 'regrets'), { recursive: true })
+  })
+  after(() => { rmSync(TMP, { recursive: true, force: true }) })
+
+  it('capture_vue.mjs OMITS INPUTS line when only 1 input (backward compat)', () => {
+    writeManifest([{
+      id: 'hello-single',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      inputs: [{ name: 'Alice' }],
+    }])
+    const cap = runCapture()
+    assert.equal(cap.exitCode, 0, `capture should succeed. stderr: ${cap.stderr}`)
+    const regret = readRegret('hello-single')
+    assert.ok(regret, '.regret file should be written')
+    assert.ok(!/^INPUTS /m.test(regret),
+      'INPUTS line should NOT be present when only 1 input (backward compat)')
+  })
+
+  it('capture_vue.mjs WRITES INPUTS line when inputs.length > 1 (Issue #315 parity)', () => {
+    writeManifest([{
+      id: 'hello-multi',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      inputs: [
+        { name: 'Alice' },
+        { name: 'Bob' },
+        { name: 'Carol' },
+      ],
+    }])
+    const cap = runCapture()
+    assert.equal(cap.exitCode, 0, `capture should succeed. stderr: ${cap.stderr}`)
+    const regret = readRegret('hello-multi')
+    assert.ok(regret, '.regret file should be written')
+
+    // INPUTS line should be present and parseable as JSON array
+    const inputsMatch = regret.match(/^INPUTS (.+)$/m)
+    assert.ok(inputsMatch, 'INPUTS line should be present when inputs.length > 1')
+    const inputsArr = JSON.parse(inputsMatch[1])
+    assert.ok(Array.isArray(inputsArr), 'INPUTS payload should be a JSON array')
+    assert.equal(inputsArr.length, 2,
+      'INPUTS array should have inputs.length - 1 entries (first input omitted, represented by top-level INPUT/OUTPUT/HASH)')
+
+    // Each entry should have { input, output, hash }
+    for (const entry of inputsArr) {
+      assert.ok(typeof entry.input === 'object', 'entry.input should be an object')
+      assert.ok(typeof entry.output === 'string', 'entry.output should be a string (HTML)')
+      assert.ok(typeof entry.hash === 'string' && entry.hash.length === 7,
+        'entry.hash should be a 7-char fingerprint string')
+    }
+
+    // Verify the omitted-first-input convention: top-level INPUT should be inputs[0]
+    const topLevelInputMatch = regret.match(/^INPUT  (.+)$/m)
+    assert.ok(topLevelInputMatch, 'top-level INPUT line should be present')
+    assert.equal(
+      JSON.parse(topLevelInputMatch[1]).name,
+      'Alice',
+      'top-level INPUT should be inputs[0] (Alice) — first input is omitted from INPUTS array'
+    )
+
+    // Verify INPUTS contains inputs[1+] (Bob, Carol) — NOT inputs[0] (Alice)
+    const inputNames = inputsArr.map(e => e.input.name).sort()
+    assert.deepEqual(inputNames, ['Bob', 'Carol'],
+      'INPUTS array should contain inputs[1+] (Bob, Carol), not inputs[0] (Alice)')
+  })
+
+  it('validate_vue.mjs PASSes for multi-input contract when code is unchanged', () => {
+    writeManifest([{
+      id: 'hello-multi',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      inputs: [
+        { name: 'Alice' },
+        { name: 'Bob' },
+        { name: 'Carol' },
+      ],
+    }])
+    runCapture()  // produce the golden .regret with INPUTS line
+    const val = runValidate()
+    assert.equal(val.exitCode, 0,
+      `validate should PASS for unchanged multi-input contract. stdout: ${val.stdout}`)
+    assert.match(val.stdout, /hello-multi.*PASS/,
+      'validate output should show PASS for multi-input cluster')
+  })
+
+  it('validate_vue.mjs FAILs when a NON-FIRST input breaks (Issue #315 core guarantee)', () => {
+    // This is the WHOLE POINT of the INPUTS line: catch breaking changes
+    // that affect inputs[1+] but not inputs[0]. Without INPUTS, validate
+    // would silently PASS (false GREEN) because the first input's hash
+    // still matches.
+    writeManifest([{
+      id: 'hello-multi',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      inputs: [
+        { name: 'Alice' },     // first input — golden
+        { name: 'Bob' },       // second input — will break
+        { name: 'Carol' },     // third input — will break
+      ],
+    }])
+    runCapture()  // capture the golden
+
+    // Now patch the component to break ONLY for inputs[1+] — keep "Alice"
+    // rendering the same so the first hash still matches. We do this by
+    // changing the greeting only when name !== 'Alice'.
+    writeFileSync(join(TMP, 'src', 'Hello.js'), `import { defineComponent, h } from 'vue'
+export const Hello = defineComponent({
+  name: 'Hello',
+  props: { name: { type: String, required: true } },
+  setup(props) {
+    // BREAKING: non-Alice names get "Hi, " instead of "Hello, "
+    // Alice still gets "Hello, Alice!" — so the first input's hash matches.
+    const greeting = props.name === 'Alice' ? 'Hello' : 'Hi'
+    return () => h('div', { class: 'hello' }, greeting + ', ' + props.name + '!')
+  }
+})
+export default Hello
+`)
+
+    const val = runValidate()
+    assert.notEqual(val.exitCode, 0,
+      `validate should FAIL when a non-first input breaks. stdout: ${val.stdout}`)
+
+    // The FAIL message should specifically mention the multi-input failures
+    // (not just a generic hash mismatch on the first input)
+    assert.match(val.stdout, /hello-multi.*FAIL/,
+      'validate output should show FAIL for multi-input cluster')
+    assert.match(val.stdout, /Expected:.*Got:/,
+      'validate output should show per-input Expected/Got diffs for the broken inputs')
+
+    // CRITICAL: the first input's hash should still match (Alice is unchanged).
+    // If validate_vue.mjs reported a generic first-input FAIL, that would be a
+    // false positive. The failure MUST come from inputs[1+].
+    assert.ok(
+      !/hello-multi\s+<\w+>\s+→\s+<\w+>\s+FAIL\s*$/.test(val.stdout),
+      'first input should still PASS — failure must come from inputs[1+] (no generic first-input hash mismatch)'
+    )
+  })
+
+  it('validate_vue.mjs --update refreshes the INPUTS line on multi-input contract', () => {
+    writeManifest([{
+      id: 'hello-multi',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      inputs: [
+        { name: 'Alice' },
+        { name: 'Bob' },
+      ],
+    }])
+    runCapture()  // golden with INPUTS line
+    const regretBefore = readRegret('hello-multi')
+    const inputsMatchBefore = regretBefore.match(/^INPUTS (.+)$/m)
+    assert.ok(inputsMatchBefore, 'precondition: INPUTS line should exist')
+
+    // Patch the component — change greeting for everyone (including Alice).
+    // This breaks BOTH inputs, requiring an --update.
+    writeFileSync(join(TMP, 'src', 'Hello.js'), `import { defineComponent, h } from 'vue'
+export const Hello = defineComponent({
+  name: 'Hello',
+  props: { name: { type: String, required: true } },
+  setup(props) {
+    return () => h('div', { class: 'hello' }, 'Hola, ' + props.name + '!')
+  }
+})
+export default Hello
+`)
+
+    const val = runValidate(['--update', 'hello-multi', '--reason',
+      'greeting changed from Hello to Hola per localization requirement'])
+    assert.equal(val.exitCode, 0,
+      `--update should succeed. stdout: ${val.stdout}`)
+    assert.match(val.stdout, /UPDATED/, 'validate output should show UPDATED')
+
+    // The .regret file should now have REFRESHED INPUTS line with new hashes
+    const regretAfter = readRegret('hello-multi')
+    const inputsMatchAfter = regretAfter.match(/^INPUTS (.+)$/m)
+    assert.ok(inputsMatchAfter, 'INPUTS line should still exist after --update')
+    const inputsAfter = JSON.parse(inputsMatchAfter[1])
+    const inputsBefore = JSON.parse(inputsMatchBefore[1])
+    assert.equal(inputsAfter.length, inputsBefore.length,
+      'INPUTS array length should be unchanged after --update')
+    for (let i = 0; i < inputsAfter.length; i++) {
+      assert.notEqual(inputsAfter[i].hash, inputsBefore[i].hash,
+        `INPUTS[${i}].hash should be refreshed after --update (was ${inputsBefore[i].hash}, now ${inputsAfter[i].hash})`)
+    }
+
+    // Re-validate — should now PASS with the new golden
+    const reVal = runValidate()
+    assert.equal(reVal.exitCode, 0,
+      `validate should PASS after --update. stdout: ${reVal.stdout}`)
+  })
+
+  it('validate_vue.mjs --json surfaces multiInputFailures in the result', () => {
+    writeManifest([{
+      id: 'hello-multi',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      inputs: [
+        { name: 'Alice' },
+        { name: 'Bob' },
+      ],
+    }])
+    runCapture()
+
+    // Break only Bob
+    writeFileSync(join(TMP, 'src', 'Hello.js'), `import { defineComponent, h } from 'vue'
+export const Hello = defineComponent({
+  name: 'Hello',
+  props: { name: { type: String, required: true } },
+  setup(props) {
+    const greeting = props.name === 'Alice' ? 'Hello' : 'Hi'
+    return () => h('div', { class: 'hello' }, greeting + ', ' + props.name + '!')
+  }
+})
+export default Hello
+`)
+
+    const val = runValidate(['--json'])
+    assert.notEqual(val.exitCode, 0, '--json should exit non-zero on FAIL')
+    const parsed = JSON.parse(val.stdout)
+    assert.equal(parsed.stack, 'vue')
+    assert.equal(parsed.failed, 1)
+    const failedCluster = parsed.results.find(r => r.id === 'hello-multi')
+    assert.ok(failedCluster, 'hello-multi should be in results')
+    assert.equal(failedCluster.pass, false)
+    assert.ok(Array.isArray(failedCluster.multiInputFailures),
+      'multiInputFailures array should be present in --json output on multi-input FAIL')
+    assert.equal(failedCluster.multiInputFailures.length, 1,
+      'exactly one input (Bob) should be in multiInputFailures')
+    assert.equal(failedCluster.multiInputFailures[0].input.name, 'Bob',
+      'the failing input should be Bob (Alice still matches)')
+  })
+})

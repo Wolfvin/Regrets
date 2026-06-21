@@ -208,10 +208,39 @@ for (const cluster of clusters) {
       results.push({ input, output: html, fp })
     }
 
-    // Use first result as golden (mirrors capture_react.mjs)
+    // Use first result as golden (mirrors capture_react.mjs + capture.js)
     const { input, output, fp } = results[0]
     const regretPath = join(outDir, `${id}.regret`)
     const timestamp = new Date().toISOString()
+
+    // ─── Issue #315 parity: multi-input contract ────────────────────────────
+    //
+    // When `inputs` has more than one entry, serialize the per-input
+    // contract as an `INPUTS` line — each element is { input, output, hash }
+    // for inputs 1+. The first input is intentionally OMITTED (it's already
+    // represented by the top-level INPUT/OUTPUT/HASH trio) to avoid
+    // duplicating data and to keep the format readable.
+    //
+    // Backward compatibility:
+    //   - Old .regret files (no INPUTS line): validate_vue.mjs falls back to
+    //     comparing only the first hash. Old captures still work — they just
+    //     don't get multi-input protection. Re-capture to opt in.
+    //   - New .regret files with a single input: INPUTS line is OMITTED
+    //     (results.length <= 1) — no overhead for the common case.
+    //   - New .regret files with multiple inputs: INPUTS line contains
+    //     results.slice(1) — validate_vue.mjs compares every hash.
+    //
+    // Mirrors capture.js lines 1880-1928 (Issue #315) exactly — same field
+    // names, same omit-first-input convention, same JSON serialization.
+    let inputsLine = null
+    if (results.length > 1) {
+      const inputsPayload = results.slice(1).map(r => ({
+        input: r.input,
+        output: r.output,
+        hash: r.fp,
+      }))
+      inputsLine = `INPUTS ${JSON.stringify(inputsPayload)}`
+    }
 
     const content = [
       `cluster: ${id}`,
@@ -230,6 +259,7 @@ for (const cluster of clusters) {
       `INPUT  ${JSON.stringify(input)}`,
       `OUTPUT ${JSON.stringify(output)}`,
       `HASH   ${fp}`,
+      inputsLine,
     ].filter(Boolean).join('\n')
 
     writeFileSync(regretPath, content, 'utf8')

@@ -150,6 +150,7 @@ function parseRegret(content) {
   let parsedInput = null
   let parsedOutput = null
   let goldenHash = null
+  let goldenInputs = null  // Issue #315 parity — multi-input contract (inputs 1+)
   for (const line of dataSection.split('\n')) {
     if (line.startsWith('INPUT ')) {
       const s = line.slice('INPUT '.length)
@@ -159,6 +160,26 @@ function parseRegret(content) {
       parsedOutput = s === 'undefined' ? null : JSON.parse(s)
     } else if (line.startsWith('HASH ')) {
       goldenHash = line.slice('HASH '.length).trim()
+    } else if (line.startsWith('INPUTS ')) {
+      // Issue #315 parity: multi-input parent contract.
+      // Format: `INPUTS  <json-array>` where each element is
+      //   { input, output, hash }
+      // Absent on old .regret files (pre-#315-port) and on new files where
+      // only one input was captured (the common case). When present,
+      // validate_vue.mjs compares EVERY hash against the live re-run hashes
+      // — any mismatch FAILs the cluster even if the first input's hash
+      // still matches.
+      //
+      // The first input is intentionally NOT in this array — it's already
+      // represented by the top-level INPUT/OUTPUT/HASH lines. This keeps
+      // the format readable and avoids duplicating the golden.
+      const s = line.slice('INPUTS '.length)
+      try {
+        const parsed = JSON.parse(s)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          goldenInputs = parsed
+        }
+      } catch { /* malformed INPUTS line — treat as no multi-input contract */ }
     }
   }
 
@@ -167,6 +188,7 @@ function parseRegret(content) {
     input: parsedInput,
     output: parsedOutput,
     goldenHash,
+    goldenInputs,
     raw: content,
   }
 }
@@ -246,7 +268,7 @@ function computeFingerprint(input, html, clusterConfig = {}) {
 // Mirrors validate_react.mjs's update path. Writes the new hash to the .regret
 // file, then appends a chain entry to audit.log.
 
-function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
+function updateRegret(regretPath, regret, newHash, liveOutput, reason, liveInputs = null) {
   const oldHash = regret.goldenHash
   const now = new Date().toISOString()
   const safeReason = reason.replace(/[\r\n]+/g, ' ')
@@ -257,6 +279,37 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
   newContent = newContent.replace(/^OUTPUT .+$/m,
     `OUTPUT ${JSON.stringify(liveOutput)}`)
   newContent = newContent.replace(/^HASH   .+$/m, `HASH   ${newHash}`)
+
+  // ─── Issue #315 parity: refresh the INPUTS line on update ────────────────
+  //
+  // When updating a multi-input contract, refresh the per-input hashes too.
+  // liveInputs[0] corresponds to regret.input (already covered by the
+  // top-level lines above); liveInputs[1+] correspond to goldenInputs[0+].
+  // We rebuild the INPUTS line from liveInputs.slice(1) (same omit-first
+  // convention as capture.js).
+  //
+  // If liveInputs is null (caller didn't pass it — backward compat), or has
+  // 0 or 1 entries, drop any stale INPUTS line so the next read sees no
+  // multi-input contract.
+  if (liveInputs && liveInputs.length > 1) {
+    const inputsPayload = liveInputs.slice(1).map(li => ({
+      input: li.input,
+      output: li.output,
+      hash: li.hash,
+    }))
+    const newInputsLine = `INPUTS ${JSON.stringify(inputsPayload)}`
+    if (/^INPUTS .+$/m.test(newContent)) {
+      newContent = newContent.replace(/^INPUTS .+$/m, newInputsLine)
+    } else {
+      // Insert INPUTS line right after the HASH line (matches capture_vue.mjs order)
+      newContent = newContent.replace(/^HASH   .+$/m, `HASH   ${newHash}\n${newInputsLine}`)
+    }
+  } else {
+    // No multi-input data — drop any stale INPUTS line so the next read
+    // sees no multi-input contract (otherwise validate would compare
+    // against stale hashes forever).
+    newContent = newContent.replace(/^INPUTS .+\n?/m, '')
+  }
 
   writeFileSync(regretPath, newContent, 'utf8')
 
@@ -410,22 +463,63 @@ for (const file of regretFiles) {
   const valuePaths = regret.valuePaths ?? clusterDef.valuePaths ?? []
   const clusterConfig = { normalize: normRules, ignoreFields, fingerprintMode, valuePaths }
 
-  // Re-render N times for drift detection (or once for normal validate)
-  const hashes = []
-  const hashesPerInput = new Map()
+  // ─── Build the list of inputs to validate ────────────────────────────────
+  //
+  // Always starts with the golden input from .regret (regret.input). If the
+  // .regret has an INPUTS line (Issue #315 parity), add each input from it.
+  // If the manifest has its own `inputs` array, add those too. Deduped by
+  // JSON.stringify so we never re-render the same input twice.
+  //
+  // Mirrors validate.js's `inputsToValidate` construction (line ~813).
+  const inputsToValidate = [regret.input]
+  const seenInputs = new Set([JSON.stringify(regret.input)])
+  if (Array.isArray(regret.goldenInputs)) {
+    for (const gi of regret.goldenInputs) {
+      if (!gi || typeof gi !== 'object') continue
+      const key = JSON.stringify(gi.input)
+      if (!seenInputs.has(key)) {
+        seenInputs.add(key)
+        inputsToValidate.push(gi.input)
+      }
+    }
+  }
+  if (Array.isArray(clusterDef.inputs)) {
+    for (const inp of clusterDef.inputs) {
+      const key = JSON.stringify(inp)
+      if (!seenInputs.has(key)) {
+        seenInputs.add(key)
+        inputsToValidate.push(inp)
+      }
+    }
+  }
+
+  // Re-render N runs × inputsToValidate.length for drift detection + multi-input
+  const hashes = []           // flat list of all hashes (run × input)
+  const hashesPerInput = new Map()  // { inputKey: [hash_run1, hash_run2, ...] }
+  // Issue #315 parity: per-input live results from the LAST run.
+  // liveInputs[0] corresponds to regret.input (the golden);
+  // liveInputs[1+] correspond to regret.goldenInputs[0+].
+  const liveInputs = []
   let lastOutput = null
   let lastError = null
 
   try {
     for (let i = 0; i < runs; i++) {
-      const rawHtml = await renderComponent(Component, regret.input)
-      const html = normalizeHtml(rawHtml, stripAttrs)
-      lastOutput = html
-      const fp = computeFingerprint(regret.input, html, clusterConfig)
-      hashes.push(fp)
-      const inputKey = JSON.stringify(regret.input)
-      if (!hashesPerInput.has(inputKey)) hashesPerInput.set(inputKey, [])
-      hashesPerInput.get(inputKey).push(fp)
+      // Reset liveInputs on each run so we keep only the LAST run's per-input hashes
+      if (i === runs - 1) liveInputs.length = 0
+      for (const currentInput of inputsToValidate) {
+        const rawHtml = await renderComponent(Component, currentInput)
+        const html = normalizeHtml(rawHtml, stripAttrs)
+        lastOutput = html
+        const fp = computeFingerprint(currentInput, html, clusterConfig)
+        hashes.push(fp)
+        const inputKey = JSON.stringify(currentInput)
+        if (!hashesPerInput.has(inputKey)) hashesPerInput.set(inputKey, [])
+        hashesPerInput.get(inputKey).push(fp)
+        if (i === runs - 1) {
+          liveInputs.push({ input: currentInput, hash: fp, output: html })
+        }
+      }
     }
   } catch (err) {
     lastError = err
@@ -440,8 +534,50 @@ for (const file of regretFiles) {
     continue
   }
 
-  const liveHash = hashes[0]
-  const isMatch = liveHash === regret.goldenHash
+  // liveInputs[0] is the golden input's live hash (regret.input was pushed first)
+  const liveHash = liveInputs[0]?.hash ?? hashes[0]
+  let isMatch = liveHash === regret.goldenHash
+
+  // ── Issue #315 parity: multi-input contract check ────────────────────────
+  //
+  // When the .regret file has an `INPUTS` line (regret.goldenInputs),
+  // validate EVERY stored input's hash against the live re-run — not just
+  // the first. A breaking change that only affects inputs[1+] would
+  // otherwise be invisible (false GREEN).
+  //
+  // Mirrors validate.js lines 1986-2032 exactly: match by INPUT VALUE
+  // (JSON.stringify) rather than by array index, because the manifest may
+  // have evolved since capture. If a golden input is no longer in the
+  // manifest, skip (user changed inputs — old contract is moot). If a
+  // manifest input has no golden, skip (no golden to compare against —
+  // re-capture to add it). If ANY golden input's live hash differs from
+  // its stored hash, the cluster FAILs.
+  let multiInputFailures = []
+  if (Array.isArray(regret.goldenInputs) && regret.goldenInputs.length > 0) {
+    for (const goldenEntry of regret.goldenInputs) {
+      if (!goldenEntry || typeof goldenEntry !== 'object') continue
+      const goldenInputStr = JSON.stringify(goldenEntry.input)
+      const liveEntry = liveInputs.find(li => JSON.stringify(li.input) === goldenInputStr)
+      if (!liveEntry) {
+        // Golden input is no longer in the manifest — can't re-run.
+        if (verbose && !jsonOutput && !quiet) {
+          console.log(`  │ ⏭️  input ${goldenInputStr} no longer in manifest — skipping (re-capture to refresh)`)
+        }
+        continue
+      }
+      if (liveEntry.hash !== goldenEntry.hash) {
+        multiInputFailures.push({
+          input: goldenEntry.input,
+          goldenHash: goldenEntry.hash,
+          liveHash: liveEntry.hash,
+        })
+      }
+    }
+    if (multiInputFailures.length > 0) {
+      isMatch = false  // any input mismatch FAILs the cluster
+    }
+  }
+
   const isDrift = driftMode && [...hashesPerInput.values()].some(arr => new Set(arr).size > 1)
 
   if (verbose && !jsonOutput) {
@@ -463,7 +599,7 @@ for (const file of regretFiles) {
       if (!jsonOutput && !quiet) console.log(`  ℹ️  ${idPadded} unchanged — no update needed`)
       results.push({ id, pass: true })
     } else {
-      const updateResult = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason)
+      const updateResult = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason, liveInputs)
       if (!jsonOutput && !quiet) {
         console.log(`  ✅ ${idPadded} ${updateResult.oldHash} → ${updateResult.newHash}  UPDATED`)
       }
@@ -485,8 +621,22 @@ for (const file of regretFiles) {
     const hstr = isMatch ? regret.goldenHash : `${regret.goldenHash} → ${liveHash}`
     if (!jsonOutput && !quiet) {
       console.log(`  ${icon} ${idPadded} ${hstr.padEnd(22)} ${isMatch ? 'PASS' : 'FAIL'}`)
+      // Issue #315 parity: surface multi-input failures with per-input diffs
+      // so the user knows WHICH input broke, not just that the cluster failed.
+      if (multiInputFailures.length > 0) {
+        for (const f of multiInputFailures) {
+          console.log(`    • input ${JSON.stringify(f.input)}`)
+          console.log(`      Expected: ${f.goldenHash}  Got: ${f.liveHash}`)
+        }
+      }
     }
-    results.push({ id, pass: isMatch, golden: regret.goldenHash, live: liveHash })
+    results.push({
+      id,
+      pass: isMatch,
+      golden: regret.goldenHash,
+      live: liveHash,
+      ...(multiInputFailures.length > 0 ? { multiInputFailures } : {}),
+    })
   }
 
   if (failFast && !results.at(-1).pass) {
