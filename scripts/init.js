@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css']
+const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'perl', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'

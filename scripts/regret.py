@@ -87,6 +87,8 @@ def main():
                 success = run(f'node {SCRIPTS_DIR}/capture_react.mjs {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/capture_php.php {extra_args}') and success
+            elif stack == 'ruby':
+                success = run(f'ruby {SCRIPTS_DIR}/capture_ruby.rb {extra_args}') and success
             elif stack == 'rust':
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh capture {extra_args}') and success
             elif stack == 'go':
@@ -101,6 +103,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php {extra_args}') and success
+            elif stack == 'ruby':
+                success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb {extra_args}') and success
             elif stack == 'rust':
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
@@ -132,6 +136,8 @@ def main():
             success = run(f'python3 {SCRIPTS_DIR}/validate.py {extra_args}')
         elif target_stack == 'php':
             success = run(f'php {SCRIPTS_DIR}/validate_php.php {extra_args}')
+        elif target_stack == 'ruby':
+            success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb {extra_args}')
         elif target_stack == 'rust':
             success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}')
         elif target_stack == 'go':
@@ -155,6 +161,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py {drift_extra}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php {drift_extra}') and success
+            elif stack == 'ruby':
+                success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb {drift_extra}') and success
             elif stack == 'rust':
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
@@ -169,6 +177,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --fail-fast {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php --fail-fast {extra_args}') and success
+            elif stack == 'ruby':
+                success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb --fail-fast {extra_args}') and success
             elif stack == 'rust':
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
@@ -202,6 +212,14 @@ def main():
             success = run(f'python3 {SCRIPTS_DIR}/capture.py --cluster {target_cluster}')
             if success:
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --cluster {target_cluster}')
+        elif target_stack == 'php':
+            success = run(f'php {SCRIPTS_DIR}/capture_php.php --cluster {target_cluster}')
+            if success:
+                success = run(f'php {SCRIPTS_DIR}/validate_php.php --cluster {target_cluster}')
+        elif target_stack == 'ruby':
+            success = run(f'ruby {SCRIPTS_DIR}/capture_ruby.rb --cluster {target_cluster}')
+            if success:
+                success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb --cluster {target_cluster}')
         else:
             success = run(f'node {SCRIPTS_DIR}/capture.js --cluster {target_cluster}')
             if success:
@@ -216,6 +234,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --fail-fast {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php --fail-fast {extra_args}') and success
+            elif stack == 'ruby':
+                success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb --fail-fast {extra_args}') and success
             elif stack == 'rust':
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
@@ -281,6 +301,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/truth.py {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/truth_php.php {extra_args}') and success
+            elif stack == 'ruby':
+                print('  ⏭️  Ruby truth capture: not yet supported — use ruby scripts/capture_ruby.rb + ruby scripts/validate_ruby.rb --runs 5 for now')
             elif stack == 'rust':
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
@@ -370,6 +392,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   js/ts/css → capture.js / validate.js
   python    → capture.py / validate.py / truth.py
   php       → capture_php.php / validate_php.php
+  ruby      → capture_ruby.rb / validate_ruby.rb
   react     → capture_react.mjs / validate.js
   rust      → capture_rust.sh (capture + validate via cargo test)
   go        → capture_go.sh (Community Preview)
