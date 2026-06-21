@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'perl', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp']
+const validStacks = ['js', 'python', 'php', 'perl', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -148,6 +148,23 @@ const templates = {
       }
     ]
   },
+  perl: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'my_function',
+        watches: ['my_function'],
+        file: 'lib/MyModule.pm',
+        stack: 'perl',
+        fingerprintLevel: 'entry',
+        description: 'Example Perl cluster — replace with your actual cluster definitions. Requires perl with JSON::PP + Digest::SHA (both core modules since Perl 5.14).',
+        inputs: [
+          'sample_input_1',
+          'sample_input_2'
+        ]
+      }
+    ]
+  },
   csharp: {
     clusters: [
       {
@@ -246,6 +263,12 @@ if (stack === 'php') {
   console.log()
   console.log(`📦 Note for PHP stack: make sure composer dependencies are installed:`)
   console.log(`   composer install`)
+}
+if (stack === 'perl') {
+  console.log()
+  console.log(`📦 Note for Perl stack: requires perl 5.14+ (for JSON::PP + Digest::SHA core modules).`)
+  console.log(`   Your .pm file must declare a package matching the file path (e.g. lib/Foo/Bar.pm → package Foo::Bar;).`)
+  console.log(`   See proof/perl_independent/ for a working end-to-end example.`)
 }
 if (stack === 'go') {
   console.log()

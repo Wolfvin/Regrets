@@ -90,6 +90,8 @@ def main():
                 success = run(f'node {SCRIPTS_DIR}/capture_vue.mjs {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/capture_php.php {extra_args}') and success
+            elif stack == 'perl':
+                success = run(f'perl {SCRIPTS_DIR}/capture_perl.pl {extra_args}') and success
             elif stack == 'ruby':
                 success = run(f'ruby {SCRIPTS_DIR}/capture_ruby.rb {extra_args}') and success
             elif stack == 'csharp':
@@ -112,6 +114,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php {extra_args}') and success
+            elif stack == 'perl':
+                success = run(f'perl {SCRIPTS_DIR}/validate_perl.pl {extra_args}') and success
             elif stack == 'ruby':
                 success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb {extra_args}') and success
             elif stack == 'csharp':
@@ -147,7 +151,7 @@ def main():
 
         # Translate args to the stack-specific --update form (mirror regret.js logic).
         # JS/TS/CSS (validate.js): `--update --cluster <id> --reason "..."`
-        # Python/PHP/C#/Rust/Go/Vue: `--update <id> --reason "..."`
+        # Python/PHP/Perl/Ruby/C#/Rust/Go/Vue: `--update <id> --reason "..."`
         # If the user already passed --update, respect their args verbatim.
         # Each remaining arg is shell-quoted so multi-word --reason strings survive the shell=True dispatch.
         if '--update' in args:
@@ -155,7 +159,7 @@ def main():
         elif target_cluster:
             remaining = [a for a in args[1:] if a != target_cluster]
             quoted_remaining = ' '.join(shlex.quote(a) for a in remaining)
-            if target_stack in ('python', 'php', 'csharp', 'rust', 'go', 'vue'):
+            if target_stack in ('python', 'php', 'csharp', 'rust', 'go', 'vue', 'perl', 'ruby'):
                 translated_args = '--update ' + shlex.quote(target_cluster) + ' ' + quoted_remaining
             else:
                 translated_args = '--update --cluster ' + shlex.quote(target_cluster) + ' ' + quoted_remaining
@@ -165,10 +169,11 @@ def main():
         if target_stack == 'python':
             success = run(f'python3 {SCRIPTS_DIR}/validate.py {translated_args}')
         elif target_stack == 'php':
-            success = run(f'php {SCRIPTS_DIR}/validate_php.php {extra_args}')
-        elif target_stack == 'ruby':
-            success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb {extra_args}')
             success = run(f'php {SCRIPTS_DIR}/validate_php.php {translated_args}')
+        elif target_stack == 'perl':
+            success = run(f'perl {SCRIPTS_DIR}/validate_perl.pl {translated_args}')
+        elif target_stack == 'ruby':
+            success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb {translated_args}')
         elif target_stack == 'csharp':
             success = run(f'bash {SCRIPTS_DIR}/validate_csharp.sh {translated_args}')
             success = run(f'php {SCRIPTS_DIR}/validate_php.php {translated_args}')
@@ -202,6 +207,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py {drift_extra}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php {drift_extra}') and success
+            elif stack == 'perl':
+                print('  ⏭️  Perl drift detection: perl output is deterministic; use --runs manually if needed')
             elif stack == 'ruby':
                 success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb {drift_extra}') and success
             elif stack == 'csharp':
@@ -224,6 +231,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --fail-fast {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php --fail-fast {extra_args}') and success
+            elif stack == 'perl':
+                success = run(f'perl {SCRIPTS_DIR}/validate_perl.pl --fail-fast {extra_args}') and success
             elif stack == 'ruby':
                 success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb --fail-fast {extra_args}') and success
             elif stack == 'csharp':
@@ -263,6 +272,10 @@ def main():
             success = run(f'python3 {SCRIPTS_DIR}/capture.py --cluster {target_cluster}')
             if success:
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --cluster {target_cluster}')
+        elif target_stack == 'perl':
+            success = run(f'perl {SCRIPTS_DIR}/capture_perl.pl --cluster {target_cluster}')
+            if success:
+                success = run(f'perl {SCRIPTS_DIR}/validate_perl.pl --cluster {target_cluster}')
         elif target_stack == 'php':
             success = run(f'php {SCRIPTS_DIR}/capture_php.php --cluster {target_cluster}')
             if success:
@@ -295,6 +308,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --fail-fast {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/validate_php.php --fail-fast {extra_args}') and success
+            elif stack == 'perl':
+                success = run(f'perl {SCRIPTS_DIR}/validate_perl.pl --fail-fast {extra_args}') and success
             elif stack == 'ruby':
                 success = run(f'ruby {SCRIPTS_DIR}/validate_ruby.rb --fail-fast {extra_args}') and success
             elif stack == 'csharp':
@@ -368,6 +383,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/truth.py {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/truth_php.php {extra_args}') and success
+            elif stack == 'perl':
+                print('  ⏭️  Perl truth capture: not yet supported — use perl scripts/validate_perl.pl --runs 5 for drift detection')
             elif stack == 'ruby':
                 print('  ⏭️  Ruby truth capture: not yet supported — use ruby scripts/capture_ruby.rb + ruby scripts/validate_ruby.rb --runs 5 for now')
             elif stack == 'csharp':
