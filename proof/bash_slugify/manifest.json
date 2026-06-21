@@ -1,0 +1,35 @@
+{
+  "clusters": [
+    {
+      "id": "slugify",
+      "entry": "slugify",
+      "file": "lib/slugify.sh",
+      "stack": "bash",
+      "fingerprintLevel": "entry",
+      "description": "Convert string to URL-safe slug (lowercase, hyphens, strip punctuation)",
+      "inputs": [
+        "Hello World!",
+        "Multi   Spaces Here",
+        " leading-trailing ",
+        "Café Résumé",
+        "",
+        "!!!already-clean!!!",
+        "MixOf-Cases And Spaces"
+      ]
+    },
+    {
+      "id": "slugify-join",
+      "entry": "slugify_join",
+      "file": "lib/slugify.sh",
+      "stack": "bash",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Slugify each arg and join with hyphens (multi-arg test)",
+      "inputs": [
+        ["Hello", "World"],
+        ["API", "v2", "Docs"],
+        [" trailing ", " spaces "]
+      ]
+    }
+  ]
+}
