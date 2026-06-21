@@ -1,0 +1,59 @@
+{
+  "clusters": [
+    {
+      "id": "java-verify-slugify",
+      "entry": "slugify",
+      "method": "slugify",
+      "class": "VerifyLib",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["slugify"],
+      "inputs": ["Hello, World! This is a TEST."],
+      "description": "Slugify a string — char-by-char transform with StringBuilder (independent verification fixture)"
+    },
+    {
+      "id": "java-verify-base64-encode",
+      "entry": "base64Encode",
+      "method": "base64Encode",
+      "class": "VerifyLib",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["base64Encode"],
+      "inputs": ["Hello"],
+      "description": "Base64 encode 'Hello' — bitwise ops + lookup table (no java.util.Base64)"
+    },
+    {
+      "id": "java-verify-crc32",
+      "entry": "crc32",
+      "method": "crc32",
+      "class": "VerifyLib",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["crc32"],
+      "inputs": ["Hello"],
+      "description": "CRC32 (zip polynomial) of 'Hello' — table-driven checksum (no java.util.zip.CRC32)"
+    },
+    {
+      "id": "java-verify-fnv1a",
+      "entry": "fnv1a",
+      "method": "fnv1a",
+      "class": "VerifyLib",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["fnv1a"],
+      "inputs": ["Hello"],
+      "description": "FNV-1a 32-bit hash of 'Hello' — multiply + XOR per byte"
+    },
+    {
+      "id": "java-verify-is-valid-ipv4",
+      "entry": "isValidIPv4",
+      "method": "isValidIPv4",
+      "class": "VerifyLib",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["isValidIPv4"],
+      "inputs": ["192.168.1.1"],
+      "description": "Validate IPv4 '192.168.1.1' — multi-delimiter parser + range check"
+    }
+  ]
+}
