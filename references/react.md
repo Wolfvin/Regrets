@@ -7,7 +7,7 @@ Regression fingerprinting for React components — capture what a component *ren
 1. Add `"stack": "react"` clusters to `regrets/manifest.json`
 2. Create `regrets/` folder in your React project root
 3. Run `node ../../skills/regresion-testing/scripts/capture_react.mjs` to capture rendered fingerprints
-4. Run `node ../../skills/regresion-testing/scripts/validate.js` to validate (same validator works for all stacks)
+4. Run `node ../../skills/regresion-testing/scripts/validate_react.mjs` to validate
 5. All `.regret` files use identical format to JS stack
 
 ---
@@ -374,21 +374,125 @@ if (failed > 0) {
 
 ## Validation for React Clusters
 
-The standard `validate.js` works for React clusters because `.regret` files use the same format. However, the re-execution needs to render the component again:
+`scripts/validate_react.mjs` is the React-aware validator. It mirrors
+`capture_react.mjs`'s rendering pipeline (same module resolution, same
+`renderToStaticMarkup` call, same `normalizeHtml` rules) so a `.regret`
+captured by `capture_react.mjs` is guaranteed to be re-renderable by
+`validate_react.mjs`.
 
 ```js
-// In validate.js, add stack detection:
-if (clusterDef.stack === 'react') {
-  // Re-render component and compare
-  const Component = mod[regret.entry]
-  const element = React.createElement(Component, regret.input)
-  const liveHtml = renderToStaticMarkup(element)
-  const normalizedHtml = normalizeHtml(liveHtml, clusterDef.stripAttrs)
-  // Compare normalizedHtml fingerprint with golden hash
-}
+// validate_react.mjs — core re-render path (simplified)
+const Component = (await import(moduleUrl))[regret.entry]
+const element = React.createElement(Component, regret.input)
+const liveHtml = renderToStaticMarkup(element)
+const normalizedHtml = normalizeHtml(liveHtml, stripAttrs)
+const liveHash = fingerprint(regret.input, normalizedHtml, clusterConfig)
+const isMatch = liveHash === regret.goldenHash  // PASS / FAIL
 ```
 
-This is a planned enhancement — currently React clusters use the same validator with manual re-rendering.
+The CLI dispatcher in `scripts/regret.js` routes `stack: "react"` clusters
+to `validate_react.mjs` for `regret validate`, `regret update`, and
+`regret drift` — never to `validate.js`, which cannot render React
+components and would silently produce wrong fingerprints.
+
+### CLI flags
+
+```
+node scripts/validate_react.mjs                              # validate all React clusters
+node scripts/validate_react.mjs --cluster invoice-card-paid  # one cluster
+node scripts/validate_react.mjs --manifest ./regrets/manifest.json
+node scripts/validate_react.mjs --fail-fast                  # stop on first FAIL
+node scripts/validate_react.mjs --runs 5                     # drift detection
+node scripts/validate_react.mjs --update invoice-card-paid --reason "..."
+node scripts/validate_react.mjs --quiet                      # summary line only
+node scripts/validate_react.mjs --verbose                    # per-cluster detail
+node scripts/validate_react.mjs --json                       # machine-readable output
+```
+
+### End-to-end demo
+
+A complete working example lives at `proof/react_demo/` — three clusters
+captured from a real (small) React component, with two scripts that walk
+through:
+
+- `demo.sh` — single-input scenarios: PASS / valid-refactor-PASS /
+  breaking-refactor-FAIL / update-with-audit / PASS-again.
+- `demo_multi_input.sh` — multi-input (Issue #315 parity) scenarios:
+  shows how a refactor that only breaks `inputs[3]` (status: 'void') is
+  caught by the INPUTS contract — without multi-input, validate would
+  falsely PASS because only `inputs[0]` is checked.
+
+See `proof/react_demo/README.md` for the full documentation.
+
+---
+
+## Multi-input contract (Issue #315 parity)
+
+When a cluster's manifest declares multiple `inputs`, capture writes an
+`INPUTS <json-array>` line to the `.regret` file. Each entry is
+`{input, output, hash}` for inputs[1+] — the first input remains in the
+top-level `INPUT`/`OUTPUT`/`HASH` trio (unchanged from single-input
+behavior). validate_react.mjs then re-renders EVERY stored input and FAILs
+the cluster if ANY hash mismatches — even when the first input still matches.
+
+### Why this matters
+
+Without the INPUTS line, validate only checks `inputs[0]`. A refactor that
+breaks only `inputs[1+]` behavior is invisible — validate reports a false
+GREEN. Example: a `<StatusCard>` component with 4 inputs covering status
+values `paid`/`unpaid`/`overdue`/`void`. If you change the `void` label
+from "Void" to "Cancelled", only `inputs[3]` (status: void) produces
+different HTML. `inputs[0]` (paid) is unaffected. Without INPUTS, validate
+PASSes; with INPUTS, validate FAILs.
+
+### .regret file format
+
+Single-input (INPUTS line omitted — no overhead):
+
+```
+cluster: invoice-card-paid
+version: 1
+fingerprint: 6bwpiga
+captured: 2026-06-21T...
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: react
+renderMode: static
+---
+INPUT  {"invoice":{"id":"INV-2026-0042","amount":1250000,...}}
+OUTPUT "<div class=\"invoice-card invoice-card--paid\">...</div>"
+HASH   6bwpiga
+```
+
+Multi-input (INPUTS line present):
+
+```
+cluster: invoice-card-multi-status
+version: 1
+fingerprint: 3ikakf5
+captured: 2026-06-21T...
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: react
+renderMode: static
+stripAttrs: [data-invoice-id]
+---
+INPUT  {"invoice":{"id":"INV-2026-0001","amount":100,"currency":"USD","status":"paid",...}}
+OUTPUT "<div class=\"invoice-card invoice-card--paid\">...</div>"
+HASH   3ikakf5
+INPUTS [{"input":{"invoice":{"id":"INV-2026-0002",...,"status":"unpaid"}},"output":"...","hash":"2zeipgb"},{"input":{"invoice":{...,"status":"overdue"}},"output":"...","hash":"znl03rb"},{"input":{"invoice":{...,"status":"void"}},"output":"...","hash":"2lvul73"}]
+```
+
+### Backward compatibility
+
+- **Old `.regret` files (no INPUTS line)**: validate falls back to checking
+  only the first input. Old captures still work; re-capture to opt in.
+- **New `.regret` files with a single input**: INPUTS line is omitted (no
+  overhead for the common case).
+- **New `.regret` files with multiple inputs**: INPUTS line contains
+  `results.slice(1)` — validate compares every hash.
+- **Update mode**: refreshes BOTH the top-level `HASH` AND the `INPUTS`
+  line atomically. The next `validate` will PASS again.
 
 ---
 

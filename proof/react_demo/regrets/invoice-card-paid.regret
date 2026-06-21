@@ -1,0 +1,12 @@
+cluster: invoice-card-paid
+version: 1
+fingerprint: 6bwpiga
+captured: 2026-06-20T17:49:14.588Z
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: react
+renderMode: static
+---
+INPUT  {"invoice":{"id":"INV-2026-0042","amount":1250000,"currency":"IDR","status":"paid","dueDate":"2026-06-30"},"locale":"id-ID"}
+OUTPUT "<div class=\"invoice-card invoice-card--paid\" data-invoice-id=\"INV-2026-0042\"><header class=\"invoice-card__header\"><span class=\"invoice-card__id\">Invoice #INV-2026-0042</span><span class=\"invoice-card__status invoice-card__status--paid\">Paid</span></header><dl class=\"invoice-card__body\"><dt>Amount</dt><dd>IDR 1,250,000.00</dd><dt>Due</dt><dd>2026-06-30</dd><dt>Locale</dt><dd>id-ID</dd></dl></div>"
+HASH   6bwpiga

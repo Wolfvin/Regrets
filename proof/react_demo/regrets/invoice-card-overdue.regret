@@ -1,0 +1,13 @@
+cluster: invoice-card-overdue
+version: 1
+fingerprint: 44aeax2
+captured: 2026-06-20T17:45:48.420Z
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: react
+renderMode: static
+stripAttrs: [data-invoice-id]
+---
+INPUT  {"invoice":{"id":"INV-2026-0099","amount":75000.5,"currency":"USD","status":"overdue","dueDate":"2026-05-15"},"locale":"en-US"}
+OUTPUT "<div class=\"invoice-card invoice-card--overdue\"><header class=\"invoice-card__header\"><span class=\"invoice-card__id\">Invoice #INV-2026-0099</span><span class=\"invoice-card__status invoice-card__status--overdue\">Overdue</span></header><dl class=\"invoice-card__body\"><dt>Amount</dt><dd>USD 75,000.50</dd><dt>Due</dt><dd>2026-05-15</dd><dt>Locale</dt><dd>en-US</dd></dl></div>"
+HASH   44aeax2
