@@ -1,0 +1,40 @@
+{
+  "clusters": [
+    {
+      "id": "fibonacci",
+      "entry": "fibonacci",
+      "watches": ["fibonacci"],
+      "file": "lib/redteam.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "inputs": [10]
+    },
+    {
+      "id": "sum-squares",
+      "entry": "sumSquares",
+      "watches": ["sumSquares"],
+      "file": "lib/redteam.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "inputs": [[1, 2, 3, 4, 5]]
+    },
+    {
+      "id": "max-pair",
+      "entry": "maxPair",
+      "watches": ["maxPair"],
+      "file": "lib/redteam.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "inputs": [[3, 1, 4, 1, 5, 9, 2, 6]]
+    },
+    {
+      "id": "safe-divide-by-two",
+      "entry": "safeDivideByTwo",
+      "watches": ["safeDivideByTwo"],
+      "file": "lib/redteam.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "inputs": [42]
+    }
+  ]
+}

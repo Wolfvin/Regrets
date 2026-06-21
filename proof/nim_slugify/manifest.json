@@ -1,0 +1,37 @@
+{
+  "clusters": [
+    {
+      "id": "slugify",
+      "entry": "slugify",
+      "watches": ["slugify"],
+      "file": "lib/slugify.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "description": "URL-safe slug from a single string — downcase, non-alnum → hyphen, strip edges.",
+      "inputs": [
+        "Hello, World!",
+        "  Multiple   Spaces  ",
+        "Café résumé",
+        "foo_bar baz",
+        "---trailing---",
+        "",
+        "!!!",
+        "Mix3d C4se & Symbols!!!"
+      ]
+    },
+    {
+      "id": "slugify-batch",
+      "entry": "slugifyBatch",
+      "watches": ["slugifyBatch", "slugify"],
+      "file": "lib/slugify.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "description": "Apply slugify() to every string in a seq; preserve order and length.",
+      "inputs": [
+        ["Hello, World!", "Café résumé", "---trailing---"],
+        ["", "!!!", "a"],
+        ["Mix3d C4se & Symbols!!!", "  Multiple   Spaces  "]
+      ]
+    }
+  ]
+}

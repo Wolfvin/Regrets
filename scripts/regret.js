@@ -248,6 +248,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_c.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_nim.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
       }
@@ -282,6 +284,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
       }
@@ -334,7 +338,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -366,6 +370,8 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...translatedArgs])
     } else if (targetStack === 'vue') {
       success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...translatedArgs])
+    } else if (targetStack === 'nim') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...translatedArgs])
     } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -406,6 +412,8 @@ async function main() {
         console.log(`  ⏭️  Scala drift detection: run \`capture_scala.sh validate --runs N\` manually`)
       } else if (stack === 'c') {
         console.log(`  ⏭️  C drift detection: run validate_c.sh with --runs flag manually`)
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -445,6 +453,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     break
@@ -489,6 +499,8 @@ async function main() {
         console.log(`  ⏭️  Scala truth capture not yet supported — use \`regret capture\` instead`)
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -711,6 +723,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     if (success) {

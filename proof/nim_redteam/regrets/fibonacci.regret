@@ -1,0 +1,13 @@
+cluster: fibonacci
+version: 1
+fingerprint: 587q30m
+captured: 2026-06-21T07:15:33.889Z
+watches: [fibonacci]
+entry: fibonacci
+stack: nim
+fingerprintLevel: entry
+file: lib/redteam.nim
+---
+INPUT  10
+OUTPUT 55
+HASH   587q30m
