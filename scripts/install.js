@@ -328,6 +328,77 @@ function extractCjsObjectExports(source) {
     }
   }
 
+// #289: Indirect object export pattern
+  //   const mod = { add: ..., mul: ... }
+  //   module.exports = mod          // ← identifier, not literal object
+  // For each captured identifier, scan for an earlier `const|let|var <id> = { ... }`
+  // declaration and parse its object literal body using the same property-name
+  // extraction logic as above. Mirrors the same extension in api.js so the
+  // CLI (`regret install`) and MCP tool (`regrets_scan`) produce identical
+  // results for the indirect export pattern used in the original #289 repro.
+  const indirectRe = /module\.exports\s*=\s*([a-zA-Z_$][\w$]*)\s*(?:;|$|\/)/gm
+  let indirectMatch
+  while ((indirectMatch = indirectRe.exec(source)) !== null) {
+    const identifier = indirectMatch[1]
+
+    // Find `const|let|var <identifier> = { ... }` earlier in the source
+    const declRe = new RegExp(
+      `(?:const|let|var)\\s+${identifier}\\s*=\\s*\\{`,
+      'g'
+    )
+    let declMatch
+    while ((declMatch = declRe.exec(source)) !== null) {
+      if (declMatch.index >= indirectMatch.index) continue // must be BEFORE the export
+      const bodyStart = declMatch.index + declMatch[0].length
+      let depth = 1
+      let i = bodyStart
+      while (i < source.length && depth > 0) {
+        const ch = source[i]
+        if (ch === '{') depth++
+        else if (ch === '}') depth--
+        else if (ch === '"' || ch === "'" || ch === '`') {
+          const quote = ch
+          i++
+          while (i < source.length) {
+            if (source[i] === '\\') { i += 2; continue }
+            if (source[i] === quote) break
+            i++
+          }
+        }
+        i++
+      }
+      if (depth !== 0) continue
+      const body = source.slice(bodyStart, i - 1)
+      const cleaned = body
+        .replace(/\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+      const properties = splitObjectProperties(cleaned)
+      for (const prop of properties) {
+        const trimmed = prop.trim()
+        if (!trimmed) continue
+        if (trimmed.startsWith('...')) continue
+        const explicitMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)\s*:/)
+        if (explicitMatch) {
+          const JS_KEYWORDS = new Set([
+            'function', 'async', 'get', 'set', 'static', 'if', 'else', 'for',
+            'while', 'return', 'new', 'class', 'const', 'let', 'var',
+            'true', 'false', 'null', 'undefined',
+          ])
+          if (!JS_KEYWORDS.has(explicitMatch[1])) {
+            names.push(explicitMatch[1])
+          }
+          continue
+        }
+        const shorthandMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)$/)
+        if (shorthandMatch) {
+          names.push(shorthandMatch[1])
+          continue
+        }
+      }
+    }
+  }
+
+
   return names
 }
 
