@@ -234,6 +234,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_bash.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -252,6 +254,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -319,6 +323,10 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
+    } else if (targetStack === 'bash') {
+      // Bash update mode: re-capture then validate (audit.log not yet supported for bash)
+      // For now, dispatch to validate_bash.sh which will re-validate after manual re-capture
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...translatedArgs])
     } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -344,6 +352,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
+      } else if (stack === 'bash') {
+        console.log(`  ⏭️  Bash drift detection: not yet supported (bash output is deterministic by default)`)
       }
     }
     break
@@ -371,6 +381,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     break
@@ -401,6 +413,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -589,6 +603,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'bash') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_bash.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     if (success) {
@@ -737,6 +753,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   react   → capture_react.mjs / validate.js
   rust    → capture_rust.sh (capture + validate via cargo test)
   go      → capture_go.sh (Community Preview)
+  bash    → capture_bash.sh / validate_bash.sh (Community Preview)
 `)
     break
 }

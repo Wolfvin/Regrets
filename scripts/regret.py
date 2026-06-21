@@ -91,6 +91,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh capture {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh capture {extra_args}') and success
+            elif stack == 'bash':
+                success = run(f'bash {SCRIPTS_DIR}/capture_bash.sh {extra_args}') and success
 
     elif command == 'validate':
         stacks = detect_stacks()
@@ -105,6 +107,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'bash':
+                success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh {extra_args}') and success
 
     elif command == 'health':
         success = run(f'node {SCRIPTS_DIR}/health.js {extra_args}')
@@ -136,6 +140,8 @@ def main():
             success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}')
         elif target_stack == 'go':
             success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}')
+        elif target_stack == 'bash':
+            success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh {extra_args}')
         else:
             # js, ts, css all use validate.js
             success = run(f'node {SCRIPTS_DIR}/validate.js {extra_args}')
@@ -159,6 +165,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 print('  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually')
+            elif stack == 'bash':
+                print('  ⏭️  Bash drift detection: not yet supported (bash output is deterministic by default)')
 
     elif command == 'ci':
         stacks = detect_stacks()
@@ -173,6 +181,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'bash':
+                success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh --fail-fast {extra_args}') and success
 
     elif command == 'rollback':
         target_cluster = None
@@ -220,6 +230,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'bash':
+                success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh --fail-fast {extra_args}') and success
         if success:
             print('\n✅ Regret guard passed — all clusters green.')
         else:
@@ -285,6 +297,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'bash':
+                success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh {extra_args}') and success
             else:
                 print(f'  ⏭️  Stack "{stack}" — truth capture not yet supported')
 
@@ -373,6 +387,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   react     → capture_react.mjs / validate.js
   rust      → capture_rust.sh (capture + validate via cargo test)
   go        → capture_go.sh (Community Preview)
+  bash      → capture_bash.sh / validate_bash.sh (Community Preview)
 
 Commands: list, verify-kebenaran, structure, branch-map, diagnose, compare,
 mutate-audit, discover — delegated through regret.js.

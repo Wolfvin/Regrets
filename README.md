@@ -114,6 +114,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
+| **Bash** | `bash` | `capture_bash.sh` | `validate_bash.sh` | Community Preview. See [`references/bash.md`](references/bash.md) |
 
 ### Stack-specific examples
 
@@ -126,6 +127,9 @@ node scripts/regret.js capture    # stack: "react" in manifest
 
 # Go
 node scripts/regret.js capture    # stack: "go" → dispatches to capture_go.sh
+
+# Bash
+node scripts/regret.js capture    # stack: "bash" → dispatches to capture_bash.sh
 ```
 
 > Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions.
