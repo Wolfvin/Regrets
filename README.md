@@ -118,6 +118,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
 | **Kotlin** | `kotlin` | `capture_kotlin.sh` | `validate_kotlin.sh` | Community Preview. Top-level functions only (callee wrapping + class methods on roadmap). See [`references/kotlin.md`](references/kotlin.md) |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
+| **Make** | `make` | `capture_make.sh` | `validate_make.sh` | GNU Make 4.x `define`/`endef` functions via `$(call ...)`. See [`references/make.md`](references/make.md) |
 
 ### Stack-specific examples
 
