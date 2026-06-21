@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'vue']
+const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'react', 'vue']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -151,16 +151,17 @@ const templates = {
   vue: {
     clusters: [
       {
-        id: 'example-component',
-        entry: 'MyComponent',
-        watches: ['MyComponent'],
-        file: 'src/MyComponent.js',
+        id: 'greeting-card',
+        entry: 'GreetingCard',
+        watches: ['GreetingCard'],
+        file: 'src/GreetingCard.mjs',
         stack: 'vue',
-        renderMode: 'static',
-        description: 'Vue 3 component (defineComponent / object with setup) — replace with your actual component path',
+        fingerprintLevel: 'entry',
+        description: 'Vue 3 component rendered to HTML via @vue/server-renderer — replace with your actual cluster definitions',
         inputs: [
-          { title: 'Hello', count: 1 },
-          { title: 'World', count: 99 }
+          { name: 'World' },
+          { name: 'Vue' },
+          { name: '' }
         ]
       }
     ]
@@ -241,13 +242,10 @@ if (stack === 'css') {
 }
 if (stack === 'vue') {
   console.log()
-  console.log(`📦 Note for Vue stack: install Vue 3 SSR deps first:`)
-  console.log(`   npm install --save-dev vue@3 @vue/server-renderer@3`)
-  console.log(`   Vue uses capture_vue.mjs / validate_vue.mjs (SSR via renderToString).`)
-  console.log(`   v1 supports defineComponent / object-with-setup / render-function components`)
-  console.log(`   imported from a .js/.mjs file. .vue SFC compilation is NOT in v1 —`)
-  console.log(`   use a build step to compile .vue → .js first if needed.`)
-  console.log(`   See references/vue.md for full usage.`)
+  console.log(`📦 Note for Vue stack: requires vue@3 + @vue/server-renderer@3 as devDependencies.`)
+  console.log(`   npm install --save-dev vue @vue/server-renderer`)
+  console.log(`   Your component file (.mjs / .js) should export the component as a named export matching the manifest 'entry' field.`)
+  console.log(`   See proof/vue_demo/ for a working end-to-end example.`)
 }
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)
