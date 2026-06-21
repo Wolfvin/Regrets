@@ -52,16 +52,12 @@ function fingerprint(input, output) {
   const inputStr = stableStringify(input);
   const outputStr = stableStringify(output);
   const hash = createHash('sha256').update(inputStr + '|' + outputStr).digest('hex');
-  // Convert to base36 (BigInteger)
-  let num = BigInt('0x' + hash.substring(0, 16)); // Use first 16 hex chars (64 bits)
-  let base36 = '';
-  const radix = 36n;
-  while (num > 0n) {
-    const remainder = num % radix;
-    num = num / radix;
-    base36 = remainder.toString(36) + base36;
-  }
-  return base36.substring(0, 7);
+  // Convert to base36 (BigInteger) — uses the FULL 256-bit hash to match
+  // scripts/fingerprint.js. Previously this used only the first 16 hex chars
+  // (64 bits), which broke cross-stack parity (CSS hash != JS hash for the
+  // same input/output). Issue #356 verification.
+  const num = BigInt('0x' + hash);
+  return num.toString(36).slice(0, 7);
 }
 
 // ─── CSS Declaration Extraction ──────────────────────────────────────────────

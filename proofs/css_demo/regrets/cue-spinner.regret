@@ -1,11 +1,11 @@
 cluster: cue-spinner
 version: 1
-fingerprint: 2qpyex4
-captured: 2026-06-20T18:00:22.906Z
+fingerprint: 4hsro63
+captured: 2026-06-21T07:01:40.733Z
 entry: .cue-spinner
 stack: css
 file: ../demo.css
 ---
 INPUT  {"selector":".cue-spinner"}
 OUTPUT ["animation: cue-spin 0.8s linear infinite"]
-HASH   2qpyex4
+HASH   4hsro63
