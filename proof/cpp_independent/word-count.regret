@@ -1,7 +1,7 @@
 cluster: word-count
 version: 1
 fingerprint: 1na8qrz
-captured: 2026-06-21T08:13:49.000000+00:00
+captured: 2026-06-21T09:04:15.000000+00:00
 watches: [word_count]
 entry: regret_word_count
 stack: cpp
@@ -10,3 +10,4 @@ fingerprintLevel: entry
 INPUT  "hello world"
 OUTPUT 2
 HASH   1na8qrz
+INPUTS [{"input":"one two three four","output":4,"hash":"81ytnog"},{"input":"","output":0,"hash":"ug4qxgh"}]

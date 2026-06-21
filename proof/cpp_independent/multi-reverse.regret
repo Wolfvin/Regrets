@@ -1,0 +1,12 @@
+cluster: multi-reverse
+version: 1
+fingerprint: 31gx17t
+captured: 2026-06-21T09:04:15.000000+00:00
+watches: [reverse]
+entry: regret_reverse
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "multi-input-test"
+OUTPUT "tset-tupni-itlum"
+HASH   31gx17t

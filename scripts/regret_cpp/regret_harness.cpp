@@ -307,7 +307,8 @@ static std::string compute_fingerprint(json_object* input, json_object* output) 
 static std::string build_regret_content(json_object* cluster, const std::string& id,
                                         const std::string& entry_symbol,
                                         const std::string& fp,
-                                        json_object* input, json_object* output) {
+                                        json_object* input, json_object* output,
+                                        const std::string& inputs_line = "") {
     char* buf = nullptr;
     size_t len = 0;
     FILE* mem = open_memstream(&buf, &len);
@@ -358,6 +359,18 @@ static std::string build_regret_content(json_object* cluster, const std::string&
     std::fprintf(mem, "OUTPUT %s\n", output_str);
     std::fprintf(mem, "HASH   %s\n", fp.c_str());
 
+    // Issue #315: multi-input INPUTS line.
+    // Written ONLY when the cluster has more than one input (no overhead for the
+    // common single-input case). The array contains entries for inputs 1+ (the
+    // first input is already represented by the top-level INPUT/OUTPUT/HASH
+    // trio). Each entry: { "input": <val>, "output": <val>, "hash": "<fp>" }.
+    // On validate, every entry's hash is compared against the live re-run hash
+    // of the matching manifest input (matched by VALUE via stable_stringify).
+    // Any mismatch FAILs the cluster even when the first input still matches.
+    if (!inputs_line.empty()) {
+        std::fprintf(mem, "INPUTS %s\n", inputs_line.c_str());
+    }
+
     std::fclose(mem);
     std::string result(buf ? buf : "");
     if (buf) std::free(buf);
@@ -368,6 +381,7 @@ struct ParsedRegret {
     std::string input_json;
     std::string output_json;
     std::string hash;
+    std::string inputs_json;  // Issue #315: raw INPUTS line payload (without "INPUTS " prefix); empty if absent
 };
 
 static bool parse_regret(const std::string& content, ParsedRegret& out) {
@@ -399,8 +413,51 @@ static bool parse_regret(const std::string& content, ParsedRegret& out) {
         if (key == "INPUT")   out.input_json = val;
         else if (key == "OUTPUT") out.output_json = val;
         else if (key == "HASH")   out.hash = val;
+        else if (key == "INPUTS") out.inputs_json = val;  // Issue #315
     }
     return !out.hash.empty() && !out.input_json.empty();
+}
+
+// ─── Issue #315: multi-input golden entry ──────────────────────────────────
+//
+// A single element of the INPUTS array parsed from a .regret file:
+//   { "input": <val>, "output": <val>, "hash": "<fp>" }
+// We compare each entry's hash against the live re-run hash of the matching
+// manifest input (matched by VALUE via stable_stringify). Any mismatch FAILs
+// the cluster even when the first input still matches.
+
+struct GoldenInput {
+    std::string input_json;   // raw JSON string of the input (as written in INPUTS)
+    std::string hash;          // stored golden hash
+};
+
+static std::vector<GoldenInput> parse_golden_inputs(const std::string& inputs_json) {
+    std::vector<GoldenInput> result;
+    if (inputs_json.empty()) return result;
+
+    json_object* arr_raw = json_tokener_parse(inputs_json.c_str());
+    if (!arr_raw || !json_object_is_type(arr_raw, json_type_array)) {
+        if (arr_raw) json_object_put(arr_raw);
+        return result;
+    }
+    JsonPtr arr(arr_raw);
+
+    size_t n = json_object_array_length(arr.get());
+    for (size_t i = 0; i < n; i++) {
+        json_object* entry = json_object_array_get_idx(arr.get(), i);
+        if (!entry || !json_object_is_type(entry, json_type_object)) continue;
+
+        json_object* in = nullptr;
+        json_object* hash = nullptr;
+        if (!json_object_object_get_ex(entry, "input", &in)) continue;
+        if (!json_object_object_get_ex(entry, "hash", &hash)) continue;
+
+        GoldenInput gi;
+        gi.input_json = json_object_to_json_string_ext(in, JSON_C_TO_STRING_PLAIN);
+        gi.hash = json_object_get_string(hash);
+        result.push_back(std::move(gi));
+    }
+    return result;
 }
 
 // ─── Manifest reading ─────────────────────────────────────────────────────
@@ -568,8 +625,74 @@ static int run_capture(const std::string& manifest_path,
             continue;
         }
 
+        // ─── Issue #315: capture remaining inputs (1+) for the multi-input contract ──
+        //
+        // The first input is the golden (top-level INPUT/OUTPUT/HASH above).
+        // For each remaining input in the manifest's `inputs` array, we invoke
+        // the adapter, compute its hash, and append an entry to the INPUTS line.
+        // On validate, every entry's hash is compared against the live re-run
+        // hash of the matching manifest input — any mismatch FAILs the cluster
+        // even when the first input still matches.
+        //
+        // Backward compatibility:
+        //   - Single-input clusters: inputs_line stays empty (no INPUTS line written).
+        //   - Multi-input clusters where inputs[1+] throw or return null: that
+        //     entry is silently OMITTED from INPUTS (preserves the "trivial-input
+        //     guard" semantics — we don't want a single bad input to break the
+        //     whole cluster capture). Re-capture after fixing the function.
+        std::string inputs_line;
+        if (inputs && json_object_is_type(inputs, json_type_array) &&
+            json_object_array_length(inputs) > 1) {
+            json_object* inputs_arr_raw = json_object_new_array();
+            JsonPtr inputs_arr(inputs_arr_raw);
+
+            size_t n_inputs = json_object_array_length(inputs);
+            for (size_t i = 1; i < n_inputs; i++) {
+                json_object* cur_raw = json_object_array_get_idx(inputs, i);
+                json_object_get(cur_raw);
+                JsonPtr cur(cur_raw);
+
+                std::string cur_str = json_object_to_json_string_ext(
+                    cur.get(), JSON_C_TO_STRING_PLAIN);
+
+                InvokeResult cur_inv = invoke_adapter(fn, cur_str);
+                if (cur_inv.threw || !cur_inv.output) {
+                    // Skip this input — preserves trivial-input guard semantics.
+                    continue;
+                }
+
+                json_object* cur_out_raw = json_tokener_parse(cur_inv.output.get());
+                if (!cur_out_raw) continue;
+                JsonPtr cur_out(cur_out_raw);
+
+                if (json_object_is_type(cur_out.get(), json_type_null)) continue;
+
+                std::string cur_fp = compute_fingerprint(cur.get(), cur_out.get());
+                if (cur_fp.empty()) continue;
+
+                // Build entry: { "input": <val>, "output": <val>, "hash": "<fp>" }
+                json_object* entry = json_object_new_object();
+                json_object_object_add(entry, "input",
+                                       json_object_get(cur.get()));  // increments refcount
+                json_object_object_add(entry, "output",
+                                       json_object_get(cur_out.get()));
+                json_object_object_add(entry, "hash",
+                                       json_object_new_string(cur_fp.c_str()));
+                json_object_array_add(inputs_arr.get(), entry);
+            }
+
+            // Only emit INPUTS line if at least one extra input was captured.
+            size_t n_extra = json_object_array_length(inputs_arr.get());
+            if (n_extra > 0) {
+                const char* arr_str = json_object_to_json_string_ext(
+                    inputs_arr.get(), JSON_C_TO_STRING_PLAIN);
+                inputs_line = std::string(arr_str);
+            }
+        }
+
         std::string regret_content = build_regret_content(
-            ci.cluster_obj.get(), ci.id, ci.entry, fp, input.get(), output.get());
+            ci.cluster_obj.get(), ci.id, ci.entry, fp, input.get(), output.get(),
+            inputs_line);
 
         std::string regret_path = regret_dir + "/" + ci.id + ".regret";
         FILE* rf = std::fopen(regret_path.c_str(), "wb");
@@ -666,7 +789,97 @@ static int run_validate(const std::string& manifest_path,
 
         std::string live_fp = compute_fingerprint(golden_input.get(), live_output.get());
 
-        if (live_fp == parsed.hash) {
+        bool is_match = (live_fp == parsed.hash);
+
+        // ─── Issue #315: multi-input contract check ──────────────────────────
+        //
+        // When the .regret file has an INPUTS line (parsed.golden_inputs_json),
+        // validate EVERY stored input's hash against the live re-run — not just
+        // the first. A breaking change that only affects inputs[1+] would
+        // otherwise be invisible (false GREEN).
+        //
+        // For each golden input in INPUTS[], find the matching manifest input
+        // (matched by VALUE via stable_stringify) and compute its live hash.
+        // If any golden input's live hash differs from its stored hash, FAIL
+        // the cluster — even when the first input still matches.
+        //
+        // Backward compatibility: if no INPUTS line is present (old .regret
+        // files or single-input captures), this check is skipped entirely.
+        // The top-level hash check above is the only check.
+        std::vector<std::string> multi_input_failures;  // human-readable strings
+        if (!parsed.inputs_json.empty()) {
+            auto golden_inputs = parse_golden_inputs(parsed.inputs_json);
+            if (!golden_inputs.empty()) {
+                // Get manifest inputs (for matching by value).
+                struct json_object* manifest_inputs = nullptr;
+                json_object_object_get_ex(ci.cluster_obj.get(), "inputs", &manifest_inputs);
+
+                for (const auto& gi : golden_inputs) {
+                    // Parse the golden input to a json_object for stable_stringify comparison.
+                    json_object* gi_obj = json_tokener_parse(gi.input_json.c_str());
+                    if (!gi_obj) continue;
+                    JsonPtr gi_ptr(gi_obj);
+
+                    // Find matching manifest input by VALUE (stable_stringify equality).
+                    json_object* matched_raw = nullptr;
+                    if (manifest_inputs && json_object_is_type(manifest_inputs, json_type_array)) {
+                        size_t m_n = json_object_array_length(manifest_inputs);
+                        for (size_t i = 0; i < m_n; i++) {
+                            json_object* mi = json_object_array_get_idx(manifest_inputs, i);
+                            if (!mi) continue;
+                            // Compare via stable_stringify for key-order-independent equality.
+                            if (stable_stringify(mi) == stable_stringify(gi_ptr.get())) {
+                                matched_raw = mi;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!matched_raw) {
+                        // Golden input is no longer in the manifest — skip with note.
+                        std::printf("   ⏭️  input %s no longer in manifest — skipping (re-capture to refresh)\n",
+                                    gi.input_json.c_str());
+                        continue;
+                    }
+
+                    json_object_get(matched_raw);
+                    JsonPtr matched(matched_raw);
+
+                    std::string match_str = json_object_to_json_string_ext(
+                        matched.get(), JSON_C_TO_STRING_PLAIN);
+
+                    InvokeResult mi_inv = invoke_adapter(fn, match_str);
+                    if (mi_inv.threw || !mi_inv.output) {
+                        // Adapter threw on this input — treat as failure (regression).
+                        std::string err = "input " + gi.input_json + " threw on re-invoke";
+                        multi_input_failures.push_back(err);
+                        continue;
+                    }
+
+                    json_object* mi_out_raw = json_tokener_parse(mi_inv.output.get());
+                    if (!mi_out_raw) {
+                        std::string err = "input " + gi.input_json + " returned invalid JSON";
+                        multi_input_failures.push_back(err);
+                        continue;
+                    }
+                    JsonPtr mi_out(mi_out_raw);
+
+                    std::string mi_fp = compute_fingerprint(matched.get(), mi_out.get());
+                    if (mi_fp != gi.hash) {
+                        char buf[512];
+                        std::snprintf(buf, sizeof(buf),
+                                      "input %s  golden=%s  live=%s",
+                                      gi.input_json.c_str(), gi.hash.c_str(), mi_fp.c_str());
+                        multi_input_failures.push_back(std::string(buf));
+                    }
+                }
+            }
+            if (!multi_input_failures.empty()) {
+                is_match = false;
+            }
+        }
+
+        if (is_match) {
             std::printf("   ✅ PASS  (hash %s)\n", live_fp.c_str());
             passed++;
         } else {
@@ -676,6 +889,10 @@ static int run_validate(const std::string& manifest_path,
             const char* live_out_str = json_object_to_json_string_ext(
                 live_output.get(), JSON_C_TO_STRING_PLAIN);
             std::printf("   Live   output: %s\n", live_out_str);
+            // Report multi-input failures (Issue #315).
+            for (const auto& err : multi_input_failures) {
+                std::printf("   ⚠️  multi-input mismatch: %s\n", err.c_str());
+            }
             failed++;
         }
     }

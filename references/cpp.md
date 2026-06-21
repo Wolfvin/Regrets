@@ -28,6 +28,11 @@ by `proof/cpp/verify-parity.mjs` — the C++ harness produces byte-identical
   instance methods (demonstrated in `proof/cpp/regret_adapter.cpp`).
 - ✅ STL serialization: adapters can return `std::string`, `std::vector`,
   `std::map` etc. by serializing them to JSON via json-c.
+- ✅ **Issue #315 multi-input contract**: capture writes an `INPUTS` line
+  for multi-input clusters (inputs 1+); validate re-runs every manifest
+  input and FAILs the cluster if ANY golden hash mismatches (parity with
+  JS / React / Perl / Bash). Single-input clusters have zero overhead
+  (INPUTS line omitted).
 - ❌ Callee wrapping (depth-1 contract chaining) — not implemented.
 - ❌ Auto-discovery via `regret install` — manifest must be hand-written.
 - ❌ `regret update` — not wired for C++ v1.
@@ -321,6 +326,46 @@ HASH   3hf11ck
 
 All mandatory fields from the user contract are present:
 `cluster`, `version`, `fingerprint`, `captured`, `INPUT`, `OUTPUT`, `HASH`.
+
+### Issue #315 — Multi-input `INPUTS` line (parity with JS/React/Perl/Bash)
+
+When a cluster has more than one input in its `inputs` array, the harness
+additionally captures an `INPUTS` line containing entries for **inputs 1+**
+(the first input is already represented by the top-level `INPUT`/`OUTPUT`/`HASH`
+trio — omitting it avoids duplication). Each entry is a JSON object with
+`input`, `output`, and `hash` fields:
+
+```
+cluster: reverse
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-21T08:59:27.000000+00:00
+watches: [reverse]
+entry: regret_reverse
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s
+INPUTS [{"input":"Regrets","output":"stergeR","hash":"h0sx12s"},{"input":"abc123","output":"321cba","hash":"15k5072"}]
+```
+
+**Behavior:**
+- **Single-input clusters** (`inputs.length === 1`): `INPUTS` line is **OMITTED**
+  (no overhead for the common case).
+- **Multi-input clusters** (`inputs.length > 1`): `INPUTS` line contains
+  `inputs.slice(1)` entries. Inputs that throw or return null are silently
+  omitted (preserves the trivial-input guard semantics — re-capture to opt in).
+- **Validate**: when an `INPUTS` line is present, the harness re-runs EVERY
+  manifest input (matched by VALUE via `stable_stringify`), computes its live
+  hash, and compares against the golden hash. If ANY golden input's live hash
+  differs from its stored hash, the cluster **FAILs** — even when the first
+  input's hash still matches. This catches subtle breaking changes that would
+  otherwise be invisible (false GREEN).
+- **Backward compatibility**: old `.regret` files without an `INPUTS` line
+  still validate (only the top-level hash is checked). Re-capture to opt in
+  to the multi-input contract.
 
 ---
 

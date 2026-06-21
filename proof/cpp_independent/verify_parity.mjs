@@ -45,12 +45,25 @@ function fingerprint(input, output) {
 }
 
 // Test: same inputs/outputs as our C++ fixture
+// Includes BOTH the top-level (input[0]) and the INPUTS line (inputs[1+])
+// entries to verify Issue #315 multi-input contract parity.
 const tests = [
-  { input: "hello", output: "olleh", expectedCpp: "5nssd6s", desc: "reverse(hello)" },
-  { input: "Race Car", output: true, expectedCpp: "382h75s", desc: "is_palindrome(Race Car)" },
-  { input: "hello world", output: 2, expectedCpp: "1na8qrz", desc: "word_count(hello world)" },
-  { input: "Hello World! 2024", output: "hello-world-2024", expectedCpp: "45tk3ov", desc: "slugify" },
-  { input: "hello world", output: "Hello World", expectedCpp: "4am2hvn", desc: "title_case" },
+  // Top-level INPUT/OUTPUT/HASH (input[0])
+  { input: "hello", output: "olleh", expectedCpp: "5nssd6s", desc: "reverse(hello) [input[0]]" },
+  { input: "Regrets", output: "stergeR", expectedCpp: "h0sx12s", desc: "reverse(Regrets) [INPUTS[0]]" },
+  { input: "abc123", output: "321cba", expectedCpp: "15k5072", desc: "reverse(abc123) [INPUTS[1]]" },
+  { input: "Race Car", output: true, expectedCpp: "382h75s", desc: "is_palindrome(Race Car) [input[0]]" },
+  { input: "hello", output: false, expectedCpp: "16xly9k", desc: "is_palindrome(hello) [INPUTS[0]]" },
+  { input: "A man a plan a canal Panama", output: true, expectedCpp: "4p1hqua", desc: "is_palindrome(A man...) [INPUTS[1]]" },
+  { input: "hello world", output: 2, expectedCpp: "1na8qrz", desc: "word_count(hello world) [input[0]]" },
+  { input: "one two three four", output: 4, expectedCpp: "81ytnog", desc: "word_count(one two...) [INPUTS[0]]" },
+  { input: "", output: 0, expectedCpp: "ug4qxgh", desc: "word_count('') [INPUTS[1]]" },
+  { input: "Hello World! 2024", output: "hello-world-2024", expectedCpp: "45tk3ov", desc: "slugify(Hello World! 2024) [input[0]]" },
+  { input: "My Blog Post", output: "my-blog-post", expectedCpp: "2txzk8q", desc: "slugify(My Blog Post) [INPUTS[0]]" },
+  { input: "___test___", output: "test", expectedCpp: "14yupqz", desc: "slugify(___test___) [INPUTS[1]]" },
+  { input: "hello world", output: "Hello World", expectedCpp: "4am2hvn", desc: "title_case(hello world) [input[0]]" },
+  { input: "tHE QUICK bROWN fOX", output: "The Quick Brown Fox", expectedCpp: "396ai3s", desc: "title_case(tHE QUICK...) [INPUTS[0]]" },
+  { input: "", output: "", expectedCpp: "5oge4st", desc: "title_case('') [INPUTS[1]]" },
 ];
 
 console.log("=== Cross-Stack Fingerprint Parity: JS vs C++ ===\n");
