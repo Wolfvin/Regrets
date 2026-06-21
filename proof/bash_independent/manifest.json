@@ -1,0 +1,45 @@
+{
+  "clusters": [
+    {
+      "id": "trim",
+      "entry": "trim",
+      "file": "strutils.sh",
+      "stack": "bash",
+      "fingerprintLevel": "entry",
+      "inputs": ["  hello  ", "world", "no-space"],
+      "watches": [],
+      "callees": []
+    },
+    {
+      "id": "to-camel",
+      "entry": "to_camel",
+      "file": "strutils.sh",
+      "stack": "bash",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello_world", "my_variable_name"],
+      "watches": [],
+      "callees": []
+    },
+    {
+      "id": "repeat-str",
+      "entry": "repeat_str",
+      "file": "strutils.sh",
+      "stack": "bash",
+      "fingerprintLevel": "entry",
+      "inputs": [["ab", 3]],
+      "multiArgs": true,
+      "watches": [],
+      "callees": []
+    },
+    {
+      "id": "is-numeric",
+      "entry": "is_numeric",
+      "file": "strutils.sh",
+      "stack": "bash",
+      "fingerprintLevel": "entry",
+      "inputs": ["42", "-3.14", "not-a-number"],
+      "watches": [],
+      "callees": []
+    }
+  ]
+}
