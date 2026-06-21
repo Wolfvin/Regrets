@@ -1,0 +1,12 @@
+cluster: levenshtein
+version: 1
+fingerprint: tu16lpe
+captured: 2026-06-21T05:07:30.260Z
+watches: [levenshtein]
+entry: levenshtein
+stack: dart
+fingerprintLevel: entry
+---
+INPUT  ["kitten","sitting"]
+OUTPUT 3
+HASH   tu16lpe

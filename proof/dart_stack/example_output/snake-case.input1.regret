@@ -1,0 +1,12 @@
+cluster: snake-case
+version: 1
+fingerprint: 3rt28lv
+captured: 2026-06-21T05:07:28.071Z
+watches: [snakeCase]
+entry: snakeCase
+stack: dart
+fingerprintLevel: entry
+---
+INPUT  "already_snake"
+OUTPUT "already_snake"
+HASH   3rt28lv

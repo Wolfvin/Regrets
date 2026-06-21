@@ -1,0 +1,12 @@
+cluster: snake-case
+version: 1
+fingerprint: 15nqae5
+captured: 2026-06-21T05:07:28.071Z
+watches: [snakeCase]
+entry: snakeCase
+stack: dart
+fingerprintLevel: entry
+---
+INPUT  "PascalCaseXML"
+OUTPUT "pascal_case_xml"
+HASH   15nqae5
