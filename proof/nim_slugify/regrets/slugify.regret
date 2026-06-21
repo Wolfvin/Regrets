@@ -1,0 +1,13 @@
+cluster: slugify
+version: 1
+fingerprint: 615ytfn
+captured: 2026-06-21T05:43:04.888Z
+watches: [slugify]
+entry: slugify
+stack: nim
+fingerprintLevel: entry
+file: lib/slugify.nim
+---
+INPUT  "Hello, World!"
+OUTPUT "hello-world"
+HASH   615ytfn

@@ -1,0 +1,13 @@
+cluster: safe-divide-by-two
+version: 1
+fingerprint: 69sqc8a
+captured: 2026-06-21T07:15:44.655Z
+watches: [safeDivideByTwo]
+entry: safeDivideByTwo
+stack: nim
+fingerprintLevel: entry
+file: lib/redteam.nim
+---
+INPUT  42
+OUTPUT 21
+HASH   69sqc8a

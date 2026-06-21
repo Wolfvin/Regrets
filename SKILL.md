@@ -453,6 +453,9 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
 | `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `ruby`, `rust`, `react`, `go`, or `extension` |
 | `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `csharp`, `rust`, `react`, `go`, or `extension` |
+| `file` | JS/TS only | Path to source file (relative to project root). Required for `js`/`ts`/`react` stacks, and also used by `ruby`/`php`/`nim` (relative source path) and `rust`/`go` (informational). **Do NOT use for Python** — use `module` instead. |
+| `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
+| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `rust`, `go`, `ruby`, `nim`, `react`, `css`, or `extension` |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)

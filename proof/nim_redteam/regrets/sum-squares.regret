@@ -1,0 +1,13 @@
+cluster: sum-squares
+version: 1
+fingerprint: 12d2eu1
+captured: 2026-06-21T07:15:37.452Z
+watches: [sumSquares]
+entry: sumSquares
+stack: nim
+fingerprintLevel: entry
+file: lib/redteam.nim
+---
+INPUT  [1,2,3,4,5]
+OUTPUT 55
+HASH   12d2eu1
