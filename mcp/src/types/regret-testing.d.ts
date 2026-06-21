@@ -34,12 +34,20 @@ declare module "regret-testing" {
     error?: string;
   }
 
+  // Issue #289: ScanSuggestion shape mirrors install.js's cluster shape.
+  // Previously this type only declared {id, entry, file, stack, watches},
+  // which was inconsistent with what `regret install` produces. MCP agents
+  // using `regrets_scan` would get suggestions that don't capture cleanly
+  // (non-empty watches conflicting with fingerprintLevel: 'entry', no
+  // inputs, no path-hint in id). The shape now matches install.js.
   export interface ScanSuggestion {
     id: string;
     entry: string;
     file: string;
     stack: string;
-    watches: string[];
+    watches: string[];            // [] (matches install.js default)
+    fingerprintLevel: string;     // 'entry' (explicit, matches install.js)
+    inputs: Array<unknown>;       // [null, {}] (matches install.js default)
   }
 
   export interface ScanResult {

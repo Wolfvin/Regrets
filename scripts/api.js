@@ -708,11 +708,22 @@ function extractCjsObjectExports(source) {
  * Scan a project directory for cluster suggestions.
  * Identifies exported functions and suggests regret cluster definitions.
  *
+ * The suggestion shape MIRRORS install.js's cluster shape (issue #289):
+ *   - `id`: kebab-case with file-path hint (e.g. "api-add" not just "add")
+ *   - `watches: []` (empty — matches install.js default; non-empty watches
+ *     would conflict with `fingerprintLevel: 'entry'`)
+ *   - `fingerprintLevel: 'entry'` (explicit, matches install.js)
+ *   - `inputs: [null, {}]` (matches install.js default — gives capture two
+ *     common arg shapes to try instead of `[undefined]` which usually throws)
+ *   - `callees`: NOT populated here — populating callees requires analyzeScope
+ *     (tree-sitter WASM), which is a heavier dependency. MCP agents who need
+ *     callee auto-discovery should use `regret install` instead.
+ *
  * @param {object} options
  * @param {string} [options.dir='.'] - Directory to scan
  * @param {string} [options.stack] - Filter by stack (js, ts, python)
  * @param {string} [options.cwd=process.cwd()] - Working directory
- * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[]}>}>}
+ * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[], fingerprintLevel: string, inputs: Array}>}>}
  *
  * @example
  * const { suggestions } = await scan({ dir: 'src/', stack: 'js' })
@@ -753,6 +764,19 @@ export async function scan(options = {}) {
     return entries
   }
 
+  // Issue #289: generateClusterId matches install.js's logic — kebab-case
+  // with a file-path hint so two functions with the same name in different
+  // files don't collide (e.g. "api-add" vs "utils-add").
+  function generateClusterId(fnName, relPath) {
+    const base = basename(relPath).replace(/\.(js|mjs|cjs|ts|tsx|py)$/, '')
+    const fnKebab = fnName
+      .replace(/([A-Z])/g, '-$1')
+      .toLowerCase()
+      .replace(/^-/, '')
+      .replace(/[_]/g, '-')
+    return `${base}-${fnKebab}`
+  }
+
   const stacks = stackFilter ? [stackFilter] : ['js', 'ts']
 
   for (const stack of stacks) {
@@ -765,6 +789,8 @@ export async function scan(options = {}) {
         const relPath = relative(cwd, filePath)
 
         // Find exported function names (simple regex-based scan)
+        // Issue #289: align regex set with install.js — add `export async function`
+        // (already present) and ensure patterns are consistent.
         const exportPatterns = [
           /export\s+function\s+(\w+)/g,
           /export\s+const\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function)/g,
@@ -787,13 +813,19 @@ export async function scan(options = {}) {
         for (const name of cjsObjExports) fns.add(name)
 
         for (const fnName of fns) {
-          const clusterId = fnName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')
+          const clusterId = generateClusterId(fnName, relPath)
+          // Issue #289: emit the same shape as install.js — watches: [],
+          // fingerprintLevel: 'entry', inputs: [null, {}]. This ensures
+          // MCP agents using `regrets_scan` get a manifest-compatible
+          // suggestion that can be capture'd without further editing.
           suggestions.push({
             id: clusterId,
             entry: fnName,
             file: relPath,
             stack,
-            watches: [fnName],
+            watches: [],
+            fingerprintLevel: 'entry',
+            inputs: [null, {}],
           })
         }
       } catch { /* skip unreadable files */ }
