@@ -1,0 +1,15 @@
+cluster: calc-multiply
+version: 1
+fingerprint: 1udz6ou
+captured: 2026-06-20T18:01:58.673186+00:00
+watches: [Multiply]
+entry: Multiply
+stack: csharp
+fingerprintLevel: entry
+class: RegretDemo.Calculator
+env: {"runtime":"dotnet","version":"8.0.28"}
+---
+INPUT  [3,4]
+OUTPUT 12
+HASH   1udz6ou
+INPUTS [{"input":[12,12],"output":144,"hash":"4jlnbnb","threw":false}, {"input":[-3,9],"output":-27,"hash":"20oyen5","threw":false}]

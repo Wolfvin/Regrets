@@ -1,0 +1,14 @@
+cluster: php-round-currency
+version: 1
+fingerprint: 20w8xq2
+captured: 2026-06-21T06:26:34+00:00
+watches: [round_currency]
+entry: round_currency
+stack: php
+fingerprintLevel: entry
+file: src/MathUtils.php
+---
+INPUT  1.005
+OUTPUT 1.01
+HASH   20w8xq2
+INPUTS [{"input":2.345,"output":2.35,"hash":"68snct5"},{"input":99.999,"output":100,"hash":"68chg3b"},{"input":0.001,"output":0,"hash":"3t5xn7a"}]

@@ -111,8 +111,11 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **JavaScript / TypeScript** | `js` or `ts` | `capture.js` | `validate.js` | CJS, ESM, React components. TS projects: add `"preBuild": "npm run build"` to manifest |
 | **Python** | `python` | `capture.py` | `validate.py` | Pure functions, class methods, multi-module. See [`references/python.md`](references/python.md) |
 | **PHP** | `php` | `capture_php.php` | `validate_php.php` | Pure functions, class-based output |
-| **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
+| **Ruby** | `ruby` | `capture_ruby.rb` | `validate_ruby.rb` | Top-level functions, class methods, instance methods. See [`references/ruby.md`](references/ruby.md) and [`proof/ruby_slugify/`](proof/ruby_slugify/) |
+| **C# (.NET 8+)** | `csharp` | `capture_csharp.sh` | `validate_csharp.sh` | Reflection-based; public static methods. See [`references/csharp.md`](references/csharp.md) and [`proof/csharp-demo/`](proof/csharp-demo/) |
+| **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Working |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
+| **Kotlin** | `kotlin` | `capture_kotlin.sh` | `validate_kotlin.sh` | Community Preview. Top-level functions only (callee wrapping + class methods on roadmap). See [`references/kotlin.md`](references/kotlin.md) |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
 
 ### Stack-specific examples
@@ -124,11 +127,17 @@ node scripts/regret.js capture    # auto-detects python from manifest
 # JS/React — component rendering
 node scripts/regret.js capture    # stack: "react" in manifest
 
+# Ruby — slugify (2 clusters, pure string transforms)
+ruby scripts/capture_ruby.rb      # or: node scripts/regret.js capture (auto-detects ruby)
+# C# (.NET 8+) — Calculator demo (5 clusters, multi-input, issue #315 pattern)
+bash scripts/capture_csharp.sh    # or: node scripts/regret.js capture (auto-detects csharp)
+
 # Go
 node scripts/regret.js capture    # stack: "go" → dispatches to capture_go.sh
 ```
 
-> Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions.
+> Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions. [`proof/ruby_slugify/`](proof/ruby_slugify/) — 2 Ruby clusters for URL slug generation, all green; demo script walks through baseline → valid refactor (still PASS) → breaking refactor (FAIL).
+> Proof: [`proof/jaconv/`](proof/jaconv/) — 14 Python clusters for Japanese character conversion, all green after decomposing a 959-line monolith into 6 modules. [`proof/pyluach/`](proof/pyluach/) — 7 Python clusters for Hebrew calendar math, all green after refactoring with renamed variables and extracted functions. [`proof/csharp-demo/`](proof/csharp-demo/) — 5 C# clusters for a Calculator library, all green; demo script walks through baseline → valid refactor (PASS) → breaking refactor (FAIL) → restore (PASS).
 
 ## The `.regret` File
 

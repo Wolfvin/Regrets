@@ -440,6 +440,10 @@ if (dryRun) {
       console.log('   Would run: php scripts/capture_php.php')
     } else if (stack === 'perl') {
       console.log('   Would run: perl scripts/capture_perl.pl')
+    } else if (stack === 'ruby') {
+      console.log('   Would run: ruby scripts/capture_ruby.rb')
+    } else if (stack === 'csharp') {
+      console.log('   Would run: bash scripts/capture_csharp.sh')
     } else if (stack === 'rust') {
       console.log('   Would run: bash scripts/capture_rust.sh capture')
     } else if (stack === 'go') {
@@ -475,6 +479,10 @@ if (dryRun) {
       captureOk = runVisible('php', [`${SCRIPTS_DIR}/capture_php.php`]) && captureOk
     } else if (stack === 'perl') {
       captureOk = runVisible('perl', [`${SCRIPTS_DIR}/capture_perl.pl`]) && captureOk
+    } else if (stack === 'ruby') {
+      captureOk = runVisible('ruby', [`${SCRIPTS_DIR}/capture_ruby.rb`]) && captureOk
+    } else if (stack === 'csharp') {
+      captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_csharp.sh`, 'capture']) && captureOk
     } else if (stack === 'rust') {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture']) && captureOk
     } else if (stack === 'go') {
@@ -518,6 +526,10 @@ if (dryRun) {
       console.log('   Would run: php scripts/validate_php.php')
     } else if (stack === 'perl') {
       console.log('   Would run: perl scripts/validate_perl.pl')
+    } else if (stack === 'ruby') {
+      console.log('   Would run: ruby scripts/validate_ruby.rb')
+    } else if (stack === 'csharp') {
+      console.log('   Would run: bash scripts/validate_csharp.sh')
     } else if (stack === 'rust') {
       console.log('   Would run: bash scripts/capture_rust.sh validate')
     } else if (stack === 'go') {
@@ -538,6 +550,10 @@ if (dryRun) {
       validateOk = runVisible('php', [`${SCRIPTS_DIR}/validate_php.php`]) && validateOk
     } else if (stack === 'perl') {
       validateOk = runVisible('perl', [`${SCRIPTS_DIR}/validate_perl.pl`]) && validateOk
+    } else if (stack === 'ruby') {
+      validateOk = runVisible('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`]) && validateOk
+    } else if (stack === 'csharp') {
+      validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_csharp.sh`]) && validateOk
     } else if (stack === 'rust') {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate']) && validateOk
     } else if (stack === 'go') {

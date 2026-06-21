@@ -449,9 +449,10 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `version` | ❌ | `.regret` file format version (currently `1`) |
 | `entry` | ✅ | Function name to call. For JS/TS: exported from `file`. For Python: defined in `module`. |
 | `watches` | ✅ | Array of function names to monitor via Ghost Proxy |
-| `file` | JS/TS only | Path to compiled JS module (relative to project root). Required for `js`/`ts`/`react` stacks. **Do NOT use for Python** — use `module` instead. |
+| `file` | JS/TS/Ruby/PHP | Path to source file (relative to project root). Required for `js`/`ts`/`react`/`ruby`/`php` stacks. **Do NOT use for Python** — use `module` instead. |
 | `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
-| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `rust`, `react`, or `extension` |
+| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `ruby`, `rust`, `react`, `go`, or `extension` |
+| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `csharp`, `rust`, `react`, `go`, or `extension` |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)
@@ -664,6 +665,8 @@ If you prefer calling individual scripts directly (per-stack):
   "regret:capture:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh capture",
   "regret:validate:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh validate",
   "regret:health:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh health",
+  "regret:capture:kotlin": "bash ../../The-skill/regresion-testing/scripts/capture_kotlin.sh",
+  "regret:validate:kotlin": "bash ../../The-skill/regresion-testing/scripts/validate_kotlin.sh",
   "regret:health": "node ../../The-skill/regresion-testing/scripts/health.js",
   "regret:drift": "node ../../The-skill/regresion-testing/scripts/validate.js --runs 5",
   "regret:drift:py": "python ../../The-skill/regresion-testing/scripts/validate.py --runs 5",
@@ -980,7 +983,9 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
-| Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
+| Go | Generated test files + `go test` | Value / Schema / Mixed | **Working** — see `references/go.md` |
+| PHP | Ghost decorator (manual wrapping) | Value / Schema / Mixed | See `references/php.md` |
+| C# (.NET 8+) | Reflection via `Assembly.LoadFrom` + `MethodInfo.Invoke` | Value (default) + multi-input (issue #315) | See `references/csharp.md` and `proof/csharp-demo/` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
@@ -1205,7 +1210,9 @@ regression-testing/
 │   ├── health.py               ← cluster health report (Python)
 │   ├── capture_react.mjs       ← React component render capture
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
-│   ├── capture_go.sh           ← Go cluster capture runner (community preview)
+│   ├── capture_go.sh           ← Go cluster capture runner (working)
+│   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)
+│   ├── validate_kotlin.sh      ← Kotlin cluster validate runner (community preview)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
 │   ├── contest.py              ← chain testing for Python stack clusters
 │   ├── diff.js                 ← output diff — shows what changed when RED
@@ -1223,7 +1230,9 @@ regression-testing/
     ├── update-protocol.md      ← safe update + audit trail rules (with hash chain)
     ├── python.md               ← Python stack — full implementation
     ├── rust.md                 ← Rust stack — trait wrapping + cargo test
-    ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
+    ├── go.md                   ← Go stack — generated test files + go test (Working)
+    ├── ruby.md                 ← Ruby stack — top-level fn / class method / instance method
+    ├── csharp.md               ← C# (.NET 8+) stack — reflection + dotnet runner
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant

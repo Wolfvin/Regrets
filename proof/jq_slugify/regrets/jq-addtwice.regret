@@ -1,0 +1,12 @@
+cluster: jq-addtwice
+version: 1
+fingerprint: 3mukoqm
+captured: 2026-06-21T08:15:52.284138+00:00
+entry: addtwice
+stack: jq
+file: ../functions.jq
+INPUTS iln58xq 2lqku29 cdq9zde
+---
+INPUT  [3, 4]
+OUTPUT 10
+HASH   3mukoqm

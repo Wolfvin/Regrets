@@ -1,0 +1,13 @@
+cluster: add-basic
+version: 1
+fingerprint: 24pucbd
+captured: 2026-06-21T07:34:57.0086683Z
+watches: [MathUtils.add]
+entry: MathUtils.add
+stack: fsharp
+fingerprintLevel: entry
+file: lib/MathUtils.fs
+---
+INPUT  2
+OUTPUT 3
+HASH   24pucbd
