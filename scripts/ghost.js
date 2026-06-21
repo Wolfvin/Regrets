@@ -521,38 +521,64 @@ export function wrapCallees(targetModule, calleeNames, calleeRecorder, options =
       }
     }
     if (!reassignedAnywhere && !quiet) {
-      // Emit a specific, actionable warning. Two cases:
-      //   1. The module exposes our `__regretsHolder` but the callee isn't
+      // Emit a specific, actionable warning. Three cases:
+      //   1. The callee is a class — classes cannot be refactored to arrow
+      //      functions (they have `new` semantics, prototype chain, etc).
+      //      Issue #278: give class-specific advice instead of the generic
+      //      "refactor to export const" suggestion which is misleading for
+      //      classes.
+      //   2. The module exposes our `__regretsHolder` but the callee isn't
       //      on it — this happens when the transformer couldn't rewrite
       //      this particular callee (e.g. it's a class method, a destructured
       //      export, or a closure-private function). The fix is to refactor
       //      to a top-level function declaration or `export const foo = ...`.
-      //   2. The module is a plain frozen ESM namespace with no holder —
+      //   3. The module is a plain frozen ESM namespace with no holder —
       //      the user never opted into transformation (or it was aborted
       //      due to shadowing/parse errors). The fix is to remove the
       //      shadowing or convert to a supported pattern.
-      const hasHolder = !!(targetModule && typeof targetModule === 'object' &&
-                          targetModule[holderName])
-      if (hasHolder) {
-        console.warn(`  ⚠️  Callee "${calleeName}" could not be installed on the holder "${holderName}" (cluster: ${parentClusterId})`)
-        console.warn(`      This typically means "${calleeName}" is not a transformable top-level function.`)
-        console.warn(`      Supported ESM patterns:  function ${calleeName}() {} / export function ${calleeName}() {} /`)
-        console.warn(`                               export const ${calleeName} = () => {} / export const ${calleeName} = function() {}`)
-        console.warn(`      Supported CJS patterns:  function ${calleeName}() {} / const ${calleeName} = () => {} /`)
-        console.warn(`                               const ${calleeName} = function() {}`)
-        console.warn(`      Class methods, nested functions, and destructured exports are not yet supported.`)
+      //
+      // Detect class: `typeof class {} === 'function'` in JS, so we need
+      // to check the toString source. A class's toString starts with
+      // `class ClassName` — a regular function starts with `function`.
+      const isClass = original && typeof original === 'function' &&
+                      /^\s*class[\s{]/.test(original.toString().slice(0, 20))
+
+      if (isClass) {
+        console.warn(`  ⚠️  Callee "${calleeName}" is a class — ESM class declarations cannot be intercepted for callee wrapping (cluster: ${parentClusterId})`)
+        console.warn(`      Classes cannot be refactored to arrow functions (they have \`new\` semantics, prototype chain, instanceof, etc).`)
+        console.warn(`      Options:`)
+        console.warn(`        1. Wrap the class instantiation in a factory function:`)
+        console.warn(`             function make${calleeName}(x) { return new ${calleeName}(x) }`)
+        console.warn(`           and declare \`callees: ["make${calleeName}"]\` instead.`)
+        console.warn(`        2. Convert the module to CommonJS:  module.exports.${calleeName} = class { ... }`)
+        console.warn(`           (CJS namespaces are mutable, so wrapCallees can install the proxy.)`)
+        console.warn(`        3. Remove "${calleeName}" from the \`callees\` array if you don't need a`)
+        console.warn(`           callee contract for it — the parent cluster is still captured.`)
         console.warn(`      The callee is skipped; the parent cluster is still captured.`)
       } else {
-        console.warn(`  ⚠️  Callee "${calleeName}" found but module is frozen (no mutable holder available) — could not install proxy (cluster: ${parentClusterId})`)
-        console.warn(`      This means the source transform was aborted (shadowing, parse error, unsupported`)
-        console.warn(`      pattern) AND the module's namespace is frozen (ESM) or its internal calls`)
-        console.warn(`      resolve to local bindings rather than a holder wrapCallees can intercept.`)
-        console.warn(`      Options to enable callee wrapping:`)
-        console.warn(`        1. Refactor to a supported pattern (see list above) and ensure the callee`)
-        console.warn(`           name is not shadowed anywhere in the file.`)
-        console.warn(`        2. For CJS: call the callee via \`module.exports.${calleeName}(...)\` instead`)
-        console.warn(`           of the bare name — this works without source transformation.`)
-        console.warn(`      The callee is skipped; the parent cluster is still captured.`)
+        const hasHolder = !!(targetModule && typeof targetModule === 'object' &&
+                            targetModule[holderName])
+        if (hasHolder) {
+          console.warn(`  ⚠️  Callee "${calleeName}" could not be installed on the holder "${holderName}" (cluster: ${parentClusterId})`)
+          console.warn(`      This typically means "${calleeName}" is not a transformable top-level function.`)
+          console.warn(`      Supported ESM patterns:  function ${calleeName}() {} / export function ${calleeName}() {} /`)
+          console.warn(`                               export const ${calleeName} = () => {} / export const ${calleeName} = function() {}`)
+          console.warn(`      Supported CJS patterns:  function ${calleeName}() {} / const ${calleeName} = () => {} /`)
+          console.warn(`                               const ${calleeName} = function() {}`)
+          console.warn(`      Class methods, nested functions, and destructured exports are not yet supported.`)
+          console.warn(`      The callee is skipped; the parent cluster is still captured.`)
+        } else {
+          console.warn(`  ⚠️  Callee "${calleeName}" found but module is frozen (no mutable holder available) — could not install proxy (cluster: ${parentClusterId})`)
+          console.warn(`      This means the source transform was aborted (shadowing, parse error, unsupported`)
+          console.warn(`      pattern) AND the module's namespace is frozen (ESM) or its internal calls`)
+          console.warn(`      resolve to local bindings rather than a holder wrapCallees can intercept.`)
+          console.warn(`      Options to enable callee wrapping:`)
+          console.warn(`        1. Refactor to a supported pattern (see list above) and ensure the callee`)
+          console.warn(`           name is not shadowed anywhere in the file.`)
+          console.warn(`        2. For CJS: call the callee via \`module.exports.${calleeName}(...)\` instead`)
+          console.warn(`           of the bare name — this works without source transformation.`)
+          console.warn(`      The callee is skipped; the parent cluster is still captured.`)
+        }
       }
     }
   }

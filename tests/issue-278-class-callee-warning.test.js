@@ -3,8 +3,8 @@
 // #278 — Class callee warning suggests nonsensical arrow-function refactor
 //
 // When a cluster declares `callees: ["Thing"]` and `Thing` is a class
-// (not a function), `wrapCallees` previously emitted a warning suggesting
-// the user refactor the class into an arrow function:
+// (not a function), `wrapCallees` in `scripts/ghost.js` previously emitted
+// a warning suggesting the user refactor the class into an arrow function:
 //
 //     1. Refactor:  function Thing() { ... }  →  export const Thing = () => { ... }
 //
@@ -13,16 +13,26 @@
 // don't support. A user who follows the suggestion would end up with
 // code that breaks at `new Thing(...)`.
 //
-// The current code (post-fix, see ghost.js:550-555) emits a generic
-// warning instead:
+// The fix (PR #428 + this PR's test lock-in) detects when the callee is a
+// class via `original.toString()` and emits a class-specific warning:
 //
-//     1. Refactor to a supported pattern (see list above) and ensure the
-//        callee name is not shadowed anywhere in the file.
-//     2. For CJS: call the callee via `module.exports.<name>(...)` instead
-//        of the bare name — this works without source transformation.
+//     ⚠️  Callee "Thing" is a class — ESM class declarations cannot be
+//         intercepted for callee wrapping (cluster: main)
+//         Classes cannot be refactored to arrow functions (they have `new`
+//         semantics, prototype chain, instanceof, etc).
+//         Options:
+//           1. Wrap the class instantiation in a factory function:
+//                function makeThing(x) { return new Thing(x) }
+//              and declare `callees: ["makeThing"]` instead.
+//           2. Convert the module to CommonJS:  module.exports.Thing = class { ... }
+//              (CJS namespaces are mutable, so wrapCallees can install the proxy.)
+//           3. Remove "Thing" from the `callees` array if you don't need a
+//              callee contract for it — the parent cluster is still captured.
+//         The callee is skipped; the parent cluster is still captured.
 //
-// This test verifies the nonsensical arrow-function suggestion is NOT
-// emitted when a class is declared as a callee.
+// This test verifies BOTH:
+//   1. The nonsensical arrow-function suggestion is NOT emitted.
+//   2. The class-specific warning IS emitted (lock in the UX improvement).
 //
 // Run: node --test tests/issue-278-class-callee-warning.test.js
 
@@ -118,6 +128,12 @@ export { main, Thing }
       regretFiles.includes('main.regret'),
       `parent .regret should be written; got: ${regretFiles.join(', ')}`
     )
+
+    // Callee .regret must NOT exist — the class callee is skipped.
+    assert.ok(
+      !regretFiles.includes('main.calls.Thing.regret'),
+      `callee .regret should NOT be written (class callees are skipped); got: ${regretFiles.join(', ')}`
+    )
   })
 
   it('warning does NOT suggest refactoring class to arrow function', () => {
@@ -128,13 +144,9 @@ export { main, Thing }
     //   "Refactor:  function Thing() { ... }  →  export const Thing = () => { ... }"
     // This suggestion is nonsensical for classes — `new Thing(...)` would fail
     // on an arrow function ("Thing is not a constructor").
-    //
-    // The current code (post-fix) emits a generic warning instead. We assert
-    // the specific nonsensical suggestion pattern is NOT present.
     const nonsensicalPatterns = [
-      /export\s+const\s+Thing\s*=\s*\(\)\s*=>/i,        // "export const Thing = () =>"
-      /function\s+Thing\s*\(\s*\)\s*\{\s*\.\.\.\s*\}/i,  // "function Thing() { ... }"
-      /Refactor:.*function\s+Thing.*→.*export\s+const/i, // "Refactor: function Thing() → export const Thing"
+      /export\s+const\s+Thing\s*=\s*\(\s*\)\s*=>/i,        // "export const Thing = () =>"
+      /Refactor:.*function\s+Thing.*→.*export\s+const/i,    // "Refactor: function Thing() → export const Thing"
     ]
     for (const pattern of nonsensicalPatterns) {
       assert.ok(
@@ -145,12 +157,38 @@ export { main, Thing }
     }
   })
 
-  it('warning mentions the callee name "Thing" so the user can identify it', () => {
+  it('warning emits class-specific guidance (detects class, suggests factory function)', () => {
     const result = runCaptureCli()
     const combined = result.stdout + result.stderr
-    // The warning should at least mention "Thing" so the user knows which
-    // callee is problematic. (Both the old and new warning do this — we
-    // include this assertion to lock in the behavior.)
+
+    // The fix (PR #428) detects that `original` is a class via
+    // `original.toString().slice(0, 20)` matching `/^\s*class[\s{]/`.
+    // When detected, it emits a class-specific warning instead of the
+    // generic "refactor to a supported pattern" message.
+    //
+    // We assert the class-specific warning is present. This locks in the
+    // UX improvement so a future refactor can't silently regress to the
+    // old nonsensical suggestion.
+
+    // 1. Warning must identify the callee as a class.
+    assert.ok(
+      /Callee\s+"Thing"\s+is\s+a\s+class/i.test(combined),
+      `warning should identify callee "Thing" as a class; got: ${combined.slice(-800)}`
+    )
+
+    // 2. Warning must explain WHY classes can't be arrow functions.
+    assert.ok(
+      /new\s+semantics|prototype\s+chain|instanceof/i.test(combined),
+      `warning should explain why classes can't be arrow functions (new semantics / prototype chain / instanceof); got: ${combined.slice(-800)}`
+    )
+
+    // 3. Warning must suggest a factory function workaround.
+    assert.ok(
+      /makeThing|factory\s+function/i.test(combined),
+      `warning should suggest a factory function (makeThing); got: ${combined.slice(-800)}`
+    )
+
+    // 4. Warning must mention the callee name "Thing" so the user can identify it.
     assert.ok(
       combined.includes('Thing'),
       `warning should mention the callee name 'Thing'; got: ${combined.slice(-400)}`
