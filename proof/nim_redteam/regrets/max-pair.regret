@@ -1,0 +1,13 @@
+cluster: max-pair
+version: 1
+fingerprint: r0hcezd
+captured: 2026-06-21T07:15:41.098Z
+watches: [maxPair]
+entry: maxPair
+stack: nim
+fingerprintLevel: entry
+file: lib/redteam.nim
+---
+INPUT  [3,1,4,1,5,9,2,6]
+OUTPUT {"a":9,"b":6}
+HASH   r0hcezd

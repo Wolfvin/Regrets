@@ -2,7 +2,9 @@
 //
 // Regression test for the gap where init.js, check.js, and api.js each
 // maintained their own VALID_STACKS / validStacks list — and all three
-// fell behind the actual set of supported stacks.
+// fell behind the actual set of supported stacks (missing Nim, Zig,
+// Crystal, Awk, Bash, C, C++, C#, F#, Java, Kotlin, Scala, Dart, Lua,
+// Perl, Ruby, Rust, Vue, React).
 //
 // This caused three observable bugs:
 //   1. `node scripts/init.js --stack <missing>` errored with
@@ -38,8 +40,9 @@ const EXPECTED_STACKS = [
 ]
 
 describe('VALID_STACKS registry — all stacks present in init.js / check.js / api.js', () => {
-  it('init.js validStacks contains every expected stack', () => {
+  it('init.js validStacks contains every expected stack', async () => {
     const initSrc = readFileSync(INIT_JS, 'utf8')
+    // Extract the validStacks array literal
     const m = initSrc.match(/const validStacks = \[([^\]]+)\]/)
     assert.ok(m, 'init.js should define a validStacks array literal')
     const declared = m[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean)
@@ -72,7 +75,7 @@ describe('VALID_STACKS registry — all stacks present in init.js / check.js / a
   })
 })
 
-describe('VALID_STACKS registry — end-to-end behavior for previously-missing stacks', () => {
+describe('VALID_STACKS registry — end-to-end behavior for a stack that was previously missing', () => {
   const TMP = resolve(join(process.cwd(), 'tests', `__valid_stacks_${process.pid}__`))
 
   before(() => {
@@ -82,42 +85,7 @@ describe('VALID_STACKS registry — end-to-end behavior for previously-missing s
     if (existsSync(TMP)) rmSync(TMP, { recursive: true, force: true })
   })
 
-  it('init.js --stack ruby succeeds (was "Unknown stack" before fix)', () => {
-    const initTmp = join(TMP, 'init_ruby')
-    mkdirSync(initTmp, { recursive: true })
-    const result = spawnSync('node', [INIT_JS, '--stack', 'ruby'], {
-      cwd: initTmp, encoding: 'utf8', timeout: 15_000,
-    })
-    assert.equal(result.status, 0,
-      `init.js --stack ruby should exit 0. stderr: ${result.stderr}`)
-    assert.ok(existsSync(join(initTmp, 'regrets', 'manifest.json')),
-      'manifest.json should be created')
-  })
-
-  it('check.js accepts a manifest with stack: "ruby" (was "Unknown stack" before fix)', () => {
-    const checkTmp = join(TMP, 'check_ruby')
-    mkdirSync(join(checkTmp, 'regrets'), { recursive: true })
-    writeFileSync(join(checkTmp, 'regrets', 'manifest.json'), JSON.stringify({
-      clusters: [{
-        id: 'slugify',
-        entry: 'slugify',
-        file: 'lib/slugify.rb',
-        stack: 'ruby',
-        fingerprintLevel: 'entry',
-        inputs: ['hello'],
-      }],
-    }, null, 2))
-
-    const result = spawnSync('node', [CHECK_JS], {
-      cwd: checkTmp, encoding: 'utf8', timeout: 15_000,
-    })
-    assert.equal(result.status, 0,
-      `check.js should exit 0 for a Ruby manifest. stdout: ${result.stdout}`)
-    assert.ok(!/Unknown stack/i.test(result.stdout),
-      'check.js should NOT report "Unknown stack" for ruby')
-  })
-
-  it('init.js --stack nim succeeds', () => {
+  it('init.js --stack nim succeeds (was "Unknown stack" before fix)', () => {
     const initTmp = join(TMP, 'init_nim')
     mkdirSync(initTmp, { recursive: true })
     const result = spawnSync('node', [INIT_JS, '--stack', 'nim'], {
@@ -125,6 +93,31 @@ describe('VALID_STACKS registry — end-to-end behavior for previously-missing s
     })
     assert.equal(result.status, 0,
       `init.js --stack nim should exit 0. stderr: ${result.stderr}`)
+    assert.ok(existsSync(join(initTmp, 'regrets', 'manifest.json')),
+      'manifest.json should be created')
+  })
+
+  it('check.js accepts a manifest with stack: "nim" (was "Unknown stack" before fix)', () => {
+    const checkTmp = join(TMP, 'check_nim')
+    mkdirSync(join(checkTmp, 'regrets'), { recursive: true })
+    writeFileSync(join(checkTmp, 'regrets', 'manifest.json'), JSON.stringify({
+      clusters: [{
+        id: 'fibonacci',
+        entry: 'fibonacci',
+        file: 'lib/redteam.nim',
+        stack: 'nim',
+        fingerprintLevel: 'entry',
+        inputs: [10],
+      }],
+    }, null, 2))
+
+    const result = spawnSync('node', [CHECK_JS], {
+      cwd: checkTmp, encoding: 'utf8', timeout: 15_000,
+    })
+    assert.equal(result.status, 0,
+      `check.js should exit 0 for a Nim manifest. stdout: ${result.stdout}`)
+    assert.ok(!/Unknown stack/i.test(result.stdout),
+      'check.js should NOT report "Unknown stack" for nim')
   })
 
   it('init.js --stack zig succeeds', () => {
@@ -135,5 +128,15 @@ describe('VALID_STACKS registry — end-to-end behavior for previously-missing s
     })
     assert.equal(result.status, 0,
       `init.js --stack zig should exit 0. stderr: ${result.stderr}`)
+  })
+
+  it('init.js --stack crystal succeeds', () => {
+    const initTmp = join(TMP, 'init_crystal')
+    mkdirSync(initTmp, { recursive: true })
+    const result = spawnSync('node', [INIT_JS, '--stack', 'crystal'], {
+      cwd: initTmp, encoding: 'utf8', timeout: 15_000,
+    })
+    assert.equal(result.status, 0,
+      `init.js --stack crystal should exit 0. stderr: ${result.stderr}`)
   })
 })
