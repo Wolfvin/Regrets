@@ -1,0 +1,12 @@
+cluster: jq-is-numeric
+version: 1
+fingerprint: 2ozs1gd
+captured: 2026-06-21T08:15:52.613479+00:00
+entry: is_numeric
+stack: jq
+file: ../functions.jq
+INPUTS 1r3z6xh 1njmrdm pqapmb0 2rhxarb
+---
+INPUT  42
+OUTPUT true
+HASH   2ozs1gd
