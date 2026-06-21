@@ -1,0 +1,11 @@
+cluster: form-submit
+version: 1
+fingerprint: 5yipnpb
+captured: 2026-06-21T07:46:10.307Z
+entry: .form-submit
+stack: css
+file: ../form.css
+---
+INPUT  {"selector":".form-submit"}
+OUTPUT ["align-items: center","background-color: #0052a3","background-color: #cccccc","background-color: var(--form-accent)","border-radius: 4px","border: none","color: #ffffff","cursor: not-allowed","cursor: pointer","display: inline-flex","font-size: 14px","font-weight: 600","justify-content: center","padding: 10px 20px","padding: 12px 20px","transform: none","transform: translateY(-1px)","transform: translateY(0)","transition: background-color 150ms ease, transform 100ms ease","transition: none","width: 100%"]
+HASH   5yipnpb

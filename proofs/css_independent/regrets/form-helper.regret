@@ -1,0 +1,11 @@
+cluster: form-helper
+version: 1
+fingerprint: gryvwle
+captured: 2026-06-21T07:46:10.308Z
+entry: .form-helper
+stack: css
+file: ../form.css
+---
+INPUT  {"selector":".form-helper"}
+OUTPUT ["color: #666666","color: var(--form-danger)","font-size: 12px","font-weight: 500","margin-top: 4px"]
+HASH   gryvwle

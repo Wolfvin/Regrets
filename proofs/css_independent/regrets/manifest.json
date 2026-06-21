@@ -1,0 +1,28 @@
+{
+  "clusters": [
+    {
+      "id": "form-input",
+      "entry": ".form-input",
+      "file": "../form.css",
+      "stack": "css"
+    },
+    {
+      "id": "form-submit",
+      "entry": ".form-submit",
+      "file": "../form.css",
+      "stack": "css"
+    },
+    {
+      "id": "form-helper",
+      "entry": ".form-helper",
+      "file": "../form.css",
+      "stack": "css"
+    },
+    {
+      "id": "button-element",
+      "entry": "button",
+      "file": "../form.css",
+      "stack": "css"
+    }
+  ]
+}

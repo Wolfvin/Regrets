@@ -1,0 +1,101 @@
+/* form.css — independent CSS fixture for CSS stack verification.
+ * Different domain (form controls) than proofs/css_demo/demo.css (animation cues).
+ * Used to verify capture_css.mjs + validate_css.mjs work on any CSS,
+ * not just the author's chosen example. Addresses CONTEXT.md
+ * "Lesson Learned" about confirmation-bias in self-chosen fixtures.
+ */
+
+:root {
+  --form-bg: #ffffff;
+  --form-fg: #1a1a1a;
+  --form-accent: #0066cc;
+  --form-danger: #cc0000;
+}
+
+.form-input {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--form-fg);
+  background-color: var(--form-bg);
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--form-accent);
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.25);
+}
+
+.form-input[aria-invalid="true"] {
+  border-color: var(--form-danger);
+  box-shadow: 0 0 0 3px rgba(204, 0, 0, 0.2);
+}
+
+.form-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: var(--form-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 150ms ease, transform 100ms ease;
+}
+
+.form-submit:hover {
+  background-color: #0052a3;
+  transform: translateY(-1px);
+}
+
+.form-submit:active {
+  transform: translateY(0);
+}
+
+.form-submit:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.form-helper {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #666666;
+}
+
+.form-helper[data-error="true"] {
+  color: var(--form-danger);
+  font-weight: 500;
+}
+
+button {
+  font-family: inherit;
+}
+
+@media (max-width: 600px) {
+  .form-input {
+    padding: 6px 10px;
+    font-size: 16px;
+  }
+
+  .form-submit {
+    width: 100%;
+    padding: 12px 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .form-input,
+  .form-submit {
+    transition: none;
+  }
+}
