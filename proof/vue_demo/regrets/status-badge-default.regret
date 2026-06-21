@@ -1,0 +1,12 @@
+cluster: status-badge-default
+version: 1
+fingerprint: 166uum7
+captured: 2026-06-21T05:16:59.313Z
+watches: [StatusBadge]
+entry: StatusBadge
+stack: vue
+renderMode: ssr
+---
+INPUT  {"label":"Active","variant":"success","size":"sm"}
+OUTPUT "<span class=\"badge badge-success badge-sm\">Active</span>"
+HASH   166uum7

@@ -453,6 +453,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
 | `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `ruby`, `rust`, `react`, `go`, or `extension` |
 | `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `csharp`, `rust`, `react`, `go`, or `extension` |
+| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `rust`, `react`, `vue`, `go`, `php`, `css`, or `extension` |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)
@@ -661,6 +662,8 @@ If you prefer calling individual scripts directly (per-stack):
   "regret:capture:py": "python ../../The-skill/regresion-testing/scripts/capture.py",
   "regret:validate:py": "python ../../The-skill/regresion-testing/scripts/validate.py",
   "regret:capture:react": "node ../../The-skill/regresion-testing/scripts/capture_react.mjs",
+  "regret:capture:vue": "node ../../The-skill/regresion-testing/scripts/capture_vue.mjs",
+  "regret:validate:vue": "node ../../The-skill/regresion-testing/scripts/validate_vue.mjs",
   "regret:capture:rust": "bash ../../The-skill/regresion-testing/scripts/capture_rust.sh capture",
   "regret:capture:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh capture",
   "regret:validate:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh validate",
@@ -1209,6 +1212,8 @@ regression-testing/
 │   ├── validate.py             ← regression validator (Python)
 │   ├── health.py               ← cluster health report (Python)
 │   ├── capture_react.mjs       ← React component render capture
+│   ├── capture_vue.mjs         ← Vue 3 component SSR capture
+│   ├── validate_vue.mjs        ← Vue 3 component SSR validator
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
 │   ├── capture_go.sh           ← Go cluster capture runner (community preview)
 │   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)

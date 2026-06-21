@@ -1,0 +1,41 @@
+{
+  "clusters": [
+    {
+      "id": "invoice-card-render",
+      "entry": "InvoiceCard",
+      "file": "./src/InvoiceCard.js",
+      "stack": "vue",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        {
+          "invoice": { "id": "INV-2026-001", "amount": 1250.5, "currency": "USD" },
+          "customer": { "name": "Alice Anderson", "email": "alice@example.com" },
+          "status": "paid"
+        }
+      ]
+    },
+    {
+      "id": "status-badge-default",
+      "entry": "StatusBadge",
+      "file": "./src/StatusBadge.js",
+      "stack": "vue",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        { "label": "Active", "variant": "success", "size": "sm" }
+      ]
+    },
+    {
+      "id": "status-badge-warning",
+      "entry": "StatusBadge",
+      "file": "./src/StatusBadge.js",
+      "stack": "vue",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        { "label": "Pending Review", "variant": "warning", "size": "md" }
+      ]
+    }
+  ]
+}
