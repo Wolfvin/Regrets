@@ -1,0 +1,85 @@
+{
+  "clusters": [
+    {
+      "id": "slugify",
+      "entry": "slugify",
+      "file": "proof/dart_verify/string_utils_v2.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["slugify"],
+      "description": "Slugify a string (lowercase + hyphens)",
+      "inputs": [
+        "Hello, World!",
+        "  multiple   spaces  ",
+        "Already-Hyphenated",
+        "",
+        "ABC123def-GHI!@#jkl"
+      ]
+    },
+    {
+      "id": "caesar-cipher",
+      "entry": "caesarCipher",
+      "file": "proof/dart_verify/string_utils_v2.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["caesarCipher"],
+      "description": "Caesar cipher with shift (multiArgs)",
+      "multiArgs": true,
+      "inputs": [
+        ["abc", 1],
+        ["XYZ", 3],
+        ["Hello, World!", 5],
+        ["", 7],
+        ["Negative-Shift-Test", -3]
+      ]
+    },
+    {
+      "id": "crc16",
+      "entry": "crc16",
+      "file": "proof/dart_verify/string_utils_v2.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["crc16"],
+      "description": "CRC-16/CCITT checksum of a string (manual implementation, no dart:io)",
+      "inputs": [
+        "123456789",
+        "",
+        "Hello",
+        "The quick brown fox",
+        "Regrets-Dart-Verify"
+      ]
+    },
+    {
+      "id": "is-valid-ipv4",
+      "entry": "isValidIPv4",
+      "file": "proof/dart_verify/string_utils_v2.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["isValidIPv4"],
+      "description": "Validate IPv4 dotted-quad address",
+      "inputs": [
+        "192.168.1.1",
+        "255.255.255.255",
+        "256.1.1.1",
+        "1.2.3",
+        "10.0.0.1"
+      ]
+    },
+    {
+      "id": "count-vowels",
+      "entry": "countVowels",
+      "file": "proof/dart_verify/string_utils_v2.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["countVowels"],
+      "description": "Count vowels (a, e, i, o, u) case-insensitively",
+      "inputs": [
+        "Hello, World!",
+        "",
+        "AEIOUaeiou",
+        "Rhythm",
+        "The quick brown fox jumps over the lazy dog"
+      ]
+    }
+  ]
+}
