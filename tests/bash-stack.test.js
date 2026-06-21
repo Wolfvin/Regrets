@@ -204,6 +204,78 @@ greet() {
     assert.equal(result.status, 0, `validate should pass on valid refactor: ${result.stdout}`)
     assert.match(result.stdout, /PASS/i)
   })
+
+  test('validate FAILs when only a NON-FIRST input changes (multi-input contract)', () => {
+    // This is the critical multi-input regression test. The .regret file
+    // for bash-slugify has 3 inputs (1 in INPUT/OUTPUT/HASH + 2 in INPUTS).
+    // A validator that only checks the first INPUT line would PASS this case
+    // incorrectly. We mutate slugify so only input #2 ("Hello, World!")
+    // produces a different output, then assert validate FAILs.
+    //
+    // First re-capture to reset state (the previous test mutated slugify.sh).
+    const slugifyPath = join(tmpDir, 'lib', 'slugify.sh')
+    writeFileSync(slugifyPath,
+`#!/usr/bin/env bash
+slugify() {
+  local out="\${1,,}"
+  out=\$(printf '%s' "\$out" | sed -E 's/[^a-z0-9]+/-/g')
+  out="\${out#-}"; out="\${out%-}"
+  printf '%s' "\$out"
+}
+
+greet() {
+  printf 'Hello, %s!' "\$1"
+}
+`)
+    bash(`bash ${SCRIPTS}/capture_bash.sh`, { cwd: tmpDir, throwOnError: false })
+
+    // Now mutate: only "Hello, World!" (input #2) gets a different output.
+    // All other inputs still produce the original slugified output.
+    writeFileSync(slugifyPath,
+`#!/usr/bin/env bash
+slugify() {
+  local input="\$1"
+  if [[ "\$input" == "Hello, World!" ]]; then
+    printf 'MUTATED-FOR-INPUT-2'
+    return
+  fi
+  local out="\${input,,}"
+  out=\$(printf '%s' "\$out" | sed -E 's/[^a-z0-9]+/-/g')
+  out="\${out#-}"; out="\${out%-}"
+  printf '%s' "\$out"
+}
+
+greet() {
+  printf 'Hello, %s!' "\$1"
+}
+`)
+
+    const result = bash(`bash ${SCRIPTS}/validate_bash.sh`, {
+      cwd: tmpDir,
+      throwOnError: false,
+    })
+    // MUST exit non-zero — input #2 changed, even though input #1 is unchanged.
+    assert.notEqual(result.status, 0,
+      `validate must exit non-zero when a non-first input fails; got exit ${result.status}\nstdout: ${result.stdout}`)
+    // MUST mention INPUTS[1] (the second input, 0-indexed) in the failure output.
+    assert.match(result.stdout, /INPUTS\[1\]|multi-input/i,
+      `validate should mention INPUTS[1] / multi-input mismatch; got:\n${result.stdout}`)
+
+    // Restore original slugify so the next test (if any) sees clean state.
+    writeFileSync(slugifyPath,
+`#!/usr/bin/env bash
+slugify() {
+  local out="\${1,,}"
+  out=\$(printf '%s' "\$out" | sed -E 's/[^a-z0-9]+/-/g')
+  out="\${out#-}"; out="\${out%-}"
+  printf '%s' "\$out"
+}
+
+greet() {
+  printf 'Hello, %s!' "\$1"
+}
+`)
+  })
 })
 
 describe('Bash stack — regret.js CLI dispatch', () => {
