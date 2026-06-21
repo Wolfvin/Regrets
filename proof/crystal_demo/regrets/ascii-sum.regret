@@ -1,0 +1,14 @@
+cluster: ascii-sum
+version: 1
+fingerprint: 2i99lkw
+captured: 2026-06-21T05:46:10Z
+watches: [ascii_sum]
+entry: ascii_sum
+stack: crystal
+fingerprintLevel: entry
+file: strings.cr
+---
+INPUT  "abc"
+OUTPUT 294
+HASH   2i99lkw
+INPUTS [{"hash":"2i99lkw","input":"abc","output":294},{"hash":"66af8gr","input":"hello","output":532},{"hash":"2x7lz7w","input":"Lua","output":290}]
