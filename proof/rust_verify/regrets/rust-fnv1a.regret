@@ -1,0 +1,12 @@
+cluster: rust-fnv1a
+version: 1
+fingerprint: 5pyfuaz
+captured: 2026-06-21T06:21:29+00:00
+watches: [fnv1a]
+entry: fnv1a
+stack: rust
+fingerprintLevel: entry
+---
+INPUT  "Hello"
+OUTPUT 4116459851
+HASH   5pyfuaz

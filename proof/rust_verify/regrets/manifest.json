@@ -1,0 +1,64 @@
+{
+  "clusters": [
+    {
+      "id": "rust-slugify",
+      "entry": "slugify",
+      "watches": ["slugify"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_verify",
+      "description": "Slugify a string — char-by-char transform with String allocation",
+      "inputs": [
+        "Hello, World! This is a TEST."
+      ]
+    },
+    {
+      "id": "rust-base64-encode",
+      "entry": "base64_encode",
+      "watches": ["base64_encode"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_verify",
+      "description": "Base64 encode 'Hello' — bitwise ops + lookup table (no stdlib)",
+      "inputs": [
+        "Hello"
+      ]
+    },
+    {
+      "id": "rust-crc32",
+      "entry": "crc32",
+      "watches": ["crc32"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_verify",
+      "description": "CRC32 (zip polynomial) of 'Hello' — table-driven checksum",
+      "inputs": [
+        "Hello"
+      ]
+    },
+    {
+      "id": "rust-fnv1a",
+      "entry": "fnv1a",
+      "watches": ["fnv1a"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_verify",
+      "description": "FNV-1a 32-bit hash of 'Hello' — multiply + XOR per byte",
+      "inputs": [
+        "Hello"
+      ]
+    },
+    {
+      "id": "rust-is-valid-ipv4",
+      "entry": "is_valid_ipv4",
+      "watches": ["is_valid_ipv4"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_verify",
+      "description": "Validate IPv4 dotted-quad — byte-index parser + range check",
+      "inputs": [
+        "192.168.1.1"
+      ]
+    }
+  ]
+}

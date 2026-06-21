@@ -1,0 +1,12 @@
+cluster: rust-crc32
+version: 1
+fingerprint: 4y0t4az
+captured: 2026-06-21T06:21:29+00:00
+watches: [crc32]
+entry: crc32
+stack: rust
+fingerprintLevel: entry
+---
+INPUT  "Hello"
+OUTPUT 4157704578
+HASH   4y0t4az

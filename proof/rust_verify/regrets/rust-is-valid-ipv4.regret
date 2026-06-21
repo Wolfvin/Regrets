@@ -1,0 +1,12 @@
+cluster: rust-is-valid-ipv4
+version: 1
+fingerprint: 5fyfbp9
+captured: 2026-06-21T06:21:29+00:00
+watches: [is_valid_ipv4]
+entry: is_valid_ipv4
+stack: rust
+fingerprintLevel: entry
+---
+INPUT  "192.168.1.1"
+OUTPUT true
+HASH   5fyfbp9
