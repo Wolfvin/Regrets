@@ -1,0 +1,12 @@
+cluster: product-badge-no-stock
+version: 1
+fingerprint: 3v771sr
+captured: 2026-06-21T08:14:38.355Z
+watches: [ProductBadge]
+entry: ProductBadge
+stack: react
+renderMode: static
+---
+INPUT  {"product":{"name":"Gadget Mini","price":9.5,"inStock":false},"showStock":false,"tags":[]}
+OUTPUT "<div class=\"product-badge badge-stock-no\" style=\"padding:8px\"><h3>Gadget Mini</h3><span class=\"price\">$9.50</span></div>"
+HASH   3v771sr

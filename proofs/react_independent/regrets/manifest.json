@@ -1,0 +1,56 @@
+{
+  "clusters": [
+    {
+      "id": "product-badge-full",
+      "entry": "ProductBadge",
+      "file": "./src/ProductBadge.js",
+      "stack": "react",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        {
+          "product": { "name": "Widget Pro", "price": 29.99, "inStock": true },
+          "showStock": true,
+          "tags": ["new", "sale"]
+        }
+      ]
+    },
+    {
+      "id": "product-badge-no-stock",
+      "entry": "ProductBadge",
+      "file": "./src/ProductBadge.js",
+      "stack": "react",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        {
+          "product": { "name": "Gadget Mini", "price": 9.5, "inStock": false },
+          "showStock": false,
+          "tags": []
+        }
+      ]
+    },
+    {
+      "id": "status-pill-active",
+      "entry": "StatusPill",
+      "file": "./src/ProductBadge.js",
+      "stack": "react",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        { "status": "active" }
+      ]
+    },
+    {
+      "id": "status-pill-unknown",
+      "entry": "StatusPill",
+      "file": "./src/ProductBadge.js",
+      "stack": "react",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        { "status": "archived" }
+      ]
+    }
+  ]
+}

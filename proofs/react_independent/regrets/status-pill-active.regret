@@ -1,0 +1,12 @@
+cluster: status-pill-active
+version: 1
+fingerprint: 5xji3ja
+captured: 2026-06-21T08:14:38.355Z
+watches: [StatusPill]
+entry: StatusPill
+stack: react
+renderMode: static
+---
+INPUT  {"status":"active"}
+OUTPUT "<span class=\"status-pill status-active\">Active</span>"
+HASH   5xji3ja
