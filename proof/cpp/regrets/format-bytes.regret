@@ -1,0 +1,12 @@
+cluster: format-bytes
+version: 1
+fingerprint: 4zbjvg6
+captured: 2026-06-21T04:34:36.000000+00:00
+watches: [demo_format_bytes]
+entry: regret_format_bytes
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  1073741824
+OUTPUT "1.00 GiB"
+HASH   4zbjvg6

@@ -1,0 +1,52 @@
+{
+  "clusters": [
+    {
+      "id": "reverse",
+      "entry": "regret_reverse",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["reverse"],
+      "inputs": ["hello", "Regrets", "abc123"]
+    },
+    {
+      "id": "is-palindrome",
+      "entry": "regret_is_palindrome",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["is_palindrome"],
+      "inputs": ["Race Car", "hello", "A man a plan a canal Panama"]
+    },
+    {
+      "id": "word-count",
+      "entry": "regret_word_count",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["word_count"],
+      "inputs": ["hello world", "one two three four", ""]
+    },
+    {
+      "id": "slugify",
+      "entry": "regret_slugify",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["slugify"],
+      "inputs": ["Hello World! 2024", "My Blog Post", "___test___"]
+    },
+    {
+      "id": "title-case",
+      "entry": "regret_title_case",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["title_case"],
+      "inputs": ["hello world", "tHE QUICK bROWN fOX", ""]
+    },
+    {
+      "id": "multi-reverse",
+      "entry": "regret_reverse",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": ["reverse"],
+      "inputs": ["multi-input-test"]
+    }
+  ]
+}

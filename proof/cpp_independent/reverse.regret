@@ -1,0 +1,13 @@
+cluster: reverse
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-21T09:04:15.000000+00:00
+watches: [reverse]
+entry: regret_reverse
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s
+INPUTS [{"input":"Regrets","output":"stergeR","hash":"h0sx12s"},{"input":"abc123","output":"321cba","hash":"15k5072"}]

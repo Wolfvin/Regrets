@@ -244,6 +244,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
+      } else if (stack === 'cpp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_cpp.sh`, ...passThroughArgs]) && success
       } else if (stack === 'awk') {
         success = await run('node', [`${SCRIPTS_DIR}/capture_awk.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'scala') {
@@ -282,6 +284,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'cpp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_cpp.sh`, ...passThroughArgs]) && success
       } else if (stack === 'awk') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_awk.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'scala') {

@@ -1,0 +1,13 @@
+cluster: slugify
+version: 1
+fingerprint: 45tk3ov
+captured: 2026-06-21T09:04:15.000000+00:00
+watches: [slugify]
+entry: regret_slugify
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "Hello World! 2024"
+OUTPUT "hello-world-2024"
+HASH   45tk3ov
+INPUTS [{"input":"My Blog Post","output":"my-blog-post","hash":"2txzk8q"},{"input":"___test___","output":"test","hash":"14yupqz"}]

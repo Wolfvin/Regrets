@@ -1,0 +1,13 @@
+cluster: is-palindrome
+version: 1
+fingerprint: 382h75s
+captured: 2026-06-21T09:04:15.000000+00:00
+watches: [is_palindrome]
+entry: regret_is_palindrome
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "Race Car"
+OUTPUT true
+HASH   382h75s
+INPUTS [{"input":"hello","output":false,"hash":"16xly9k"},{"input":"A man a plan a canal Panama","output":true,"hash":"4p1hqua"}]

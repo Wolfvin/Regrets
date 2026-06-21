@@ -1,0 +1,12 @@
+cluster: add
+version: 1
+fingerprint: 13mxb0z
+captured: 2026-06-21T04:34:36.000000+00:00
+watches: [demo_add]
+entry: regret_add
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  [2,3]
+OUTPUT 5
+HASH   13mxb0z

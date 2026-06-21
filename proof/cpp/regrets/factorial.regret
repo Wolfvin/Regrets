@@ -1,0 +1,12 @@
+cluster: factorial
+version: 1
+fingerprint: 3hf11ck
+captured: 2026-06-21T04:34:36.000000+00:00
+watches: [MathUtils::factorial]
+entry: regret_factorial
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  5
+OUTPUT 120
+HASH   3hf11ck

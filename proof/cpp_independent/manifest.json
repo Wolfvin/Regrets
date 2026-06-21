@@ -1,0 +1,21 @@
+{
+  "id": "cpp-independent-verification",
+  "description": "Independent verification of C++ Regrets stack using string manipulation domain (different from PR #385's math domain to avoid confirmation bias)",
+  "date": "2026-06-21",
+  "results": [
+    {"test": "Capture 5 string-utils clusters", "result": "PASS", "detail": "5/5 captured, correct .regret format"},
+    {"test": "Validate all clusters", "result": "PASS", "detail": "5/5 PASS, fingerprints match"},
+    {"test": "Breaking change detection", "result": "PASS", "detail": "Broken reverse() detected as FAIL, other clusters unaffected"},
+    {"test": "Valid refactor PASS", "result": "PASS", "detail": "Index-based reverse implementation same fingerprint as rbegin/rend"},
+    {"test": "Exception safety - std::runtime_error", "result": "PASS", "detail": "Skipped, not crashed"},
+    {"test": "Exception safety - unknown exception (throw int)", "result": "PASS", "detail": "Skipped, not crashed"},
+    {"test": "Exception safety - normal adapter alongside throws", "result": "PASS", "detail": "1/1 captured alongside 2 skipped"},
+    {"test": "Cross-stack parity reverse", "result": "PASS", "detail": "JS==C++: 5nssd6s"},
+    {"test": "Cross-stack parity is_palindrome", "result": "PASS", "detail": "JS==C++: 382h75s"},
+    {"test": "Cross-stack parity word_count/slugify/title_case", "result": "PASS", "detail": "JS==C++: 1na8qrz, 45tk3ov, 4am2hvn"},
+    {"test": "npm test baseline", "result": "PASS", "detail": "805 tests, 804 pass, 0 fail, 1 skipped"},
+    {"test": "capture_cpp.sh wrapper", "result": "PASS", "detail": "CPP_SOURCES/CPP_INCLUDE env vars work correctly"},
+    {"test": "validate_cpp.sh wrapper", "result": "PASS", "detail": "Same compilation and validation as direct runner"}
+  ],
+  "conclusion": "C++ stack (PR #385) independently verified. 10/10 verification checks PASS. npm test unaffected. Cross-stack fingerprint parity confirmed."
+}
