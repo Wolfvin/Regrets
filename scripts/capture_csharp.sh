@@ -56,6 +56,7 @@ VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    capture|validate|update) MODE="$1"; shift ;;  # Tolerate mode positional args from dispatcher
     --cluster)   CLUSTER_FILTER="$2"; shift 2 ;;
     --verbose|-v) VERBOSE=true; shift ;;
     --help|-h)

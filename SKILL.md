@@ -451,7 +451,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `watches` | ✅ | Array of function names to monitor via Ghost Proxy |
 | `file` | JS/TS only | Path to compiled JS module (relative to project root). Required for `js`/`ts`/`react` stacks. **Do NOT use for Python** — use `module` instead. |
 | `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
-| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `rust`, `react`, or `extension` |
+| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `csharp`, `rust`, `react`, `go`, or `extension` |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)
@@ -981,6 +981,8 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
+| PHP | Ghost decorator (manual wrapping) | Value / Schema / Mixed | See `references/php.md` |
+| C# (.NET 8+) | Reflection via `Assembly.LoadFrom` + `MethodInfo.Invoke` | Value (default) + multi-input (issue #315) | See `references/csharp.md` and `proof/csharp-demo/` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
@@ -1224,6 +1226,7 @@ regression-testing/
     ├── python.md               ← Python stack — full implementation
     ├── rust.md                 ← Rust stack — trait wrapping + cargo test
     ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
+    ├── csharp.md               ← C# (.NET 8+) stack — reflection + dotnet runner
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
     ├── extension.md            ← Browser extension variant

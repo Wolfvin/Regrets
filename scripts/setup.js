@@ -438,6 +438,8 @@ if (dryRun) {
       console.log('   Would run: node scripts/capture_react.mjs')
     } else if (stack === 'php') {
       console.log('   Would run: php scripts/capture_php.php')
+    } else if (stack === 'csharp') {
+      console.log('   Would run: bash scripts/capture_csharp.sh')
     } else if (stack === 'rust') {
       console.log('   Would run: bash scripts/capture_rust.sh capture')
     } else if (stack === 'go') {
@@ -471,6 +473,8 @@ if (dryRun) {
       captureOk = runVisible('node', [`${SCRIPTS_DIR}/capture_react.mjs`]) && captureOk
     } else if (stack === 'php') {
       captureOk = runVisible('php', [`${SCRIPTS_DIR}/capture_php.php`]) && captureOk
+    } else if (stack === 'csharp') {
+      captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_csharp.sh`, 'capture']) && captureOk
     } else if (stack === 'rust') {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture']) && captureOk
     } else if (stack === 'go') {
@@ -512,6 +516,8 @@ if (dryRun) {
       console.log('   Would run: python3 scripts/validate.py')
     } else if (stack === 'php') {
       console.log('   Would run: php scripts/validate_php.php')
+    } else if (stack === 'csharp') {
+      console.log('   Would run: bash scripts/validate_csharp.sh')
     } else if (stack === 'rust') {
       console.log('   Would run: bash scripts/capture_rust.sh validate')
     } else if (stack === 'go') {
@@ -530,6 +536,8 @@ if (dryRun) {
       validateOk = runVisible('python3', [`${SCRIPTS_DIR}/validate.py`]) && validateOk
     } else if (stack === 'php') {
       validateOk = runVisible('php', [`${SCRIPTS_DIR}/validate_php.php`]) && validateOk
+    } else if (stack === 'csharp') {
+      validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_csharp.sh`]) && validateOk
     } else if (stack === 'rust') {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate']) && validateOk
     } else if (stack === 'go') {
