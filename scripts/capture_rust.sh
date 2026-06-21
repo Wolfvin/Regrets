@@ -45,18 +45,23 @@ CLUSTER_FILTER=""
 VERBOSE=false
 PROJECT_PATH=""
 
-for arg in "$@"; do
-  case "$arg" in
+# Use while+shift (NOT for arg in "$@") so flag-value pairs parse correctly
+# regardless of order. The for-loop pattern with shift is buggy when multiple
+# value-taking flags are present (e.g. `--project X --cluster Y` mis-assigns
+# CLUSTER_FILTER=--cluster).
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --cluster)
-      shift
-      CLUSTER_FILTER="$1"
+      CLUSTER_FILTER="$2"
+      shift 2
       ;;
     --verbose)
       VERBOSE=true
+      shift
       ;;
     --project)
-      shift
-      PROJECT_PATH="$1"
+      PROJECT_PATH="$2"
+      shift 2
       ;;
     --help|-h)
       echo "Usage: bash scripts/capture_rust.sh [OPTIONS]"
@@ -68,6 +73,10 @@ for arg in "$@"; do
       echo "  --help           Show this help message"
       exit 0
       ;;
+    *)
+      echo "Unknown flag: $1" >&2
+      exit 2
+      ;;
   esac
 done
 
@@ -76,6 +85,12 @@ if [[ -n "$PROJECT_PATH" ]]; then
   PROJECT_DIR="$(cd "$PROJECT_PATH" && pwd)"
   MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
   REGRET_DIR="${PROJECT_DIR}/regrets"
+fi
+
+# If a cluster filter was set, export it so the Rust test runner honors it
+# (the bash-side manifest filter alone doesn't affect what cargo test runs).
+if [[ -n "$CLUSTER_FILTER" ]]; then
+  export REGRET_CLUSTER_FILTER="$CLUSTER_FILTER"
 fi
 
 # Ensure regrets directory exists

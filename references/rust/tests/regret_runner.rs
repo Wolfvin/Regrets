@@ -285,15 +285,33 @@ fn parse_regret(content: &str) -> RegretFile {
     }
 }
 
+// ─── Cluster filter (from env var set by capture_rust.sh / validate_rust.sh) ──
+//
+// The bash wrapper exports REGRET_CLUSTER_FILTER when --cluster <id> is passed.
+// We honor it here so the Rust test runner only processes the requested cluster
+// (the bash wrapper's manifest filter alone doesn't affect what cargo runs).
+fn cluster_filter() -> Option<String> {
+    std::env::var("REGRET_CLUSTER_FILTER")
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
 // ─── Capture test ────────────────────────────────────────────────────────────
 
 #[test]
 fn capture() {
     let manifest = read_manifest();
+    let filter = cluster_filter();
     let rust_clusters: Vec<&Cluster> = manifest
         .clusters
         .iter()
         .filter(|c| c.stack == "rust")
+        .filter(|c| {
+            filter
+                .as_ref()
+                .map(|f| c.id == *f)
+                .unwrap_or(true)
+        })
         .collect();
 
     if rust_clusters.is_empty() {
@@ -354,10 +372,17 @@ fn capture() {
 #[test]
 fn validate() {
     let manifest = read_manifest();
+    let filter = cluster_filter();
     let rust_clusters: Vec<&Cluster> = manifest
         .clusters
         .iter()
         .filter(|c| c.stack == "rust")
+        .filter(|c| {
+            filter
+                .as_ref()
+                .map(|f| c.id == *f)
+                .unwrap_or(true)
+        })
         .collect();
 
     if rust_clusters.is_empty() {
