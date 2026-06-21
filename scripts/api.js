@@ -699,6 +699,73 @@ function extractCjsObjectExports(source) {
     }
   }
 
+  // Issue #289: handle `module.exports = someVar` where `someVar` is assigned
+  // an object literal earlier in the file. Common CJS pattern:
+  //   const mod = { add: fn, mul: fn, main: fn }
+  //   module.exports = mod
+  // Without this, scan() returns 0 suggestions for the original #289 repro.
+  const indirectRe = /module\.exports\s*=\s*([a-zA-Z_$][\w$]*)\s*(?:;|$|\/)/gm
+  let indirectMatch
+  while ((indirectMatch = indirectRe.exec(source)) !== null) {
+    const varName = indirectMatch[1]
+    const lookupLimit = indirectMatch.index
+    const declRe = new RegExp(
+      `(?:const|let|var)\\s+${varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=\\s*\\{`,
+      'g'
+    )
+    let declMatch
+    while ((declMatch = declRe.exec(source)) !== null) {
+      if (declMatch.index >= lookupLimit) continue
+      const declStart = declMatch.index + declMatch[0].length
+      let d = 1
+      let j = declStart
+      while (j < source.length && d > 0) {
+        const ch = source[j]
+        if (ch === '{') d++
+        else if (ch === '}') d--
+        else if (ch === '"' || ch === "'" || ch === '`') {
+          const q = ch
+          j++
+          while (j < source.length) {
+            if (source[j] === '\\') { j += 2; continue }
+            if (source[j] === q) break
+            j++
+          }
+        }
+        j++
+      }
+      if (d !== 0) continue
+      const declBody = source.slice(declStart, j - 1)
+      const declCleaned = declBody
+        .replace(/\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+      const declProps = splitObjectProperties(declCleaned)
+      for (const prop of declProps) {
+        const trimmed = prop.trim()
+        if (!trimmed) continue
+        if (trimmed.startsWith('...')) continue
+        const explicitMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)\s*:/)
+        if (explicitMatch) {
+          const JS_KEYWORDS = new Set([
+            'function', 'async', 'get', 'set', 'static', 'if', 'else', 'for',
+            'while', 'return', 'new', 'class', 'const', 'let', 'var',
+            'true', 'false', 'null', 'undefined',
+          ])
+          if (!JS_KEYWORDS.has(explicitMatch[1])) {
+            names.push(explicitMatch[1])
+          }
+          continue
+        }
+        const shorthandMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)$/)
+        if (shorthandMatch) {
+          names.push(shorthandMatch[1])
+          continue
+        }
+      }
+      break
+    }
+  }
+
   return names
 }
 
@@ -708,11 +775,22 @@ function extractCjsObjectExports(source) {
  * Scan a project directory for cluster suggestions.
  * Identifies exported functions and suggests regret cluster definitions.
  *
+ * The suggestion shape MIRRORS install.js's cluster shape (issue #289):
+ *   - `id`: kebab-case with file-path hint (e.g. "api-add" not just "add")
+ *   - `watches: []` (empty — matches install.js default; non-empty watches
+ *     would conflict with `fingerprintLevel: 'entry'`)
+ *   - `fingerprintLevel: 'entry'` (explicit, matches install.js)
+ *   - `inputs: [null, {}]` (matches install.js default — gives capture two
+ *     common arg shapes to try instead of `[undefined]` which usually throws)
+ *   - `callees`: NOT populated here — populating callees requires analyzeScope
+ *     (tree-sitter WASM), which is a heavier dependency. MCP agents who need
+ *     callee auto-discovery should use `regret install` instead.
+ *
  * @param {object} options
  * @param {string} [options.dir='.'] - Directory to scan
  * @param {string} [options.stack] - Filter by stack (js, ts, python)
  * @param {string} [options.cwd=process.cwd()] - Working directory
- * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[]}>}>}
+ * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[], fingerprintLevel: string, inputs: Array}>}>}
  *
  * @example
  * const { suggestions } = await scan({ dir: 'src/', stack: 'js' })
@@ -753,6 +831,19 @@ export async function scan(options = {}) {
     return entries
   }
 
+  // Issue #289: generateClusterId matches install.js's logic — kebab-case
+  // with a file-path hint so two functions with the same name in different
+  // files don't collide (e.g. "api-add" vs "utils-add").
+  function generateClusterId(fnName, relPath) {
+    const base = basename(relPath).replace(/\.(js|mjs|cjs|ts|tsx|py)$/, '')
+    const fnKebab = fnName
+      .replace(/([A-Z])/g, '-$1')
+      .toLowerCase()
+      .replace(/^-/, '')
+      .replace(/[_]/g, '-')
+    return `${base}-${fnKebab}`
+  }
+
   const stacks = stackFilter ? [stackFilter] : ['js', 'ts']
 
   for (const stack of stacks) {
@@ -765,6 +856,8 @@ export async function scan(options = {}) {
         const relPath = relative(cwd, filePath)
 
         // Find exported function names (simple regex-based scan)
+        // Issue #289: align regex set with install.js — covers export function,
+        // export const arrow/function, export async function, exports.X, etc.
         const exportPatterns = [
           /export\s+function\s+(\w+)/g,
           /export\s+const\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function)/g,
@@ -783,17 +876,25 @@ export async function scan(options = {}) {
         }
 
         // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
+        // Issue #289: also handles `module.exports = someVar` (indirect export)
+        // via the enhanced extractCjsObjectExports.
         const cjsObjExports = extractCjsObjectExports(content)
         for (const name of cjsObjExports) fns.add(name)
 
         for (const fnName of fns) {
-          const clusterId = fnName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')
+          const clusterId = generateClusterId(fnName, relPath)
+          // Issue #289: emit the same shape as install.js — watches: [],
+          // fingerprintLevel: 'entry', inputs: [null, {}]. This ensures
+          // MCP agents using `regrets_scan` get a manifest-compatible
+          // suggestion that can be capture'd without further editing.
           suggestions.push({
             id: clusterId,
             entry: fnName,
             file: relPath,
             stack,
-            watches: [fnName],
+            watches: [],
+            fingerprintLevel: 'entry',
+            inputs: [null, {}],
           })
         }
       } catch { /* skip unreadable files */ }

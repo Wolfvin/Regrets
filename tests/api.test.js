@@ -4,7 +4,7 @@
 
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { validate, check, chain } from '../scripts/api.js'
+import { validate, check, chain, scan } from '../scripts/api.js'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
@@ -236,6 +236,120 @@ describe('chain()', () => {
     } catch (err) {
       // Expected for missing chains.json
       assert.ok(err)
+    }
+  })
+})
+
+// ─── scan() — Issue #289 shape parity with install.js ─────────────────────────
+//
+// Issue #289 reported that scan() (used by MCP `regrets_scan`) emitted a
+// different cluster-suggestion shape than install.js (used by CLI
+// `regret install`). The fix updates scan() to emit the same shape:
+//   - id with file-path hint (e.g. "api-add" not just "add")
+//   - watches: [] (not [fnName])
+//   - fingerprintLevel: 'entry' (was missing)
+//   - inputs: [null, {}] (was missing)
+// And adds detection for `module.exports = someVar` (indirect object export)
+// which was the original issue #289 repro pattern.
+
+describe('scan() — Issue #289 shape alignment with install.js', () => {
+  const SCAN_TMP = resolve(join(process.cwd(), 'tests', '__api_scan_tmp__'))
+
+  before(() => {
+    mkdirSync(SCAN_TMP, { recursive: true })
+    writeFileSync(join(SCAN_TMP, 'api.cjs'), `
+function add(a, b) { return a + b }
+function mul(a, b) { return a * b }
+function main(x) { return add(x, 1) + mul(x, 2) }
+module.exports = { add, mul, main }
+`)
+    writeFileSync(join(SCAN_TMP, 'package.json'), '{"name":"scan-test","version":"0.0.0"}')
+  })
+
+  after(() => {
+    rmSync(SCAN_TMP, { recursive: true, force: true })
+  })
+
+  it('emits id with file-path hint (e.g. "api-add" not just "add")', async () => {
+    const result = await scan({ dir: '.', cwd: SCAN_TMP })
+    const ids = result.suggestions.map(s => s.id).sort()
+    assert.deepEqual(ids, ['api-add', 'api-main', 'api-mul'],
+      `expected path-hinted ids, got: ${ids.join(', ')}`)
+  })
+
+  it('emits watches: [] (not [fnName]) — matches install.js default', async () => {
+    const result = await scan({ dir: '.', cwd: SCAN_TMP })
+    for (const s of result.suggestions) {
+      assert.deepEqual(s.watches, [],
+        `expected watches: [] for ${s.id}, got: ${JSON.stringify(s.watches)}`)
+    }
+  })
+
+  it('emits fingerprintLevel: "entry" explicitly', async () => {
+    const result = await scan({ dir: '.', cwd: SCAN_TMP })
+    for (const s of result.suggestions) {
+      assert.equal(s.fingerprintLevel, 'entry',
+        `expected fingerprintLevel: 'entry' for ${s.id}, got: ${s.fingerprintLevel}`)
+    }
+  })
+
+  it('emits inputs: [null, {}] — matches install.js default', async () => {
+    const result = await scan({ dir: '.', cwd: SCAN_TMP })
+    for (const s of result.suggestions) {
+      assert.deepEqual(s.inputs, [null, {}],
+        `expected inputs: [null, {}] for ${s.id}, got: ${JSON.stringify(s.inputs)}`)
+    }
+  })
+
+  it('does NOT emit watches: [fnName] (the old broken shape from issue #289)', async () => {
+    const result = await scan({ dir: '.', cwd: SCAN_TMP })
+    for (const s of result.suggestions) {
+      assert.ok(!s.watches.includes(s.entry),
+        `suggestion ${s.id} must not have watches: [${s.entry}] (old broken shape from issue #289)`)
+    }
+  })
+})
+
+describe('scan() — Issue #289 indirect object export (`module.exports = someVar`)', () => {
+  // CJS common pattern: define a const with object literal, then export it.
+  // This is the EXACT repro pattern from issue #289's bug report.
+  const INDIRECT_TMP = resolve(join(process.cwd(), 'tests', '__api_indirect_tmp__'))
+
+  before(() => {
+    mkdirSync(INDIRECT_TMP, { recursive: true })
+    writeFileSync(join(INDIRECT_TMP, 'api.cjs'), `
+const mod = {
+  add: function(a, b) { return a + b },
+  mul: function(a, b) { return a * b },
+  main: function(x) { return mod.add(x, 1) + mod.mul(x, 2) }
+}
+module.exports = mod
+`)
+    writeFileSync(join(INDIRECT_TMP, 'package.json'), '{"name":"indirect-test","version":"0.0.0"}')
+  })
+
+  after(() => {
+    rmSync(INDIRECT_TMP, { recursive: true, force: true })
+  })
+
+  it('scan() detects exports via `module.exports = someVar` (indirect object export)', async () => {
+    const result = await scan({ dir: '.', cwd: INDIRECT_TMP })
+    const entries = result.suggestions.map(s => s.entry).sort()
+    assert.deepEqual(entries, ['add', 'main', 'mul'],
+      `expected [add, main, mul] for indirect object export, got: ${entries.join(', ')}`)
+  })
+
+  it('scan() suggestions for indirect export still have correct #289 shape', async () => {
+    const result = await scan({ dir: '.', cwd: INDIRECT_TMP })
+    for (const s of result.suggestions) {
+      assert.deepEqual(s.watches, [],
+        `expected watches: [] for ${s.id}, got: ${JSON.stringify(s.watches)}`)
+      assert.equal(s.fingerprintLevel, 'entry',
+        `expected fingerprintLevel: 'entry' for ${s.id}`)
+      assert.deepEqual(s.inputs, [null, {}],
+        `expected inputs: [null, {}] for ${s.id}`)
+      assert.ok(s.id.startsWith('api-'),
+        `expected id with file-path hint (api-*) for ${s.entry}, got: ${s.id}`)
     }
   })
 })
