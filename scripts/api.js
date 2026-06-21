@@ -699,6 +699,75 @@ function extractCjsObjectExports(source) {
     }
   }
 
+  // #289 follow-up: handle `module.exports = someVar` where `someVar` is
+  // assigned an object literal earlier in the file. This is a very common
+  // CJS pattern (define a `mod` const, then export it). Without this,
+  // the original issue's repro (`module.exports = mod`) returns no
+  // suggestions, breaking parity with install.js.
+  const indirectRe = /module\.exports\s*=\s*([a-zA-Z_$][\w$]*)\s*(?:;|$|\/)/gm
+  let indirectMatch
+  while ((indirectMatch = indirectRe.exec(source)) !== null) {
+    const varName = indirectMatch[1]
+    // Find `const|let|var varName = { ... }` earlier in the file
+    // (must appear before the `module.exports = varName` line).
+    const lookupLimit = indirectMatch.index
+    const declRe = new RegExp(
+      `(?:const|let|var)\\s+${varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=\\s*\\{`,
+      'g'
+    )
+    let declMatch
+    while ((declMatch = declRe.exec(source)) !== null) {
+      if (declMatch.index >= lookupLimit) continue // must be BEFORE the export
+      const declStart = declMatch.index + declMatch[0].length
+      let d = 1
+      let j = declStart
+      while (j < source.length && d > 0) {
+        const ch = source[j]
+        if (ch === '{') d++
+        else if (ch === '}') d--
+        else if (ch === '"' || ch === "'" || ch === '`') {
+          const q = ch
+          j++
+          while (j < source.length) {
+            if (source[j] === '\\') { j += 2; continue }
+            if (source[j] === q) break
+            j++
+          }
+        }
+        j++
+      }
+      if (d !== 0) continue
+      const declBody = source.slice(declStart, j - 1)
+      const declCleaned = declBody
+        .replace(/\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+      const declProps = splitObjectProperties(declCleaned)
+      for (const prop of declProps) {
+        const trimmed = prop.trim()
+        if (!trimmed) continue
+        if (trimmed.startsWith('...')) continue
+        const explicitMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)\s*:/)
+        if (explicitMatch) {
+          const JS_KEYWORDS = new Set([
+            'function', 'async', 'get', 'set', 'static', 'if', 'else', 'for',
+            'while', 'return', 'new', 'class', 'const', 'let', 'var',
+            'true', 'false', 'null', 'undefined',
+          ])
+          if (!JS_KEYWORDS.has(explicitMatch[1])) {
+            names.push(explicitMatch[1])
+          }
+          continue
+        }
+        const shorthandMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)$/)
+        if (shorthandMatch) {
+          names.push(shorthandMatch[1])
+          continue
+        }
+      }
+      break // found the matching declaration; stop searching
+    }
+  }
+
   return names
 }
 

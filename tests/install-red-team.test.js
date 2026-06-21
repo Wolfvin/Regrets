@@ -580,3 +580,71 @@ export function triple(x) { return 'triple:' + String(x) }
       'install-skipped.txt must not exist when all clusters captured successfully')
   })
 })
+
+describe('#289 follow-up — install.js detects `module.exports = someVar` (indirect object export)', () => {
+  // Common CJS pattern: define a `mod` const with object literal, then
+  // `module.exports = mod`. Before the #289 follow-up fix, install.js
+  // detected 0 functions for this pattern. After the fix, it should
+  // detect the inner function names (add, mul, main) just like the
+  // direct `module.exports = { add, mul, main }` pattern.
+  beforeEach(() => {
+    cleanupAll()
+    const dir = makeTmpDir('issue-289-indirect')
+    writeFileSync(join(dir, 'api.cjs'), `
+const mod = {
+  add: function(a, b) { return a + b },
+  mul: function(a, b) { return a * b },
+  main: function(x) { return mod.add(x, 1) + mod.mul(x, 2) }
+}
+module.exports = mod
+`)
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      name: 'indirect-export-test', version: '1.0.0',
+    }))
+  })
+  after(() => cleanupAll())
+
+  it('install.js detects 3 functions from `module.exports = mod` pattern', () => {
+    const cwd = join(TMP, 'issue-289-indirect')
+    // Use --skip-capture so the assertion is purely about detection,
+    // not about whether the trivial-input guard skips some clusters.
+    const result = runInstall(['--scope', '.', '--skip-capture'], cwd)
+    assert.equal(result.exitCode, 0,
+      `install should exit 0. stderr: ${result.stderr}`)
+    assert.match(result.stdout, /Functions found: 3/,
+      `expected 3 functions detected, stdout: ${result.stdout}`)
+
+    // Manifest should contain 2-3 cluster definitions (one may be
+    // trivial-skipped if the auto-generated inputs produce NaN/throw —
+    // e.g. `mul("", "test")` returns NaN). The key assertion is that
+    // we DETECTED the functions; before the #289 follow-up fix, we
+    // detected 0 functions for this `module.exports = mod` pattern.
+    const manifest = JSON.parse(readFileSync(join(cwd, 'regrets', 'manifest.json'), 'utf8'))
+    const entries = manifest.clusters.map(c => c.entry).sort()
+    assert.ok(entries.length >= 2,
+      `expected at least 2 clusters in manifest (mul may be trivial-skipped), got: ${entries.join(', ')}`)
+    // The detected entries MUST be from {add, mul, main} — not random.
+    for (const e of entries) {
+      assert.ok(['add', 'mul', 'main'].includes(e),
+        `unexpected entry ${e} — should be from {add, mul, main}`)
+    }
+  })
+
+  it('install.js clusters for indirect export still have the standard shape', () => {
+    const cwd = join(TMP, 'issue-289-indirect')
+    runInstall(['--scope', '.', '--skip-capture'], cwd)
+    const manifest = JSON.parse(readFileSync(join(cwd, 'regrets', 'manifest.json'), 'utf8'))
+    for (const c of manifest.clusters) {
+      assert.equal(c.stack, 'js', `cluster ${c.id} should be stack: js`)
+      assert.equal(c.fingerprintLevel, 'entry',
+        `cluster ${c.id} should have fingerprintLevel: 'entry'`)
+      assert.deepEqual(c.watches, [],
+        `cluster ${c.id} should have watches: [] (matches install.js default)`)
+      assert.ok(c.file,
+        `cluster ${c.id} should have a file field`)
+      // id should have path hint
+      assert.ok(c.id.startsWith('api-'),
+        `cluster id should have path hint (api-*), got: ${c.id}`)
+    }
+  })
+})

@@ -299,3 +299,49 @@ module.exports = { add, mul, main }
     }
   })
 })
+
+describe('scan() — issue #289 follow-up: `module.exports = someVar` pattern', () => {
+  // CJS common pattern: define a const with object literal, then export it.
+  // Both install.js and api.js must detect the inner function names.
+  const INDIRECT_TMP = resolve(join(process.cwd(), 'tests', '__api_indirect_tmp__'))
+
+  before(() => {
+    mkdirSync(INDIRECT_TMP, { recursive: true })
+    // Original repro from issue #289:
+    writeFileSync(join(INDIRECT_TMP, 'api.cjs'), `
+const mod = {
+  add: function(a, b) { return a + b },
+  mul: function(a, b) { return a * b },
+  main: function(x) { return mod.add(x, 1) + mod.mul(x, 2) }
+}
+module.exports = mod
+`)
+    writeFileSync(join(INDIRECT_TMP, 'package.json'), '{"name":"indirect-test","version":"0.0.0"}')
+  })
+
+  after(() => {
+    rmSync(INDIRECT_TMP, { recursive: true, force: true })
+  })
+
+  it('scan() detects exports via `module.exports = someVar` (indirect object export)', async () => {
+    const result = await scan({ dir: '.', cwd: INDIRECT_TMP })
+    const entries = result.suggestions.map(s => s.entry).sort()
+    assert.deepEqual(entries, ['add', 'main', 'mul'],
+      `expected [add, main, mul] for indirect object export, got: ${entries.join(', ')}`)
+  })
+
+  it('scan() suggestions for indirect export still have correct shape (#289)', async () => {
+    const result = await scan({ dir: '.', cwd: INDIRECT_TMP })
+    for (const s of result.suggestions) {
+      assert.deepEqual(s.watches, [],
+        `expected watches: [] for ${s.id}, got: ${JSON.stringify(s.watches)}`)
+      assert.equal(s.fingerprintLevel, 'entry',
+        `expected fingerprintLevel: 'entry' for ${s.id}`)
+      assert.deepEqual(s.inputs, [null, {}],
+        `expected inputs: [null, {}] for ${s.id}`)
+      // Path-hinted id: "api-add" not "add"
+      assert.ok(s.id.startsWith('api-'),
+        `expected id with file-path hint (api-*) for ${s.entry}, got: ${s.id}`)
+    }
+  })
+})
