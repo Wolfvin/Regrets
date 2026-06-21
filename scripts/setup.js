@@ -440,6 +440,8 @@ if (dryRun) {
       console.log('   Would run: node scripts/capture_vue.mjs')
     } else if (stack === 'php') {
       console.log('   Would run: php scripts/capture_php.php')
+    } else if (stack === 'perl') {
+      console.log('   Would run: perl scripts/capture_perl.pl')
     } else if (stack === 'ruby') {
       console.log('   Would run: ruby scripts/capture_ruby.rb')
     } else if (stack === 'csharp') {
@@ -481,6 +483,8 @@ if (dryRun) {
       captureOk = runVisible('node', [`${SCRIPTS_DIR}/capture_vue.mjs`]) && captureOk
     } else if (stack === 'php') {
       captureOk = runVisible('php', [`${SCRIPTS_DIR}/capture_php.php`]) && captureOk
+    } else if (stack === 'perl') {
+      captureOk = runVisible('perl', [`${SCRIPTS_DIR}/capture_perl.pl`]) && captureOk
     } else if (stack === 'ruby') {
       captureOk = runVisible('ruby', [`${SCRIPTS_DIR}/capture_ruby.rb`]) && captureOk
     } else if (stack === 'csharp') {
@@ -530,6 +534,8 @@ if (dryRun) {
       console.log('   Would run: python3 scripts/validate.py')
     } else if (stack === 'php') {
       console.log('   Would run: php scripts/validate_php.php')
+    } else if (stack === 'perl') {
+      console.log('   Would run: perl scripts/validate_perl.pl')
     } else if (stack === 'ruby') {
       console.log('   Would run: ruby scripts/validate_ruby.rb')
     } else if (stack === 'csharp') {
@@ -556,6 +562,8 @@ if (dryRun) {
       validateOk = runVisible('python3', [`${SCRIPTS_DIR}/validate.py`]) && validateOk
     } else if (stack === 'php') {
       validateOk = runVisible('php', [`${SCRIPTS_DIR}/validate_php.php`]) && validateOk
+    } else if (stack === 'perl') {
+      validateOk = runVisible('perl', [`${SCRIPTS_DIR}/validate_perl.pl`]) && validateOk
     } else if (stack === 'ruby') {
       validateOk = runVisible('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`]) && validateOk
     } else if (stack === 'csharp') {
