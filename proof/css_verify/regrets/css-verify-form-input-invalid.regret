@@ -1,0 +1,11 @@
+cluster: css-verify-form-input-invalid
+version: 1
+fingerprint: 3797ari
+captured: 2026-06-21T06:57:59.884Z
+entry: .form-input[aria-invalid="true"]
+stack: css
+file: ../forms.css
+---
+INPUT  {"selector":".form-input[aria-invalid=\"true\"]"}
+OUTPUT ["background-color: #fff5f5","border-color: #d32f2f"]
+HASH   3797ari

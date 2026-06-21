@@ -1,0 +1,40 @@
+{
+  "clusters": [
+    {
+      "id": "css-verify-form-input",
+      "entry": ".form-input",
+      "file": "../forms.css",
+      "stack": "css"
+    },
+    {
+      "id": "css-verify-form-input-focus",
+      "entry": ".form-input:focus",
+      "file": "../forms.css",
+      "stack": "css"
+    },
+    {
+      "id": "css-verify-form-input-invalid",
+      "entry": ".form-input[aria-invalid=\"true\"]",
+      "file": "../forms.css",
+      "stack": "css"
+    },
+    {
+      "id": "css-verify-form-submit",
+      "entry": ".form-submit",
+      "file": "../forms.css",
+      "stack": "css"
+    },
+    {
+      "id": "css-verify-form-submit-hover",
+      "entry": ".form-submit:hover",
+      "file": "../forms.css",
+      "stack": "css"
+    },
+    {
+      "id": "css-verify-form-helper-error",
+      "entry": ".form-helper[data-error=\"true\"]",
+      "file": "../forms.css",
+      "stack": "css"
+    }
+  ]
+}

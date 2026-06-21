@@ -1,0 +1,11 @@
+cluster: css-verify-form-submit-hover
+version: 1
+fingerprint: 2pfpsij
+captured: 2026-06-21T06:57:59.886Z
+entry: .form-submit:hover
+stack: css
+file: ../forms.css
+---
+INPUT  {"selector":".form-submit:hover"}
+OUTPUT ["background-color: #0052a3"]
+HASH   2pfpsij

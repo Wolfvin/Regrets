@@ -1,0 +1,11 @@
+cluster: css-verify-form-helper-error
+version: 1
+fingerprint: ij28sj5
+captured: 2026-06-21T06:57:59.887Z
+entry: .form-helper[data-error="true"]
+stack: css
+file: ../forms.css
+---
+INPUT  {"selector":".form-helper[data-error=\"true\"]"}
+OUTPUT ["color: #d32f2f"]
+HASH   ij28sj5

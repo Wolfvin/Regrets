@@ -52,16 +52,15 @@ function fingerprint(input, output) {
   const inputStr = stableStringify(input);
   const outputStr = stableStringify(output);
   const hash = createHash('sha256').update(inputStr + '|' + outputStr).digest('hex');
-  // Convert to base36 (BigInteger)
-  let num = BigInt('0x' + hash.substring(0, 16)); // Use first 16 hex chars (64 bits)
-  let base36 = '';
-  const radix = 36n;
-  while (num > 0n) {
-    const remainder = num % radix;
-    num = num / radix;
-    base36 = remainder.toString(36) + base36;
-  }
-  return base36.substring(0, 7);
+  // Convert FULL 256-bit hash to base36, take first 7 chars.
+  // MUST match `fingerprint.js` (JS) / `fingerprint.py` (Python) / Rust /
+  // Go / C / etc. for cross-stack .regret parity. Using only the first 16
+  // hex chars (64 bits) was a bug in the original PR #366 — it produced
+  // different 7-char hashes than the JS stack for the same input/output,
+  // breaking the cross-stack contract. The bug was caught during
+  // independent re-verification (PR: feat/css-verify).
+  const num = BigInt('0x' + hash);
+  return num.toString(36).slice(0, 7);
 }
 
 // ─── CSS Declaration Extraction ──────────────────────────────────────────────

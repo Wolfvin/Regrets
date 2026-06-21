@@ -1,0 +1,11 @@
+cluster: css-verify-form-input-focus
+version: 1
+fingerprint: n3r1ial
+captured: 2026-06-21T06:57:59.883Z
+entry: .form-input:focus
+stack: css
+file: ../forms.css
+---
+INPUT  {"selector":".form-input:focus"}
+OUTPUT ["border-color: #0066cc","outline-offset: 1px","outline: 2px solid #0066cc"]
+HASH   n3r1ial
