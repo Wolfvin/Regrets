@@ -664,6 +664,8 @@ If you prefer calling individual scripts directly (per-stack):
   "regret:capture:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh capture",
   "regret:validate:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh validate",
   "regret:health:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh health",
+  "regret:capture:kotlin": "bash ../../The-skill/regresion-testing/scripts/capture_kotlin.sh",
+  "regret:validate:kotlin": "bash ../../The-skill/regresion-testing/scripts/validate_kotlin.sh",
   "regret:health": "node ../../The-skill/regresion-testing/scripts/health.js",
   "regret:drift": "node ../../The-skill/regresion-testing/scripts/validate.js --runs 5",
   "regret:drift:py": "python ../../The-skill/regresion-testing/scripts/validate.py --runs 5",
@@ -1206,6 +1208,8 @@ regression-testing/
 │   ├── capture_react.mjs       ← React component render capture
 │   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
 │   ├── capture_go.sh           ← Go cluster capture runner (community preview)
+│   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)
+│   ├── validate_kotlin.sh      ← Kotlin cluster validate runner (community preview)
 │   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
 │   ├── contest.py              ← chain testing for Python stack clusters
 │   ├── diff.js                 ← output diff — shows what changed when RED

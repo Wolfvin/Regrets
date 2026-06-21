@@ -113,6 +113,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **PHP** | `php` | `capture_php.php` | `validate_php.php` | Pure functions, class-based output |
 | **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
+| **Kotlin** | `kotlin` | `capture_kotlin.sh` | `validate_kotlin.sh` | Community Preview. Top-level functions only (callee wrapping + class methods on roadmap). See [`references/kotlin.md`](references/kotlin.md) |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
 
 ### Stack-specific examples

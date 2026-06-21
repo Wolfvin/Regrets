@@ -1,0 +1,50 @@
+{
+  "projectName": "kotlin-proof",
+  "clusters": [
+    {
+      "id": "add",
+      "entry": "add",
+      "file": "src/Example.kt",
+      "kotlinPackage": "regrets.example",
+      "stack": "kotlin",
+      "fingerprintLevel": "entry",
+      "description": "Integer addition (two Int args → Int result)",
+      "multiArgs": true,
+      "inputs": [
+        [1, 2],
+        [10, 20],
+        [0, 0],
+        [-5, 7]
+      ]
+    },
+    {
+      "id": "greet",
+      "entry": "greet",
+      "file": "src/Example.kt",
+      "kotlinPackage": "regrets.example",
+      "stack": "kotlin",
+      "fingerprintLevel": "entry",
+      "description": "Greeting with optional excitement (String, Boolean → String)",
+      "multiArgs": true,
+      "inputs": [
+        ["world", true],
+        ["world", false],
+        ["", true]
+      ]
+    },
+    {
+      "id": "title-case-words",
+      "entry": "titleCaseWords",
+      "file": "src/Example.kt",
+      "kotlinPackage": "regrets.example",
+      "stack": "kotlin",
+      "fingerprintLevel": "entry",
+      "description": "Title-case the first letter of each word in a string",
+      "inputs": [
+        "hello world",
+        "the quick brown fox",
+        ""
+      ]
+    }
+  ]
+}
