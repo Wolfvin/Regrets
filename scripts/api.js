@@ -15,6 +15,15 @@ import { fingerprint, fingerprintSequence, extractSchema, getEnvSnapshot, stable
 import { createGhost, deepClone, consumeIterator } from './ghost.js'
 import { mergeCjsModule } from './cjs-merge.js'
 import { applyOutputTransformAsync } from './outputTransform.js'
+// #289: scan() must emit the same cluster shape as install.js, including
+// best-effort callee detection via analyzeScope (Phase 3, PR #241).
+import { analyzeScope } from './analyzer.js'
+
+// #289: Default probe inputs must match install.js's DEFAULT_PROBE_INPUTS
+// (defined in scripts/install.js:151 as ['', 'test', 0, 1, {}, [], null]).
+// We duplicate the constant here so api.js remains a standalone module
+// (install.js is a CLI entry point with side effects on import).
+const DEFAULT_PROBE_INPUTS = ['', 'test', 0, 1, {}, [], null]
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -699,7 +708,193 @@ function extractCjsObjectExports(source) {
     }
   }
 
+  // #289 (parity with install.js): Indirect object export pattern
+  //   const mod = { add: ..., mul: ... }
+  //   module.exports = mod          // ← identifier, not literal object
+  // For each captured identifier, scan for an earlier `const|let|var <id> = { ... }`
+  // declaration and parse its object literal body using the same property-name
+  // extraction logic as above. Mirrors install.js's extension for the original
+  // #289 repro (which uses exactly this pattern).
+  const indirectRe = /module\.exports\s*=\s*([a-zA-Z_$][\w$]*)\s*(?:;|$|\/)/gm
+  let indirectMatch
+  while ((indirectMatch = indirectRe.exec(source)) !== null) {
+    const identifier = indirectMatch[1]
+
+    // Find `const|let|var <identifier> = { ... }` earlier in the source
+    const declRe = new RegExp(
+      `(?:const|let|var)\\s+${identifier}\\s*=\\s*\\{`,
+      'g'
+    )
+    let declMatch
+    while ((declMatch = declRe.exec(source)) !== null) {
+      if (declMatch.index >= indirectMatch.index) continue // must be BEFORE the export
+      const bodyStart = declMatch.index + declMatch[0].length
+      let depth = 1
+      let i = bodyStart
+      while (i < source.length && depth > 0) {
+        const ch = source[i]
+        if (ch === '{') depth++
+        else if (ch === '}') depth--
+        else if (ch === '"' || ch === "'" || ch === '`') {
+          const quote = ch
+          i++
+          while (i < source.length) {
+            if (source[i] === '\\') { i += 2; continue }
+            if (source[i] === quote) break
+            i++
+          }
+        }
+        i++
+      }
+      if (depth !== 0) continue
+      const body = source.slice(bodyStart, i - 1)
+      const cleaned = body
+        .replace(/\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+      const properties = splitObjectProperties(cleaned)
+      for (const prop of properties) {
+        const trimmed = prop.trim()
+        if (!trimmed) continue
+        if (trimmed.startsWith('...')) continue
+        const explicitMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)\s*:/)
+        if (explicitMatch) {
+          const JS_KEYWORDS = new Set([
+            'function', 'async', 'get', 'set', 'static', 'if', 'else', 'for',
+            'while', 'return', 'new', 'class', 'const', 'let', 'var',
+            'true', 'false', 'null', 'undefined',
+          ])
+          if (!JS_KEYWORDS.has(explicitMatch[1])) {
+            names.push(explicitMatch[1])
+          }
+          continue
+        }
+        const shorthandMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)$/)
+        if (shorthandMatch) {
+          names.push(shorthandMatch[1])
+          continue
+        }
+      }
+    }
+  }
+
   return names
+}
+
+// ─── extractExportedFunctionsApi — parity with install.js#extractExportedFunctions ──
+// #289: api.js#scan() must detect the same set of exported functions as
+// install.js. Previously api.js used a simpler regex set that missed:
+//   - export default function Name
+//   - export default class X (#292)
+//   - export class X (#292)
+//   - export default { foo, bar } (#317)
+//   - export { foo, bar } named-export list (#271)
+//   - module.exports = function Name (CJS named function)
+//   - comment-stripping (#286) so export patterns inside // or /* */ don't match
+//
+// This helper mirrors install.js:336-441 (extractExportedFunctions) for the
+// JS/TS branch only — api.js does not handle Python (Python detection in
+// scan() is limited to file-extension filtering).
+
+function extractExportedFunctionsApi(source) {
+  const fns = []
+
+  // #286: Strip comment lines so regex patterns don't match inside comments.
+  const strippedSource = source
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+
+  // Named export: export function name() / export async function name()
+  const namedExportFn = strippedSource.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)
+  for (const m of namedExportFn) fns.push(m[1])
+
+  // Arrow function exports: export const name = () => {
+  const arrowExports = strippedSource.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)
+  for (const m of arrowExports) fns.push(m[1])
+
+  // Default export function
+  const defaultExportFn = strippedSource.matchAll(/export\s+default\s+function\s+(\w+)/g)
+  for (const m of defaultExportFn) fns.push(m[1])
+
+  // #292: export class X and export default class X
+  const namedExportClass = strippedSource.matchAll(/export\s+class\s+(\w+)/g)
+  for (const m of namedExportClass) fns.push(m[1])
+
+  const defaultExportClass = strippedSource.matchAll(/export\s+default\s+class\s+(\w+)/g)
+  for (const m of defaultExportClass) fns.push(m[1])
+
+  // #317: export default { foo, bar } — named exports via default export object.
+  const defaultExportObj = strippedSource.matchAll(/export\s+default\s+\{([^}]*)\}/g)
+  for (const m of defaultExportObj) {
+    const body = m[1]
+    const properties = splitObjectProperties(body)
+    for (const prop of properties) {
+      const trimmed = prop.trim()
+      if (!trimmed) continue
+      if (trimmed.startsWith('...')) continue
+      const explicitMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)\s*:/)
+      if (explicitMatch) { fns.push(explicitMatch[1]); continue }
+      const shorthandMatch = trimmed.match(/^([a-zA-Z_$][\w$]*)$/)
+      if (shorthandMatch) { fns.push(shorthandMatch[1]); continue }
+    }
+  }
+
+  // #271: Named export list: export { foo, bar }
+  const namedExportList = strippedSource.matchAll(/export\s*\{([^}]*)\}/g)
+  for (const m of namedExportList) {
+    const body = m[1]
+    const items = body.split(',')
+    for (const item of items) {
+      const trimmed = item.trim()
+      if (!trimmed) continue
+      const asMatch = trimmed.match(/\bas\s+(\w+)$/)
+      if (asMatch) {
+        fns.push(asMatch[1])
+      } else {
+        const identMatch = trimmed.match(/^(\w+)$/)
+        if (identMatch) {
+          fns.push(identMatch[1])
+        }
+      }
+    }
+  }
+
+  // CJS: module.exports.Name = ...
+  const moduleExports = strippedSource.matchAll(/module\.exports\.(\w+)\s*=/g)
+  for (const m of moduleExports) fns.push(m[1])
+
+  // CJS: exports.Name = ...
+  const exportsAssign = strippedSource.matchAll(/^exports\.(\w+)\s*=/gm)
+  for (const m of exportsAssign) fns.push(m[1])
+
+  // CJS: module.exports = function Name(...)
+  const cjsNamedFn = strippedSource.matchAll(/module\.exports\s*=\s*function\s+(\w+)/g)
+  for (const m of cjsNamedFn) fns.push(m[1])
+
+  // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
+  // AND: module.exports = <identifier> (indirect export — see extractCjsObjectExports)
+  const cjsObjExports = extractCjsObjectExports(strippedSource)
+  for (const name of cjsObjExports) fns.push(name)
+
+  return [...new Set(fns)]
+}
+
+// ─── generateClusterIdApi — parity with install.js#generateClusterId ──────────
+// #289: scan() must produce the same cluster id format as install.js
+// (path-hinted kebab-case, e.g. "api-add" for fnName "add" in file "api.cjs").
+// Mirrors install.js:645-660.
+
+function generateClusterIdApi(fnName, relPath) {
+  const kebabFn = fnName
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/[_\s]+/g, '-')
+    .toLowerCase()
+
+  const parts = relPath.replace(/\.\w+$/, '').split('/')
+  const significantParts = parts.filter(p => !['src', 'lib', 'dist', 'index'].includes(p))
+  const pathHint = significantParts.slice(-2).join('-')
+
+  if (pathHint.includes(kebabFn)) return kebabFn
+  return pathHint ? `${pathHint}-${kebabFn}` : kebabFn
 }
 
 // ─── scan() ───────────────────────────────────────────────────────────────────
@@ -708,11 +903,35 @@ function extractCjsObjectExports(source) {
  * Scan a project directory for cluster suggestions.
  * Identifies exported functions and suggests regret cluster definitions.
  *
+ * #289: scan() emits the SAME cluster shape as `regret install` (install.js):
+ *   {
+ *     id:                "<path-hint>-<kebab-name>",   // e.g. "api-add"
+ *     entry:             "<fnName>",
+ *     watches:           [],                            // NOT [fnName] — fp:entry mode
+ *     file:              "<relPath>",
+ *     stack:             "js" | "ts",
+ *     fingerprintLevel:  "entry",
+ *     inputs:            ["", "test", 0, 1, {}, [], null],   // DEFAULT_PROBE_INPUTS
+ *     callees:           ["..."],                       // best-effort via analyzeScope
+ *                                                       //   (omitted when empty, matching install.js)
+ *   }
+ *
+ * Detection parity with install.js#extractExportedFunctions:
+ *   - export function / export async function / export default function Name
+ *   - export class X / export default class X (#292)
+ *   - export default { foo, bar } (#317)
+ *   - export { foo, bar } named-export list (#271)
+ *   - module.exports.X = ... / exports.X = ...
+ *   - module.exports = function Name (CJS named function)
+ *   - module.exports = { ... } (literal object)
+ *   - module.exports = <identifier> (indirect object export — original #289 repro)
+ *   - comment-stripping (#286) so patterns inside line-comments or block-comments don't match
+ *
  * @param {object} options
  * @param {string} [options.dir='.'] - Directory to scan
  * @param {string} [options.stack] - Filter by stack (js, ts, python)
  * @param {string} [options.cwd=process.cwd()] - Working directory
- * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[]}>}>}
+ * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[], fingerprintLevel: string, inputs: Array, callees?: string[]}>}>}
  *
  * @example
  * const { suggestions } = await scan({ dir: 'src/', stack: 'js' })
@@ -764,37 +983,83 @@ export async function scan(options = {}) {
         const content = readFileSync(filePath, 'utf8')
         const relPath = relative(cwd, filePath)
 
-        // Find exported function names (simple regex-based scan)
-        const exportPatterns = [
-          /export\s+function\s+(\w+)/g,
-          /export\s+const\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function)/g,
-          /export\s+async\s+function\s+(\w+)/g,
-          /exports\.(\w+)\s*=\s*function/g,
-          /module\.exports\.(\w+)\s*=\s*function/g,
-          /module\.exports\.(\w+)\s*=/g,
-        ]
+        // #289: Use the same extractor as install.js — handles all export
+        // patterns (named/default/class/named-list/CJS/indirect) and applies
+        // comment-stripping (#286) to avoid false positives.
+        const fns = extractExportedFunctionsApi(content)
 
-        const fns = new Set()
-        for (const pattern of exportPatterns) {
-          let match
-          while ((match = pattern.exec(content)) !== null) {
-            fns.add(match[1])
+        // #289: Best-effort callee detection via analyzeScope (Phase 3, PR #241).
+        // Mirrors install.js:1138-1196. analyzeScope returns { functions, edges }:
+        //   - functions: [{ name, ... }] — names defined in this file
+        //   - edges:     [{ from, to, isMethod?, methodReceiver? }]
+        // We filter edges whose `from` matches one of our publicFns, drop
+        // method-call edges on non-`this`/`super` receivers (#287 parity),
+        // and keep only callees whose names appear in the file's defined
+        // functions (drops external identifiers like readdirSync).
+        //
+        // analyzeScope is async (lazy WASM init). It has a no-throw contract:
+        // returns { functions: [], edges: [] } on parse errors, missing WASM
+        // grammars, or I/O errors. We double-guard with try/catch so a future
+        // bug never breaks scan().
+        let calleesByFn = new Map()
+        try {
+          const { functions: analysisFns, edges } = await analyzeScope(filePath)
+          if (analysisFns.length > 0) {
+            const definedNames = new Set(analysisFns.map(f => f.name))
+            const fnSet = new Set(fns)
+            for (const fnName of fns) {
+              const callees = edges
+                .filter(e => e.from === fnName)
+                // #287 parity: drop method calls on non-this/super receivers
+                .filter(e => {
+                  if (!e.isMethod) return true
+                  return e.methodReceiver === 'this' || e.methodReceiver === 'super'
+                })
+                .map(e => e.to)
+                .filter(name => definedNames.has(name) && name !== fnName)
+                // Also drop names that aren't in our public fn list — install.js
+                // keeps them when definedNames contains them, but for scan()
+                // suggestions we only surface callees that are themselves
+                // exported (otherwise the manifest references ghost callees
+                // that don't have their own cluster).
+                .filter(name => fnSet.has(name))
+              // Dedupe while preserving first-appearance order
+              const seen = new Set()
+              const unique = []
+              for (const c of callees) {
+                if (!seen.has(c)) {
+                  seen.add(c)
+                  unique.push(c)
+                }
+              }
+              if (unique.length > 0) calleesByFn.set(fnName, unique)
+            }
           }
+        } catch {
+          // Silently skip — scan proceeds without callees for this file.
         }
 
-        // CJS: module.exports = { add, multiply } / { add: addFn } / { ...other, fn }
-        const cjsObjExports = extractCjsObjectExports(content)
-        for (const name of cjsObjExports) fns.add(name)
-
         for (const fnName of fns) {
-          const clusterId = fnName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')
-          suggestions.push({
+          const clusterId = generateClusterIdApi(fnName, relPath)
+          // #289: shape MUST match install.js — watches: [] (not [fnName]),
+          // fingerprintLevel: 'entry', inputs: DEFAULT_PROBE_INPUTS (deep copy),
+          // callees only when non-empty.
+          const suggestion = {
             id: clusterId,
             entry: fnName,
+            watches: [],
             file: relPath,
             stack,
-            watches: [fnName],
-          })
+            fingerprintLevel: 'entry',
+            inputs: DEFAULT_PROBE_INPUTS.map(v =>
+              Array.isArray(v) ? [...v] : (v !== null && typeof v === 'object' ? { ...v } : v)
+            ),
+          }
+          const callees = calleesByFn.get(fnName)
+          if (callees && callees.length > 0) {
+            suggestion.callees = callees
+          }
+          suggestions.push(suggestion)
         }
       } catch { /* skip unreadable files */ }
     }
