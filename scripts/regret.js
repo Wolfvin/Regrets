@@ -234,6 +234,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_nim.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -252,6 +254,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -299,7 +303,7 @@ async function main() {
       // Strip the positional id from passThroughArgs, then re-add it in
       // the stack-specific --update position.
       const remainingArgs = passThroughArgs.filter(a => a !== targetCluster)
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'rust' || targetStack === 'go') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'nim') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -319,6 +323,8 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
+    } else if (targetStack === 'nim') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...translatedArgs])
     } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -344,6 +350,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -371,6 +379,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     break
@@ -401,6 +411,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -589,6 +601,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'nim') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     if (success) {
