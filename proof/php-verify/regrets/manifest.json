@@ -1,0 +1,53 @@
+{
+  "projectName": "php-verify",
+  "clusters": [
+    {
+      "id": "php-fibonacci",
+      "entry": "fibonacci",
+      "watches": ["fibonacci"],
+      "file": "src/MathUtils.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "Fibonacci — iterative, pure function, integer I/O",
+      "inputs": [0, 1, 5, 10, 20]
+    },
+    {
+      "id": "php-matrix-sum",
+      "entry": "matrix_sum",
+      "watches": ["matrix_sum"],
+      "file": "src/MathUtils.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Matrix element-wise sum — multiArgs, array I/O",
+      "inputs": [
+        [[[1,2],[3,4]], [[5,6],[7,8]]],
+        [[[10,20],[30,40]], [[1,2],[3,4]]]
+      ]
+    },
+    {
+      "id": "php-round-currency",
+      "entry": "round_currency",
+      "watches": ["round_currency"],
+      "file": "src/MathUtils.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "description": "Round currency — float handling",
+      "inputs": [1.005, 2.345, 99.999, 0.001]
+    },
+    {
+      "id": "php-config-merge",
+      "entry": "ConfigHelper::merge",
+      "watches": ["merge"],
+      "file": "src/MathUtils.php",
+      "stack": "php",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Config merge — static class method, multiArgs, associative array I/O",
+      "inputs": [
+        [{"env":"dev","port":3000}, {"port":8080}],
+        [{"a":1,"b":2}, {"b":3,"c":4}]
+      ]
+    }
+  ]
+}

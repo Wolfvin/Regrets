@@ -270,6 +270,23 @@ function run_cluster(array $cluster, string $outDir): bool
         $lines[] = "OUTPUT " . json_encode($golden['output'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $lines[] = "HASH   {$fp}";
 
+        // Issue #315 parity: serialize per-input contract for inputs[1+].
+        // When a cluster has multiple inputs, breaking changes that only affect
+        // inputs[1+] would be invisible (false GREEN) without this line.
+        // Format matches capture.js: array of {input, output, hash} for results[1+].
+        // Single-input clusters omit this line (backward compatible).
+        if (count($results) > 1) {
+            $inputsPayload = [];
+            for ($ri = 1; $ri < count($results); $ri++) {
+                $inputsPayload[] = [
+                    'input'  => $results[$ri]['input'],
+                    'output' => $results[$ri]['output'],
+                    'hash'   => $results[$ri]['fp'],
+                ];
+            }
+            $lines[] = "INPUTS " . json_encode($inputsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
         file_put_contents($regretPath, implode("\n", $lines));
 
         echo "   ✅ Fingerprint: {$fp}\n";
