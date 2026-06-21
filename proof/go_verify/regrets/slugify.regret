@@ -1,0 +1,12 @@
+cluster: slugify
+version: 1
+fingerprint: 2gaag5y
+captured: 2026-06-21T05:38:45Z
+entry: Slugify
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "Hello, World! This is a TEST."
+OUTPUT "hello-world-this-is-a-test"
+HASH   2gaag5y
+INPUTS [{"hash":"47iw4ku","input":"  multiple   spaces  ","output":"multiple-spaces"},{"hash":"4shpupm","input":"already-slug","output":"already-slug"}]
