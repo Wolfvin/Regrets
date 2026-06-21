@@ -1,0 +1,12 @@
+cluster: word-count
+version: 1
+fingerprint: 1na8qrz
+captured: 2026-06-21T08:13:49.000000+00:00
+watches: [word_count]
+entry: regret_word_count
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "hello world"
+OUTPUT 2
+HASH   1na8qrz

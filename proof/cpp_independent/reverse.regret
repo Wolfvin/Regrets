@@ -1,0 +1,12 @@
+cluster: reverse
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-21T08:13:49.000000+00:00
+watches: [reverse]
+entry: regret_reverse
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s

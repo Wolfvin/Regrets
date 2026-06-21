@@ -1,0 +1,28 @@
+{
+  "clusters": [
+    {
+      "id": "throws-runtime",
+      "entry": "regret_throws_runtime",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": ["test"]
+    },
+    {
+      "id": "throws-int",
+      "entry": "regret_throws_int",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": ["test"]
+    },
+    {
+      "id": "normal-entry",
+      "entry": "regret_normal_entry",
+      "stack": "cpp",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [5]
+    }
+  ]
+}

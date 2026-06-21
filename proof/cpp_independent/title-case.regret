@@ -1,0 +1,12 @@
+cluster: title-case
+version: 1
+fingerprint: 4am2hvn
+captured: 2026-06-21T08:13:49.000000+00:00
+watches: [title_case]
+entry: regret_title_case
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "hello world"
+OUTPUT "Hello World"
+HASH   4am2hvn

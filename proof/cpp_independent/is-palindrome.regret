@@ -1,0 +1,12 @@
+cluster: is-palindrome
+version: 1
+fingerprint: 382h75s
+captured: 2026-06-21T08:13:49.000000+00:00
+watches: [is_palindrome]
+entry: regret_is_palindrome
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "Race Car"
+OUTPUT true
+HASH   382h75s

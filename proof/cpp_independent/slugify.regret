@@ -1,0 +1,12 @@
+cluster: slugify
+version: 1
+fingerprint: 45tk3ov
+captured: 2026-06-21T08:13:49.000000+00:00
+watches: [slugify]
+entry: regret_slugify
+stack: cpp
+fingerprintLevel: entry
+---
+INPUT  "Hello World! 2024"
+OUTPUT "hello-world-2024"
+HASH   45tk3ov
