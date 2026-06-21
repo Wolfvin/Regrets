@@ -1,0 +1,14 @@
+cluster: php-levenshtein
+version: 1
+fingerprint: tu16lpe
+captured: 2026-06-21T06:59:05+00:00
+watches: [RegretVerify\levenshtein]
+entry: RegretVerify\levenshtein
+stack: php
+fingerprintLevel: entry
+multiArgs: true
+file: src/VerifyLib.php
+---
+INPUT  ["kitten","sitting"]
+OUTPUT 3
+HASH   tu16lpe
