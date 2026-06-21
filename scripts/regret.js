@@ -228,6 +228,8 @@ async function main() {
         success = await run('python3', [`${SCRIPTS_DIR}/capture.py`, ...passThroughArgs]) && success
       } else if (stack === 'react') {
         success = await run('node', [`${SCRIPTS_DIR}/capture_react.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'vue') {
+        success = await run('node', [`${SCRIPTS_DIR}/capture_vue.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
         success = await run('php', [`${SCRIPTS_DIR}/capture_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
@@ -244,6 +246,8 @@ async function main() {
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...passThroughArgs]) && success
+      } else if (stack === 'vue') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...passThroughArgs]) && success
       } else if (stack === 'php') {
@@ -299,7 +303,10 @@ async function main() {
       // Strip the positional id from passThroughArgs, then re-add it in
       // the stack-specific --update position.
       const remainingArgs = passThroughArgs.filter(a => a !== targetCluster)
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'rust' || targetStack === 'go') {
+      // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
+      // (validate_vue.mjs expects the cluster id as the VALUE of --update,
+      // mirroring validate.py / validate_php.php).
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'vue') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -319,6 +326,8 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
+    } else if (targetStack === 'vue') {
+      success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...translatedArgs])
     } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -336,6 +345,8 @@ async function main() {
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...driftDefault, ...passThroughArgs]) && success
+      } else if (stack === 'vue') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'php') {
@@ -363,6 +374,8 @@ async function main() {
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
         success = await run('node', [`${SCRIPTS_DIR}/validate.js`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'vue') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'python') {
         success = await run('python3', [`${SCRIPTS_DIR}/validate.py`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'php') {
