@@ -56,3 +56,13 @@ Desktop.ini
 .vscode/
 .idea/
 *.sublime-*
+
+# ===== Regrets stack build dirs =====
+# Each language stack creates a temp build dir for runner compilation.
+# These are regenerated on each capture/validate run.
+.regret-zig-build/
+.regret-kotlin-build/
+.regret-rust-build/
+.regret-go-build/
+.regret-c-build/
+.regret-cpp-build/
