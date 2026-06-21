@@ -1,0 +1,16 @@
+cluster: title-case-words
+version: 1
+fingerprint: 4am2hvn
+captured: 2026-06-20T18:19:27.831Z
+watches: [titleCaseWords]
+entry: titleCaseWords
+stack: kotlin
+fingerprintLevel: entry
+kotlinPackage: regrets.example
+fileClassName: ExampleKt
+multiArgs: false
+env: {"kotlin_version":"kotlinc-jvm 2.0.21 (JRE 21.0.11+10-1-deb13u2-Debian)","java_version":"21.0.11"}
+---
+INPUT  "hello world"
+OUTPUT "Hello World"
+HASH   4am2hvn

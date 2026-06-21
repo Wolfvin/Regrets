@@ -1,0 +1,28 @@
+cluster: slugify
+version: 1
+fingerprints: 615ytfn,2gaag5y,47iw4ku,2r8ubcm,1hgst4y,5oge4st
+captured: 2026-06-21T04:59:03.689209550Z
+watches: [slugify]
+entry: slugify
+stack: scala
+fingerprintLevel: entry
+object: Slugify
+---
+INPUT  "Hello, World!"
+OUTPUT "hello-world"
+HASH   615ytfn
+INPUT  "Hello, World! This is a TEST."
+OUTPUT "hello-world-this-is-a-test"
+HASH   2gaag5y
+INPUT  "  multiple   spaces  "
+OUTPUT "multiple-spaces"
+HASH   47iw4ku
+INPUT  "already-slugified"
+OUTPUT "already-slugified"
+HASH   2r8ubcm
+INPUT  "Mix3d C4se AND Symbols!@#"
+OUTPUT "mix3d-c4se-and-symbols"
+HASH   1hgst4y
+INPUT  ""
+OUTPUT ""
+HASH   5oge4st

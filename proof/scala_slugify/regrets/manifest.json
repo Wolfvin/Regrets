@@ -1,0 +1,37 @@
+{
+  "clusters": [
+    {
+      "id": "slugify",
+      "entry": "slugify",
+      "object": "Slugify",
+      "watches": ["slugify"],
+      "file": "Slugify.scala",
+      "stack": "scala",
+      "fingerprintLevel": "entry",
+      "description": "Pure slugify function: lowercase, replace non-alphanumeric runs with hyphens, trim.",
+      "inputs": [
+        "Hello, World!",
+        "Hello, World! This is a TEST.",
+        "  multiple   spaces  ",
+        "already-slugified",
+        "Mix3d C4se AND Symbols!@#",
+        ""
+      ]
+    },
+    {
+      "id": "slugify-multiargs",
+      "entry": "slugify",
+      "object": "Slugify",
+      "watches": ["slugify"],
+      "file": "Slugify.scala",
+      "stack": "scala",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Slugify called with multi-arg input (first arg used, rest ignored).",
+      "inputs": [
+        ["Hello World", "ignored second arg"],
+        ["TEST Input", 42]
+      ]
+    }
+  ]
+}

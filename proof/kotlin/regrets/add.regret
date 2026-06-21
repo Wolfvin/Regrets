@@ -1,0 +1,16 @@
+cluster: add
+version: 1
+fingerprint: 63qoext
+captured: 2026-06-20T18:19:12.894Z
+watches: [add]
+entry: add
+stack: kotlin
+fingerprintLevel: entry
+kotlinPackage: regrets.example
+fileClassName: ExampleKt
+multiArgs: true
+env: {"kotlin_version":"kotlinc-jvm 2.0.21 (JRE 21.0.11+10-1-deb13u2-Debian)","java_version":"21.0.11"}
+---
+INPUT  [1,2]
+OUTPUT 3
+HASH   63qoext

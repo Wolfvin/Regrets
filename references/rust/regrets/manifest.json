@@ -1,0 +1,83 @@
+{
+  "clusters": [
+    {
+      "id": "rust-add",
+      "entry": "add",
+      "watches": ["add"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_example",
+      "description": "Add two integers",
+      "inputs": [
+        [1, 2],
+        [10, 20],
+        [-1, 1],
+        [0, 0],
+        [100, 200]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "rust-mul",
+      "entry": "mul",
+      "watches": ["mul"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_example",
+      "description": "Multiply two integers",
+      "inputs": [
+        [3, 4],
+        [0, 100],
+        [-2, 5],
+        [1, 1]
+      ],
+      "multiArgs": true
+    },
+    {
+      "id": "rust-is-even",
+      "entry": "is_even",
+      "watches": ["is_even"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_example",
+      "description": "Check if a number is even",
+      "inputs": [
+        4,
+        7,
+        0,
+        1,
+        100
+      ]
+    },
+    {
+      "id": "rust-reverse-string",
+      "entry": "reverse_string",
+      "watches": ["reverse_string"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_example",
+      "description": "Reverse a string",
+      "inputs": [
+        "hello",
+        "",
+        "a",
+        "racecar"
+      ]
+    },
+    {
+      "id": "rust-fibonacci",
+      "entry": "fibonacci",
+      "watches": ["fibonacci"],
+      "stack": "rust",
+      "fingerprintLevel": "entry",
+      "rustCrate": "regret_example",
+      "description": "Compute the nth Fibonacci number",
+      "inputs": [
+        0,
+        1,
+        10,
+        20
+      ]
+    }
+  ]
+}
