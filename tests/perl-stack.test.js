@@ -367,4 +367,201 @@ describe('Perl stack — capture + validate', { skip: !hasPerl && 'perl not on P
     assert.match(result.stdout, /perl.*validate_perl\.pl|validate_perl\.pl/i, 'should dispatch to validate_perl.pl')
     assert.match(result.stdout, /PASS/i, 'should have at least one PASS')
   })
+
+  // ─── Bug-fix regression tests (PR #432's VERIFY_PERL_STACK.md Bugs 1 & 2) ───
+  // These tests cover the two bugs documented by the independent verification
+  // pass (PR #432). They ensure the fixes stay in place across future edits.
+
+  it('Bug 1 fix: module + libPath loads correctly (was broken — require without .pm)', () => {
+    // Create a module at lib/TextTools.pm that declares `package TextTools;`
+    // and exposes `uppercase()`. Manifest uses `module: "TextTools"` +
+    // `libPath: "lib"` (the bug path — `require $module` without .pm extension
+    // used to fail because Perl's `require $string` does NOT do bareword
+    // conversion).
+    writeFileSync(join(TMP, 'lib', 'TextTools.pm'),
+`package TextTools;
+use strict;
+use warnings;
+use Exporter qw(import);
+our \@EXPORT_OK = qw(uppercase);
+
+sub uppercase {
+    my \$s = shift;
+    return uc(\$s);
+}
+1;
+`)
+    writeFileSync(join(TMP, 'regrets', 'manifest.json'), JSON.stringify({
+      clusters: [
+        {
+          id: 'texttools-uppercase',
+          entry: 'uppercase',
+          module: 'TextTools',
+          libPath: 'lib',
+          stack: 'perl',
+          inputs: ['hello', 'WORLD'],
+        },
+      ],
+    }, null, 2))
+
+    // Capture should succeed (would fail with exit 1 before the fix)
+    const capResult = runPerl(CAPTURE_PERL)
+    assert.equal(capResult.exitCode, 0,
+      `capture should succeed with module+libPath; got exit ${capResult.exitCode}\n` +
+      `stdout: ${capResult.stdout}\nstderr: ${capResult.stderr}`)
+    const regretPath = join(TMP, 'regrets', 'texttools-uppercase.regret')
+    assert.ok(existsSync(regretPath), '.regret should be written')
+    const content = readFileSync(regretPath, 'utf8')
+    assert.match(content, /^module: TextTools/m, 'should record module field')
+    assert.match(content, /^libPath: lib/m, 'should record libPath field')
+    assert.match(content, /^INPUTS\s+\[/m, 'should have INPUTS line (2 inputs)')
+
+    // Validate should PASS (no code change)
+    const valResult = runPerl(VALIDATE_PERL)
+    assert.equal(valResult.exitCode, 0,
+      `validate should PASS; got exit ${valResult.exitCode}\nstdout: ${valResult.stdout}`)
+    assert.match(valResult.stdout, /texttools-uppercase.*PASS|PASS.*texttools-uppercase/i,
+      'should PASS texttools-uppercase')
+  })
+
+  it('Bug 1 fix: breaking change to module+libPath cluster is detected', () => {
+    // Recreate the Bug 1 fixture (beforeEach cleared .regret files).
+    writeFileSync(join(TMP, 'lib', 'TextTools.pm'),
+`package TextTools;
+use strict;
+use warnings;
+use Exporter qw(import);
+our \@EXPORT_OK = qw(uppercase);
+
+sub uppercase {
+    my \$s = shift;
+    return uc(\$s);
+}
+1;
+`)
+    writeFileSync(join(TMP, 'regrets', 'manifest.json'), JSON.stringify({
+      clusters: [
+        {
+          id: 'texttools-uppercase',
+          entry: 'uppercase',
+          module: 'TextTools',
+          libPath: 'lib',
+          stack: 'perl',
+          inputs: ['hello', 'WORLD'],
+        },
+      ],
+    }, null, 2))
+    // Capture baseline, then mutate uppercase() → lowercase() and confirm FAIL.
+    runPerl(CAPTURE_PERL)
+    const filePath = join(TMP, 'lib', 'TextTools.pm')
+    const original = readFileSync(filePath, 'utf8')
+    const mutated = original.replace('return uc($s);', 'return lc($s);')
+    writeFileSync(filePath, mutated)
+    try {
+      const result = runPerl(VALIDATE_PERL)
+      assert.notEqual(result.exitCode, 0,
+        `validate should FAIL on breaking change; got exit ${result.exitCode}\nstdout: ${result.stdout}`)
+      assert.match(result.stdout, /FAIL/i, 'should print FAIL')
+    } finally {
+      writeFileSync(filePath, original)
+    }
+  })
+
+  it('Bug 2 fix: nested file path + unqualified entry resolves to declared package', () => {
+    // Create lib/Foo/Bar.pm declaring `package Foo::Bar;` (NOT `package Bar;`)
+    // with an unqualified `entry: "greet"`. Before the fix, capture would
+    // derive `$loaded_module = "Bar"` (basename only) and look up `Bar::greet`
+    // — failing with "Cannot find subroutine greet in Bar". After the fix,
+    // the .pm file's `package XYZ;` declaration is parsed and the entry
+    // correctly resolves to `Foo::Bar::greet`.
+    mkdirSync(join(TMP, 'lib', 'Foo'), { recursive: true })
+    writeFileSync(join(TMP, 'lib', 'Foo', 'Bar.pm'),
+`package Foo::Bar;
+use strict;
+use warnings;
+use Exporter qw(import);
+our \@EXPORT_OK = qw(greet);
+
+sub greet {
+    my \$name = shift;
+    return "Hello, \$name!";
+}
+1;
+`)
+    writeFileSync(join(TMP, 'regrets', 'manifest.json'), JSON.stringify({
+      clusters: [
+        {
+          id: 'foobar-greet',
+          entry: 'greet',          // unqualified — should resolve to Foo::Bar::greet
+          file: 'lib/Foo/Bar.pm',
+          stack: 'perl',
+          inputs: ['Alice', 'Bob'],
+        },
+      ],
+    }, null, 2))
+
+    // Capture should succeed and produce the correct output
+    const capResult = runPerl(CAPTURE_PERL)
+    assert.equal(capResult.exitCode, 0,
+      `capture should succeed with nested file path + unqualified entry; ` +
+      `got exit ${capResult.exitCode}\nstdout: ${capResult.stdout}\nstderr: ${capResult.stderr}`)
+    const regretPath = join(TMP, 'regrets', 'foobar-greet.regret')
+    assert.ok(existsSync(regretPath), '.regret should be written')
+    const content = readFileSync(regretPath, 'utf8')
+    // The output should be "Hello, Alice!" — confirms Foo::Bar::greet was invoked,
+    // NOT a fallback to Bar::greet (which doesn't exist) or main::greet.
+    assert.match(content, /^OUTPUT "Hello, Alice!"/m,
+      'output should match Foo::Bar::greet — confirms Bug 2 fix')
+    assert.match(content, /^INPUTS\s+\[/m, 'should have INPUTS line (2 inputs)')
+
+    // Validate should PASS (no code change)
+    const valResult = runPerl(VALIDATE_PERL)
+    assert.equal(valResult.exitCode, 0,
+      `validate should PASS; got exit ${valResult.exitCode}\nstdout: ${valResult.stdout}`)
+    assert.match(valResult.stdout, /foobar-greet.*PASS|PASS.*foobar-greet/i,
+      'should PASS foobar-greet')
+  })
+
+  it('Bug 2 fix: breaking change to nested-path cluster is detected', () => {
+    // Recreate the Bug 2 fixture (beforeEach cleared .regret files).
+    mkdirSync(join(TMP, 'lib', 'Foo'), { recursive: true })
+    writeFileSync(join(TMP, 'lib', 'Foo', 'Bar.pm'),
+`package Foo::Bar;
+use strict;
+use warnings;
+use Exporter qw(import);
+our \@EXPORT_OK = qw(greet);
+
+sub greet {
+    my \$name = shift;
+    return "Hello, \$name!";
+}
+1;
+`)
+    writeFileSync(join(TMP, 'regrets', 'manifest.json'), JSON.stringify({
+      clusters: [
+        {
+          id: 'foobar-greet',
+          entry: 'greet',
+          file: 'lib/Foo/Bar.pm',
+          stack: 'perl',
+          inputs: ['Alice', 'Bob'],
+        },
+      ],
+    }, null, 2))
+    // Capture baseline, then mutate greet() → "Hi, $name!" and confirm FAIL.
+    runPerl(CAPTURE_PERL)
+    const filePath = join(TMP, 'lib', 'Foo', 'Bar.pm')
+    const original = readFileSync(filePath, 'utf8')
+    const mutated = original.replace('return "Hello, $name!";', 'return "Hi, $name!";')
+    writeFileSync(filePath, mutated)
+    try {
+      const result = runPerl(VALIDATE_PERL)
+      assert.notEqual(result.exitCode, 0,
+        `validate should FAIL on breaking change; got exit ${result.exitCode}\nstdout: ${result.stdout}`)
+      assert.match(result.stdout, /FAIL/i, 'should print FAIL')
+    } finally {
+      writeFileSync(filePath, original)
+    }
+  })
 })

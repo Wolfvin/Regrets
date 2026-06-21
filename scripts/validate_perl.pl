@@ -126,6 +126,31 @@ sub parse_regret {
     return { meta => \%meta, data => \%data };
 }
 
+# ─── Derive package name from .pm file content ────────────────────────────────
+# Reads the .pm file's `package XYZ;` declaration. This is more reliable than
+# deriving the package name from the file path because:
+#   - `lib/Foo/Bar.pm` may declare `package Foo::Bar;` (standard) OR
+#     `package Bar;` (non-standard) — only the file content knows.
+#   - Without this, unqualified `entry: "greet"` would look up `Bar::greet`
+#     instead of `Foo::Bar::greet` (the bug documented in PR #432's
+#     VERIFY_PERL_STACK.md as Bug 2).
+#
+# Returns: package name (e.g. "Foo::Bar") or undef if no declaration found.
+sub derive_package_name {
+    my ($file) = @_;
+    open my $fh, '<', $file or return undef;
+    my $package;
+    while (my $line = <$fh>) {
+        if ($line =~ /^\s*package\s+([\w:]+)/) {
+            $package = $1;
+            last;
+        }
+        last if $line =~ /^__(END|DATA)__\s*$/;
+    }
+    close $fh;
+    return $package;
+}
+
 # ─── Invoke Perl subroutine ───────────────────────────────────────────────────
 # Same logic as capture_perl.pl's invoke_entry. Duplicated here to keep
 # validate_perl.pl self-contained (does not depend on capture_perl.pl being
@@ -143,19 +168,34 @@ sub invoke_entry {
         die "❌ file '$file' does not exist\n" unless -f $file;
         my $dir = abs_path(dirname($file)) or die "❌ Cannot resolve dir of $file\n";
         local @INC = ($dir, @INC);
-        my $module_name = basename($file);
-        $module_name =~ s/\.pm$//;
-        require $module_name . ".pm";
-        $loaded_module = $module_name;
+        my $module_file = basename($file);
+        require $module_file;
+        # Fix for Bug 2 from PR #432's VERIFY_PERL_STACK.md: derive the package
+        # name from the .pm file's `package XYZ;` declaration instead of using
+        # basename. This makes `entry: "greet"` correctly resolve to
+        # `Foo::Bar::greet` for `lib/Foo/Bar.pm` (declared `package Foo::Bar;`).
+        $loaded_module = derive_package_name($file);
+        if (!defined $loaded_module) {
+            my $fallback = $file;
+            $fallback =~ s/\.pm$//;
+            $fallback =~ s{/}{::}g;
+            $loaded_module = $fallback;
+        }
     } elsif (my $module = $meta->{module}) {
+        # Fix for Bug 1 from PR #432's VERIFY_PERL_STACK.md: Perl's
+        # `require $string` treats the string as a literal filename — it does
+        # NOT do bareword conversion (:: → /, append .pm). So we convert the
+        # module name to a path BEFORE calling require.
+        my $module_file = $module;
+        $module_file =~ s/::/\//g;
+        $module_file .= ".pm";    # "Foo/Bar.pm"
         if (my $lib_path = $meta->{libPath}) {
             local @INC = ($lib_path, @INC);
-            require $module;
-            $loaded_module = $module;
+            require $module_file;
         } else {
-            require $module;
-            $loaded_module = $module;
+            require $module_file;
         }
+        $loaded_module = $module;    # "Foo::Bar"
     } else {
         die "❌ Regret file has neither 'file' nor 'module' field — cannot load entry\n";
     }

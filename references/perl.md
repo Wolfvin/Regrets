@@ -110,12 +110,22 @@ my $output = $coderef->(@args);
 | Top-level `sub foo {}` in a package | ✅ | `package MyModule; sub foo { ... }` |
 | Exported subroutines (`use Exporter`) | ✅ | `our @EXPORT_OK = qw(foo);` |
 | Fully-qualified entry | ✅ | `"entry": "Other::Package::foo"` |
+| Nested package file path + unqualified entry | ✅ | `"file": "lib/Foo/Bar.pm"`, `"entry": "greet"` → resolves to `Foo::Bar::greet` (parsed from the file's `package` declaration) |
+| `module` field (with or without `libPath`) | ✅ | `"module": "TextTools"`, `"libPath": "lib"` → `require TextTools.pm` after `::`→`/` conversion |
 | `multiArgs: true` (multiple positional args) | ✅ | `"inputs": [[1, 2, 3]]` → `foo(1, 2, 3)` |
 | Single arg (no `multiArgs`) | ✅ | `"inputs": [5]` → `foo(5)` |
 | No args (`inputs: []` or input is `null`) | ✅ | `foo()` |
 | Object method calls (`$obj->method`) | ❌ | Use a wrapper sub |
 | Closures / anonymous subs | ❌ | Use a named sub |
 | Functions that modify `@_` in place | ⚠️ | The input snapshot is taken before invocation, so the golden hash is preserved, but the live re-run during validate sees the same input. |
+
+> **Package name resolution:** When using `file:`, Regrets reads the `.pm`
+> file's `package XYZ;` declaration to determine which package the entry
+> subroutine lives in. This means `lib/Foo/Bar.pm` declaring
+> `package Foo::Bar;` works correctly with unqualified `entry: "greet"`
+> (resolves to `Foo::Bar::greet`). If the file has no `package` declaration,
+> Regrets falls back to deriving the package name from the path (strip
+> extension, replace `/` with `::`).
 
 ### Return value handling
 

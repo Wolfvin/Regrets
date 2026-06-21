@@ -115,6 +115,33 @@ sub get_perl_clusters {
     return @perl;
 }
 
+# ─── Derive package name from .pm file content ────────────────────────────────
+# Reads the .pm file's `package XYZ;` declaration. This is more reliable than
+# deriving the package name from the file path because:
+#   - `lib/Foo/Bar.pm` may declare `package Foo::Bar;` (standard) OR
+#     `package Bar;` (non-standard) — only the file content knows.
+#   - Without this, unqualified `entry: "greet"` would look up `Bar::greet`
+#     instead of `Foo::Bar::greet` (the bug documented in PR #432's
+#     VERIFY_PERL_STACK.md as Bug 2).
+#
+# Returns: package name (e.g. "Foo::Bar") or undef if no declaration found.
+sub derive_package_name {
+    my ($file) = @_;
+    open my $fh, '<', $file or return undef;
+    my $package;
+    while (my $line = <$fh>) {
+        # Match `package Foo::Bar;` or `package Foo::Bar {` or `package Foo::Bar version;`
+        # Stop at __END__ or __DATA__ — package decls must come before them.
+        if ($line =~ /^\s*package\s+([\w:]+)/) {
+            $package = $1;
+            last;
+        }
+        last if $line =~ /^__(END|DATA)__\s*$/;
+    }
+    close $fh;
+    return $package;
+}
+
 # ─── Invoke Perl subroutine ───────────────────────────────────────────────────
 # Loads the module (via `require` for `file` field, or via module name) and
 # invokes the entry subroutine with the given args.
@@ -129,29 +156,44 @@ sub invoke_entry {
     # Determine how to load the module
     my $loaded_module;
     if (my $file = $cluster->{file}) {
-        # `file` is a path like "lib/MyModule.pm"
-        # Convert to module name and require it
+        # `file` is a path like "lib/MyModule.pm" or "lib/Foo/Bar.pm"
         die "❌ Cluster $cluster->{id}: file '$file' does not exist\n"
             unless -f $file;
         # Add the file's parent dir to @INC so `require` finds it
         my $dir = abs_path(dirname($file)) or die "❌ Cannot resolve dir of $file\n";
         local @INC = ($dir, @INC);
-        # Convert path to module name: lib/MyModule.pm → MyModule
-        my $module_name = basename($file);
-        $module_name =~ s/\.pm$//;
-        require $module_name . ".pm";
-        $loaded_module = $module_name;
+        # require by basename (works because parent dir is in @INC)
+        my $module_file = basename($file);    # "Bar.pm"
+        require $module_file;
+        # Derive the package name from the .pm file's `package XYZ;` declaration.
+        # This is the fix for Bug 2 from PR #432's VERIFY_PERL_STACK.md: before,
+        # we used basename minus .pm ("Bar") which fails for nested paths
+        # (lib/Foo/Bar.pm declares `package Foo::Bar;`, not `package Bar;`).
+        # As a fallback when the file has no `package` declaration, derive from
+        # the path (strip extension, replace / with ::).
+        $loaded_module = derive_package_name($file);
+        if (!defined $loaded_module) {
+            my $fallback = $file;
+            $fallback =~ s/\.pm$//;
+            $fallback =~ s{/}{::}g;
+            $loaded_module = $fallback;
+        }
     } elsif (my $module = $cluster->{module}) {
+        # `module` is a name like "MyModule" or "Foo::Bar".
+        # Perl's `require $string` treats the string as a literal filename —
+        # it does NOT do bareword conversion (:: → /, append .pm). So we must
+        # convert the module name to a path BEFORE calling require. This is
+        # the fix for Bug 1 from PR #432's VERIFY_PERL_STACK.md.
+        my $module_file = $module;
+        $module_file =~ s/::/\//g;
+        $module_file .= ".pm";    # "Foo/Bar.pm"
         if (my $lib_path = $cluster->{libPath}) {
             local @INC = ($lib_path, @INC);
-            require $module;
-            $module =~ s/::/\//g;
-            $module .= ".pm";
-            $loaded_module = $module;
+            require $module_file;
         } else {
-            require $module;
-            $loaded_module = $module;
+            require $module_file;
         }
+        $loaded_module = $module;    # "Foo::Bar" — keep the module name as-is
     } else {
         die "❌ Cluster $cluster->{id}: must have either 'file' or 'module' field\n";
     }
