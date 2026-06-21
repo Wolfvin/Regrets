@@ -1,0 +1,13 @@
+cluster: fibonacci
+version: 1
+fingerprint: 68xugix
+captured: 2026-06-21T05:21:34.794Z
+watches: [fib]
+entry: fibonacci.awk
+stack: awk
+file: fibonacci.awk
+fingerprintLevel: entry
+---
+INPUT  "10"
+OUTPUT "55"
+HASH   68xugix

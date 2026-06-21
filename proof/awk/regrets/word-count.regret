@@ -1,0 +1,13 @@
+cluster: word-count
+version: 1
+fingerprint: 4b58rkf
+captured: 2026-06-21T05:21:34.805Z
+watches: []
+entry: word_count.awk
+stack: awk
+file: word_count.awk
+fingerprintLevel: entry
+---
+INPUT  "the quick brown fox\njumps over\n"
+OUTPUT "6"
+HASH   4b58rkf

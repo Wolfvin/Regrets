@@ -1,0 +1,13 @@
+cluster: reverse-lines
+version: 1
+fingerprint: 33ruhb3
+captured: 2026-06-21T05:21:34.799Z
+watches: []
+entry: reverse_lines.awk
+stack: awk
+file: reverse_lines.awk
+fingerprintLevel: entry
+---
+INPUT  "Hello\nWorld\n"
+OUTPUT "dlroW\nolleH"
+HASH   33ruhb3
