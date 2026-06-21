@@ -371,6 +371,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   python    → capture.py / validate.py / truth.py
   php       → capture_php.php / validate_php.php
   react     → capture_react.mjs / validate.js
+  vue       → capture_vue.mjs / validate_vue.mjs
   rust      → capture_rust.sh (capture + validate via cargo test)
   go        → capture_go.sh (Community Preview)
 

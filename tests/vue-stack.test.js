@@ -434,3 +434,200 @@ describe('Vue stack — cross-stack fingerprint parity', () => {
       `Vue fingerprint (${vueHash}) must match JS reference (${jsHash}) for the same I/O — cross-stack parity`)
   })
 })
+
+// ─── Additional coverage ─────────────────────────────────────────────────────
+// These tests were added during a parallel-worker consolidation review (issue
+// #396). They cover cases that the original test file didn't exercise:
+//   - Non-breaking refactor still PASSes (False Positive guard)
+//   - --runs N stability check
+//   - regret.js dispatches Vue clusters to validate_vue.mjs (not validate.js)
+//   - validate.js skips Vue clusters (does not run them itself)
+//   - init.js --stack vue scaffolds a Vue manifest template
+
+const HELLO_REFACTOR_JS = `import { defineComponent, h } from 'vue'
+
+// Refactor: extracted greeting composition — output HTML must be identical.
+function composeGreeting(name) {
+  return 'Hello, ' + name + '!'
+}
+
+export const Hello = defineComponent({
+  name: 'Hello',
+  props: { name: { type: String, required: true } },
+  setup(props) {
+    return () => h('div', { class: 'hello' }, composeGreeting(props.name))
+  }
+})
+export default Hello
+`
+
+describe('Vue stack — non-breaking refactor + multi-run + dispatch', () => {
+  const REPO_ROOT = resolve(import.meta.dirname, '..')
+  const REGRET_JS = join(REPO_ROOT, 'scripts', 'regret.js')
+  const VALIDATE_JS = join(REPO_ROOT, 'scripts', 'validate.js')
+  const INIT_JS = join(REPO_ROOT, 'scripts', 'init.js')
+  const TMP2 = resolve(REPO_ROOT, 'tests', `__vue_stack_extra_${process.pid}__`)
+
+  beforeEach(() => {
+    rmSync(TMP2, { recursive: true, force: true })
+    mkdirSync(join(TMP2, 'src'), { recursive: true })
+    mkdirSync(join(TMP2, 'regrets'), { recursive: true })
+    writeFileSync(join(TMP2, 'src', 'Hello.js'), HELLO_COMPONENT)
+    writeFileSync(join(TMP2, 'package.json'), JSON.stringify({
+      name: 'vue-stack-extra-test', version: '1.0.0', type: 'module'
+    }))
+  })
+  after(() => { rmSync(TMP2, { recursive: true, force: true }) })
+
+  function run(script, args = [], cwd = TMP2) {
+    const result = spawnSync('node', [script, ...args], {
+      cwd, encoding: 'utf8', timeout: 30_000,
+    })
+    return { exitCode: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
+  }
+
+  function writeManifest2(clusters) {
+    writeFileSync(join(TMP2, 'regrets', 'manifest.json'), JSON.stringify({ clusters }, null, 2))
+  }
+
+  it('PASSes for a NON-BREAKING refactor (same output HTML, different impl)', () => {
+    writeManifest2([{
+      id: 'hello-render',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      fingerprintLevel: 'entry',
+      inputs: [{ name: 'World' }],
+      watches: [],
+    }])
+
+    // Capture with the original
+    const cap = run(CAPTURE_VUE)
+    assert.equal(cap.exitCode, 0, `capture failed: ${cap.stderr}`)
+
+    // Apply non-breaking refactor (extract helper fn — same HTML output)
+    writeFileSync(join(TMP2, 'src', 'Hello.js'), HELLO_REFACTOR_JS)
+
+    // Validate should still PASS
+    const val = run(VALIDATE_VUE)
+    assert.equal(val.exitCode, 0,
+      `validate should exit 0 for non-breaking refactor. stdout: ${val.stdout}`)
+    assert.match(val.stdout, /PASS/)
+    assert.doesNotMatch(val.stdout, /FAIL/)
+  })
+
+  it('supports --runs N for stability checking (multi-run PASS)', () => {
+    writeManifest2([{
+      id: 'hello-render',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      fingerprintLevel: 'entry',
+      inputs: [{ name: 'World' }],
+      watches: [],
+    }])
+
+    const cap = run(CAPTURE_VUE)
+    assert.equal(cap.exitCode, 0)
+
+    const val = run(VALIDATE_VUE, ['--runs', '3'])
+    assert.equal(val.exitCode, 0,
+      `validate --runs 3 should exit 0 for stable output. stdout: ${val.stdout}`)
+    // Output should indicate stability (either PASS+STABLE or just PASS)
+    assert.match(val.stdout, /PASS/)
+  })
+
+  it('regret.js validate dispatches Vue clusters to validate_vue.mjs', () => {
+    writeManifest2([{
+      id: 'hello-render',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      fingerprintLevel: 'entry',
+      inputs: [{ name: 'World' }],
+      watches: [],
+    }])
+
+    // Capture first
+    const cap = run(CAPTURE_VUE)
+    assert.equal(cap.exitCode, 0)
+
+    // Run via regret.js — should dispatch to validate_vue.mjs
+    const val = run(REGRET_JS, ['validate'])
+    assert.equal(val.exitCode, 0,
+      `regret.js validate should exit 0. stdout: ${val.stdout}`)
+    assert.match(val.stdout, /validate_vue\.mjs/,
+      'regret.js should dispatch Vue clusters to validate_vue.mjs')
+    assert.match(val.stdout, /PASS/)
+  })
+
+  it('regret.js capture dispatches Vue clusters to capture_vue.mjs', () => {
+    writeManifest2([{
+      id: 'hello-render',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      fingerprintLevel: 'entry',
+      inputs: [{ name: 'World' }],
+      watches: [],
+    }])
+
+    const cap = run(REGRET_JS, ['capture'])
+    assert.equal(cap.exitCode, 0,
+      `regret.js capture should exit 0. stdout: ${cap.stdout}`)
+    assert.match(cap.stdout, /capture_vue\.mjs/,
+      'regret.js should dispatch Vue clusters to capture_vue.mjs')
+    assert.ok(existsSync(join(TMP2, 'regrets', 'hello-render.regret')),
+      '.regret file should be written')
+  })
+
+  it('validate.js skips Vue clusters (does not run them itself)', () => {
+    writeManifest2([{
+      id: 'hello-render',
+      entry: 'Hello',
+      file: './src/Hello.js',
+      stack: 'vue',
+      fingerprintLevel: 'entry',
+      inputs: [{ name: 'World' }],
+      watches: [],
+    }])
+
+    // Capture first via dedicated Vue capture
+    const cap = run(CAPTURE_VUE)
+    assert.equal(cap.exitCode, 0)
+
+    // validate.js should SKIP Vue clusters (not run them itself)
+    const val = run(VALIDATE_JS)
+    assert.equal(val.exitCode, 0,
+      `validate.js should exit 0 (skipping Vue clusters). stdout: ${val.stdout}`)
+    assert.match(val.stdout, /stack=vue — use validate_vue\.mjs/,
+      'validate.js should log a skip message for Vue clusters')
+  })
+
+  it('init.js --stack vue scaffolds a regrets/ dir with a Vue manifest template', () => {
+    const initTmp = resolve(REPO_ROOT, 'tests', `__vue_init_${process.pid}__`)
+    rmSync(initTmp, { recursive: true, force: true })
+    mkdirSync(initTmp, { recursive: true })
+
+    const result = spawnSync('node', [INIT_JS, '--stack', 'vue'], {
+      cwd: initTmp, encoding: 'utf8', timeout: 30_000,
+    })
+    assert.equal(result.status, 0,
+      `init.js --stack vue should exit 0. stderr: ${result.stderr}`)
+
+    const manifestPath = join(initTmp, 'regrets', 'manifest.json')
+    assert.ok(existsSync(manifestPath), 'manifest.json should be created')
+
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    assert.ok(manifest.clusters && manifest.clusters.length >= 1,
+      'manifest should have at least one cluster')
+    const vueCluster = manifest.clusters.find(c => c.stack === 'vue')
+    assert.ok(vueCluster, 'manifest should contain a vue cluster')
+    assert.equal(vueCluster.stack, 'vue')
+    assert.ok(vueCluster.entry, 'vue cluster should have an entry field')
+    assert.ok(vueCluster.file, 'vue cluster should have a file field')
+    assert.ok(Array.isArray(vueCluster.inputs), 'vue cluster should have inputs array')
+
+    rmSync(initTmp, { recursive: true, force: true })
+  })
+})

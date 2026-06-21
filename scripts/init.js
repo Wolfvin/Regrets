@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css']
+const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'vue']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -147,6 +147,23 @@ const templates = {
         ]
       }
     ]
+  },
+  vue: {
+    clusters: [
+      {
+        id: 'example-component',
+        entry: 'MyComponent',
+        watches: ['MyComponent'],
+        file: 'src/MyComponent.js',
+        stack: 'vue',
+        renderMode: 'static',
+        description: 'Vue 3 component (defineComponent / object with setup) — replace with your actual component path',
+        inputs: [
+          { title: 'Hello', count: 1 },
+          { title: 'World', count: 99 }
+        ]
+      }
+    ]
   }
 }
 
@@ -221,6 +238,16 @@ if (stack === 'css') {
   console.log(`📦 Note for CSS stack: CSS uses the JS runner (capture.js / validate.js).`)
   console.log(`   Your module should export a function that takes CSS input and returns the transformed output.`)
   console.log(`   See references/css-stack-guide.md for PostCSS, Sass, and CSS-in-JS examples.`)
+}
+if (stack === 'vue') {
+  console.log()
+  console.log(`📦 Note for Vue stack: install Vue 3 SSR deps first:`)
+  console.log(`   npm install --save-dev vue@3 @vue/server-renderer@3`)
+  console.log(`   Vue uses capture_vue.mjs / validate_vue.mjs (SSR via renderToString).`)
+  console.log(`   v1 supports defineComponent / object-with-setup / render-function components`)
+  console.log(`   imported from a .js/.mjs file. .vue SFC compilation is NOT in v1 —`)
+  console.log(`   use a build step to compile .vue → .js first if needed.`)
+  console.log(`   See references/vue.md for full usage.`)
 }
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)

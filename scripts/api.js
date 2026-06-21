@@ -839,7 +839,7 @@ export async function check(options = {}) {
     ? manifest.clusters.filter(c => c.id === clusterFilter)
     : manifest.clusters
 
-  const VALID_STACKS = ['js', 'ts', 'python', 'react', 'go', 'php', 'rust']
+  const VALID_STACKS = ['js', 'ts', 'python', 'react', 'vue', 'go', 'php', 'rust', 'css']
   const VALID_FP_LEVELS = ['entry', 'full', 'watched']
 
   const errors = []
