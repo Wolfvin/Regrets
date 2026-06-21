@@ -192,30 +192,99 @@ fn invoke(allocator: std.mem.Allocator, input: Value) !Value {
 }
 
 fn callOne(allocator: std.mem.Allocator, a: Value) !Value {
+    // Zig 0.14+: @typeInfo(T).@"fn" (was .Fn in 0.13 and earlier)
     const FnType = @TypeOf(user.$CLUSTER_ENTRY);
-    const fn_info = @typeInfo(FnType).Fn;
+    const fn_info = @typeInfo(FnType).@"fn";
     const params = fn_info.params;
+    const ReturnTy = fn_info.return_type orelse return error.UnsupportedSignature;
+
+    // Detect error union return — strip it to get the payload type.
+    const return_info = @typeInfo(ReturnTy);
+    const PayloadTy = switch (return_info) {
+        .error_union => |eu| eu.payload,
+        else => ReturnTy,
+    };
+    const is_error_union = return_info == .error_union;
 
     if (params.len == 1) {
+        // (input: []const u8) → T
         if (params[0].type == []const u8 or params[0].type == []u8) {
             const s = valueToString(allocator, a) catch return error.TypeMismatch;
             defer allocator.free(s);
-            const result = try @call(.auto, user.$CLUSTER_ENTRY, .{s});
-            return Value{ .string = result };
+            // Dispatch on return type
+            switch (@typeInfo(PayloadTy)) {
+                .pointer => |p| {
+                    if (p.size == .slice and p.child == u8) {
+                        // → []u8 / []const u8
+                        const result = if (is_error_union)
+                            try @call(.auto, user.$CLUSTER_ENTRY, .{s})
+                        else
+                            @call(.auto, user.$CLUSTER_ENTRY, .{s});
+                        return Value{ .string = result };
+                    }
+                    return error.UnsupportedSignature;
+                },
+                .int => {
+                    // → i64
+                    const result = if (is_error_union)
+                        try @call(.auto, user.$CLUSTER_ENTRY, .{s})
+                    else
+                        @call(.auto, user.$CLUSTER_ENTRY, .{s});
+                    return Value{ .int_ = result };
+                },
+                .bool => {
+                    // → bool
+                    const result = if (is_error_union)
+                        try @call(.auto, user.$CLUSTER_ENTRY, .{s})
+                    else
+                        @call(.auto, user.$CLUSTER_ENTRY, .{s});
+                    return Value{ .bool_ = result };
+                },
+                else => return error.UnsupportedSignature,
+            }
         }
+        // (a: i64) → T
         if (params[0].type == i64) {
             const a_int = valueToInt(a) orelse return error.TypeMismatch;
-            const result = @call(.auto, user.$CLUSTER_ENTRY, .{a_int});
-            return Value{ .int_ = result };
+            switch (@typeInfo(PayloadTy)) {
+                .int => {
+                    const result = if (is_error_union)
+                        try @call(.auto, user.$CLUSTER_ENTRY, .{a_int})
+                    else
+                        @call(.auto, user.$CLUSTER_ENTRY, .{a_int});
+                    return Value{ .int_ = result };
+                },
+                .bool => {
+                    // (i64) → bool — e.g. isEven
+                    const result = if (is_error_union)
+                        try @call(.auto, user.$CLUSTER_ENTRY, .{a_int})
+                    else
+                        @call(.auto, user.$CLUSTER_ENTRY, .{a_int});
+                    return Value{ .bool_ = result };
+                },
+                else => return error.UnsupportedSignature,
+            }
         }
     }
     if (params.len == 2) {
+        // (allocator, input: []const u8) → T
         if (params[0].type == std.mem.Allocator) {
             if (params[1].type == []const u8 or params[1].type == []u8) {
                 const s = valueToString(allocator, a) catch return error.TypeMismatch;
                 defer allocator.free(s);
-                const result = try @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, s });
-                return Value{ .string = result };
+                switch (@typeInfo(PayloadTy)) {
+                    .pointer => |p| {
+                        if (p.size == .slice and p.child == u8) {
+                            const result = if (is_error_union)
+                                try @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, s })
+                            else
+                                @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, s });
+                            return Value{ .string = result };
+                        }
+                        return error.UnsupportedSignature;
+                    },
+                    else => return error.UnsupportedSignature,
+                }
             }
         }
     }
@@ -224,26 +293,79 @@ fn callOne(allocator: std.mem.Allocator, a: Value) !Value {
 
 fn callTwo(allocator: std.mem.Allocator, a: Value, b: Value) !Value {
     const FnType = @TypeOf(user.$CLUSTER_ENTRY);
-    const fn_info = @typeInfo(FnType).Fn;
+    const fn_info = @typeInfo(FnType).@"fn";
     const params = fn_info.params;
+    const ReturnTy = fn_info.return_type orelse return error.UnsupportedSignature;
+    const return_info = @typeInfo(ReturnTy);
+    const PayloadTy = switch (return_info) {
+        .error_union => |eu| eu.payload,
+        else => ReturnTy,
+    };
+    const is_error_union = return_info == .error_union;
 
     if (params.len == 2) {
+        // (a: i64, b: i64) → T
         if (params[0].type == i64 and params[1].type == i64) {
             const a_int = valueToInt(a) orelse return error.TypeMismatch;
             const b_int = valueToInt(b) orelse return error.TypeMismatch;
-            const result = @call(.auto, user.$CLUSTER_ENTRY, .{ a_int, b_int });
-            return Value{ .int_ = result };
+            switch (@typeInfo(PayloadTy)) {
+                .int => {
+                    const result = if (is_error_union)
+                        try @call(.auto, user.$CLUSTER_ENTRY, .{ a_int, b_int })
+                    else
+                        @call(.auto, user.$CLUSTER_ENTRY, .{ a_int, b_int });
+                    return Value{ .int_ = result };
+                },
+                .bool => {
+                    const result = if (is_error_union)
+                        try @call(.auto, user.$CLUSTER_ENTRY, .{ a_int, b_int })
+                    else
+                        @call(.auto, user.$CLUSTER_ENTRY, .{ a_int, b_int });
+                    return Value{ .bool_ = result };
+                },
+                else => return error.UnsupportedSignature,
+            }
         }
     }
     if (params.len == 3) {
+        // (allocator, T_in, T_aux) → []u8
         if (params[0].type == std.mem.Allocator) {
             if (params[1].type == []const u8 or params[1].type == []u8) {
+                const name = valueToString(allocator, a) catch return error.TypeMismatch;
+                defer allocator.free(name);
+                // Dispatch on the third param type
                 if (params[2].type == bool) {
-                    const name = valueToString(allocator, a) catch return error.TypeMismatch;
-                    defer allocator.free(name);
                     const excited = valueToBool(b) orelse return error.TypeMismatch;
-                    const result = try @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, name, excited });
-                    return Value{ .string = result };
+                    switch (@typeInfo(PayloadTy)) {
+                        .pointer => |p| {
+                            if (p.size == .slice and p.child == u8) {
+                                const result = if (is_error_union)
+                                    try @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, name, excited })
+                                else
+                                    @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, name, excited });
+                                return Value{ .string = result };
+                            }
+                            return error.UnsupportedSignature;
+                        },
+                        else => return error.UnsupportedSignature,
+                    }
+                }
+                if (params[2].type == i64) {
+                    // (allocator, []const u8, i64) → []u8 — e.g. repeat
+                    const n = valueToInt(b) orelse return error.TypeMismatch;
+                    switch (@typeInfo(PayloadTy)) {
+                        .pointer => |p| {
+                            if (p.size == .slice and p.child == u8) {
+                                const result = if (is_error_union)
+                                    try @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, name, n })
+                                else
+                                    @call(.auto, user.$CLUSTER_ENTRY, .{ allocator, name, n });
+                                return Value{ .string = result };
+                            }
+                            return error.UnsupportedSignature;
+                        },
+                        else => return error.UnsupportedSignature,
+                    }
                 }
             }
         }

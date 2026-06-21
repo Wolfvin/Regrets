@@ -1,0 +1,14 @@
+cluster: is-even
+version: 1
+fingerprint: 56d0z1f
+captured: 2026-06-21T09:43:11.638Z
+watches: [isEven]
+entry: isEven
+stack: zig
+fingerprintLevel: entry
+multiArgs: false
+env: {"zig_version":"0.16.0"}
+---
+INPUT  4
+OUTPUT true
+HASH   56d0z1f

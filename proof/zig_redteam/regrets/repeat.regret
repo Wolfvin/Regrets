@@ -1,0 +1,14 @@
+cluster: repeat
+version: 1
+fingerprint: itbg8ye
+captured: 2026-06-21T09:43:14.002Z
+watches: [repeat]
+entry: repeat
+stack: zig
+fingerprintLevel: entry
+multiArgs: true
+env: {"zig_version":"0.16.0"}
+---
+INPUT  ["ab",3]
+OUTPUT "ababab"
+HASH   itbg8ye

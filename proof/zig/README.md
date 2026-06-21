@@ -23,9 +23,11 @@ proof/zig/
 ## Quick Start
 
 ```sh
-# 1. Make sure zig 0.13.0+ is installed (ZIG_BIN if zig isn't on PATH).
-#    Requires Zig 0.13.0 (verified) — newer versions may work but are untested.
-zig version  # → 0.13.0
+# 1. Make sure zig 0.14+ is installed (ZIG_BIN if zig isn't on PATH).
+#    Verified on Zig 0.16.0. Zig 0.13 and earlier are NOT compatible
+#    (the runner template uses APIs that changed in 0.14+ — see
+#    scripts/capture_zig.sh header for the full compatibility matrix).
+zig version  # → 0.16.0 (or any 0.14+ version)
 
 # 2. Capture fingerprints.
 cd proof/zig
