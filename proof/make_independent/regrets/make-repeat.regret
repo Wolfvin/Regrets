@@ -1,0 +1,12 @@
+cluster: make-repeat
+version: 1
+fingerprint: itbg8ye
+captured: 2026-06-21T09:42:02.002818+00:00
+entry: repeat
+stack: make
+file: ../string_utils.mk
+INPUTS pkr8t1v 3nd614u 1le8h1x
+---
+INPUT  ["ab", 3]
+OUTPUT "ababab"
+HASH   itbg8ye

@@ -114,6 +114,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **Go** | `go` | `capture_go.sh` | `capture_go.sh validate` | Community Preview |
 | **Rust** | `rust` | `capture_rust.sh` | `capture_rust.sh validate` | Community Preview |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
+| **Make** | `make` | `capture_make.sh` | `validate_make.sh` | GNU Make 4.x `define`/`endef` functions via `$(call ...)`. See [`references/make.md`](references/make.md) |
 
 ### Stack-specific examples
 

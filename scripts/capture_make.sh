@@ -122,26 +122,26 @@ while IFS= read -r cluster_id; do
 
   # Build the $(call) arguments from the first input
   if [[ "$multi_args" == "true" ]]; then
-    # Multi-arg: input is an array, each element is a separate $(call) arg
-    call_args=$(echo "$first_input" | python3 -c "
+    # Multi-arg: input is an array, each element is a separate call arg
+    call_args=$(echo "$first_input" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 if isinstance(data, list):
-    # Each element becomes a $(call) arg
-    print(','.join(str(v) for v in data))
+    # Each element becomes a call arg
+    print(",".join(str(v) for v in data))
 else:
     print(str(data))
-")
+')
   else
     # Single-arg: input is passed as $1
-    call_args=$(echo "$first_input" | python3 -c "
+    call_args=$(echo "$first_input" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 if isinstance(data, str):
     print(data)
 else:
     print(json.dumps(data))
-")
+')
   fi
 
   # Invoke the Make function via a temporary Makefile that uses $(error ...)

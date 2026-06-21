@@ -91,6 +91,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh capture {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh capture {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/capture_make.sh {extra_args}') and success
 
     elif command == 'validate':
         stacks = detect_stacks()
@@ -105,6 +107,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh {extra_args}') and success
 
     elif command == 'health':
         success = run(f'node {SCRIPTS_DIR}/health.js {extra_args}')
@@ -128,17 +132,40 @@ def main():
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
+        # Translate `update <id> --reason "..."` → stack-specific arg shape.
+        # Mirrors regret.js's translation logic:
+        #   - python/php/rust/go/make: `--update <id> --reason "..."`
+        #     (these validate scripts take the cluster id as the VALUE of --update)
+        #   - js/ts/css: `--update --cluster <id> --reason "..."`
+        #     (validate.js treats --update as a bare flag; --cluster carries the id)
+        # If the user already passed --update explicitly, pass through verbatim.
+        # Use shlex.quote() on each arg so multi-word --reason values survive
+        # the shell=True dispatch in run() (otherwise words get split).
+        import shlex as _shlex
+        if '--update' in args[1:]:
+            translated_extra = ' '.join(_shlex.quote(a) for a in args[1:])
+        elif target_cluster:
+            remaining_args = [a for a in args[1:] if a != target_cluster]
+            if target_stack in ('python', 'php', 'rust', 'go', 'make'):
+                translated_extra = '--update ' + _shlex.quote(target_cluster) + ' ' + ' '.join(_shlex.quote(a) for a in remaining_args)
+            else:
+                translated_extra = '--update --cluster ' + _shlex.quote(target_cluster) + ' ' + ' '.join(_shlex.quote(a) for a in remaining_args)
+        else:
+            translated_extra = '--update ' + ' '.join(_shlex.quote(a) for a in args[1:])
+
         if target_stack == 'python':
-            success = run(f'python3 {SCRIPTS_DIR}/validate.py {extra_args}')
+            success = run(f'python3 {SCRIPTS_DIR}/validate.py {translated_extra}')
         elif target_stack == 'php':
-            success = run(f'php {SCRIPTS_DIR}/validate_php.php {extra_args}')
+            success = run(f'php {SCRIPTS_DIR}/validate_php.php {translated_extra}')
         elif target_stack == 'rust':
-            success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}')
+            success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {translated_extra}')
         elif target_stack == 'go':
-            success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}')
+            success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {translated_extra}')
+        elif target_stack == 'make':
+            success = run(f'bash {SCRIPTS_DIR}/validate_make.sh {translated_extra}')
         else:
             # js, ts, css all use validate.js
-            success = run(f'node {SCRIPTS_DIR}/validate.js {extra_args}')
+            success = run(f'node {SCRIPTS_DIR}/validate.js {translated_extra}')
 
     elif command == 'drift':
         stacks = detect_stacks()
@@ -159,6 +186,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 print('  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually')
+            elif stack == 'make':
+                print('  ⏭️  Make drift detection: make output is deterministic; use --runs manually if needed')
 
     elif command == 'ci':
         stacks = detect_stacks()
@@ -173,6 +202,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh --fail-fast {extra_args}') and success
 
     elif command == 'rollback':
         target_cluster = None
@@ -202,6 +233,10 @@ def main():
             success = run(f'python3 {SCRIPTS_DIR}/capture.py --cluster {target_cluster}')
             if success:
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --cluster {target_cluster}')
+        elif target_stack == 'make':
+            success = run(f'bash {SCRIPTS_DIR}/capture_make.sh --cluster {target_cluster}')
+            if success:
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh --cluster {target_cluster}')
         else:
             success = run(f'node {SCRIPTS_DIR}/capture.js --cluster {target_cluster}')
             if success:
@@ -220,6 +255,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh --fail-fast {extra_args}') and success
         if success:
             print('\n✅ Regret guard passed — all clusters green.')
         else:
@@ -285,6 +322,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {extra_args}') and success
             elif stack == 'go':
                 success = run(f'bash {SCRIPTS_DIR}/capture_go.sh validate {extra_args}') and success
+            elif stack == 'make':
+                print('  ⏭️  Make truth capture: not yet supported — use bash scripts/validate_make.sh for validation')
             else:
                 print(f'  ⏭️  Stack "{stack}" — truth capture not yet supported')
 
@@ -373,6 +412,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   react     → capture_react.mjs / validate.js
   rust      → capture_rust.sh (capture + validate via cargo test)
   go        → capture_go.sh (Community Preview)
+  make      → capture_make.sh / validate_make.sh (GNU Make 4.x via $(call))
 
 Commands: list, verify-kebenaran, structure, branch-map, diagnose, compare,
 mutate-audit, discover — delegated through regret.js.
