@@ -1,7 +1,7 @@
 cluster: cue-hover-lift
 version: 1
 fingerprint: 62c08pe
-captured: 2026-06-21T10:40:44.713Z
+captured: 2026-06-21T10:58:59.286Z
 entry: .cue-hover-lift
 stack: css
 file: ../demo.css

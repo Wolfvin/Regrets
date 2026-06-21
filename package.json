@@ -43,6 +43,8 @@
     "web-tree-sitter": "^0.26.9"
   },
   "devDependencies": {
-    "postcss": "^8.5.15"
+    "postcss": "^8.5.15",
+    "vue": "^3.5.0",
+    "@vue/server-renderer": "^3.5.0"
   }
 }

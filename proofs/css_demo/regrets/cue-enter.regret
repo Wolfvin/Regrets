@@ -1,7 +1,7 @@
 cluster: cue-enter
 version: 1
 fingerprint: 9hc0xq7
-captured: 2026-06-21T10:40:44.711Z
+captured: 2026-06-21T10:58:59.285Z
 entry: .cue-enter
 stack: css
 file: ../demo.css

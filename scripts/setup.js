@@ -436,6 +436,8 @@ if (dryRun) {
       console.log('   Would run: python3 scripts/capture.py')
     } else if (stack === 'react') {
       console.log('   Would run: node scripts/capture_react.mjs')
+    } else if (stack === 'vue') {
+      console.log('   Would run: node scripts/capture_vue.mjs')
     } else if (stack === 'php') {
       console.log('   Would run: php scripts/capture_php.php')
     } else if (stack === 'ruby') {
@@ -473,6 +475,8 @@ if (dryRun) {
       captureOk = runVisible('python3', [`${SCRIPTS_DIR}/capture.py`]) && captureOk
     } else if (stack === 'react') {
       captureOk = runVisible('node', [`${SCRIPTS_DIR}/capture_react.mjs`]) && captureOk
+    } else if (stack === 'vue') {
+      captureOk = runVisible('node', [`${SCRIPTS_DIR}/capture_vue.mjs`]) && captureOk
     } else if (stack === 'php') {
       captureOk = runVisible('php', [`${SCRIPTS_DIR}/capture_php.php`]) && captureOk
     } else if (stack === 'ruby') {
@@ -516,6 +520,8 @@ if (dryRun) {
   for (const stack of manifestStacks) {
     if (stack === 'js' || stack === 'ts' || stack === 'react') {
       console.log('   Would run: node scripts/validate.js')
+    } else if (stack === 'vue') {
+      console.log('   Would run: node scripts/validate_vue.mjs')
     } else if (stack === 'python') {
       console.log('   Would run: python3 scripts/validate.py')
     } else if (stack === 'php') {
@@ -538,6 +544,8 @@ if (dryRun) {
   for (const stack of manifestStacks) {
     if (stack === 'js' || stack === 'ts' || stack === 'react') {
       validateOk = runVisible('node', [`${SCRIPTS_DIR}/validate.js`]) && validateOk
+    } else if (stack === 'vue') {
+      validateOk = runVisible('node', [`${SCRIPTS_DIR}/validate_vue.mjs`]) && validateOk
     } else if (stack === 'python') {
       validateOk = runVisible('python3', [`${SCRIPTS_DIR}/validate.py`]) && validateOk
     } else if (stack === 'php') {

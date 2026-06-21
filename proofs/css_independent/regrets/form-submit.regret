@@ -1,7 +1,7 @@
 cluster: form-submit
 version: 1
 fingerprint: 5yipnpb
-captured: 2026-06-21T10:40:45.587Z
+captured: 2026-06-21T10:59:00.257Z
 entry: .form-submit
 stack: css
 file: ../form.css

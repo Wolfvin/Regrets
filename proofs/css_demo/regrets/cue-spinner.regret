@@ -1,7 +1,7 @@
 cluster: cue-spinner
 version: 1
 fingerprint: 4hsro63
-captured: 2026-06-21T10:40:44.713Z
+captured: 2026-06-21T10:58:59.287Z
 entry: .cue-spinner
 stack: css
 file: ../demo.css
