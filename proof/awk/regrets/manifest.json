@@ -17,8 +17,8 @@
       "entry": "fibonacci.awk",
       "fingerprintLevel": "entry",
       "watches": ["fib"],
-      "inputs": ["10"],
-      "description": "10th Fibonacci number via awk user-defined function"
+      "inputs": ["10", "15", "20"],
+      "description": "Fibonacci via awk user-defined function — multi-input contract (Issue #315 parity): n=10→55, n=15→610, n=20→6765"
     },
     {
       "id": "reverse-lines",

@@ -1,7 +1,7 @@
 cluster: fibonacci
 version: 1
 fingerprint: 68xugix
-captured: 2026-06-21T05:21:34.794Z
+captured: 2026-06-21T07:47:14.474Z
 watches: [fib]
 entry: fibonacci.awk
 stack: awk
@@ -11,3 +11,4 @@ fingerprintLevel: entry
 INPUT  "10"
 OUTPUT "55"
 HASH   68xugix
+INPUTS [{"input":"15","output":"610","hash":"2thxeo4"},{"input":"20","output":"6765","hash":"2q6urzm"}]

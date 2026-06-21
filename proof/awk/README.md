@@ -63,3 +63,17 @@ regret validate
 - ✅ Trivial-input guard: empty stdout → skip cluster
 - ✅ Trailing-newline normalization: `print x` vs `printf "%s", x`
   produce the same fingerprint
+- ✅ **Issue #315 parity** — multi-input INPUTS line:
+  when a cluster's `inputs[]` has more than one entry, capture writes an
+  additional `INPUTS` line containing a JSON array of `{input, output, hash}`
+  entries for inputs[1+]. validate compares EVERY stored input's hash on
+  re-run, so a breaking change that only affects inputs[1+] is detected
+  (no false GREEN). Mirrors `capture.js` / `capture_vue.mjs` /
+  `validate.js` / `validate_vue.mjs` exactly. The `fibonacci` cluster in
+  this demo uses 3 inputs (`["10", "15", "20"]`) to exercise the contract.
+- ✅ `--update <id> --reason "..."` mode: refreshes both the top-level
+  golden hash AND the per-input hashes in the INPUTS line, then appends a
+  hash-chained entry to `regrets/audit.log`.
+- ✅ `--json` output mode: machine-readable results with
+  `multiInputFailures[]` array on FAIL.
+- ✅ `--fail-fast`, `--quiet`, `--verbose` flags for CI / scripting.

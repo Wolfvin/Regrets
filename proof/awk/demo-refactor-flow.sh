@@ -133,4 +133,18 @@ echo "✅ capture writes .regret files in the standard format"
 echo "✅ validate PASSes for valid refactor (output preserved)"
 echo "✅ validate FAILs (non-zero exit) for breaking refactor (output changed)"
 echo ""
+echo "═══ Bonus: Issue #315 multi-input contract ═══"
+echo "The fibonacci cluster has 3 inputs: [\"10\", \"15\", \"20\"]."
+echo "Its .regret file contains an INPUTS line with per-input hashes for inputs[1+]."
+echo "A subtle bug that only breaks n=15 / n=20 (preserving n=10) would be a"
+echo "false GREEN without the INPUTS line. With it, validate FAILs correctly."
+echo ""
+FIB_REGRET="${PROOF_DIR}/regrets/fibonacci.regret"
+if [ -f "${FIB_REGRET}" ] && grep -q '^INPUTS ' "${FIB_REGRET}"; then
+  echo "✅ fibonacci.regret has INPUTS line:"
+  grep '^INPUTS ' "${FIB_REGRET}" | head -1
+else
+  echo "⚠️  fibonacci.regret missing INPUTS line — re-capture to refresh."
+fi
+echo ""
 echo "Original fibonacci.awk restored."
