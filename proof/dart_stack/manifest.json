@@ -1,0 +1,64 @@
+{
+  "clusters": [
+    {
+      "id": "snake-case",
+      "entry": "snakeCase",
+      "file": "proof/dart_stack/string_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["snakeCase"],
+      "description": "Convert a string to snake_case",
+      "inputs": [
+        "HelloWorld",
+        "already_snake",
+        "PascalCaseXML",
+        "mixed-words here",
+        "",
+        "camelCase123Number"
+      ]
+    },
+    {
+      "id": "is-email",
+      "entry": "isEmail",
+      "file": "proof/dart_stack/string_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["isEmail"],
+      "description": "Validate email address format",
+      "inputs": [
+        "user@example.com",
+        "invalid",
+        "name.surname+tag@sub.example.co.uk",
+        "@nodomain.com",
+        "noat.com"
+      ]
+    },
+    {
+      "id": "format-thousands",
+      "entry": "formatThousands",
+      "file": "proof/dart_stack/string_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["formatThousands"],
+      "description": "Format an integer with comma thousands separators",
+      "inputs": [0, 1000, -1234567, 999999999, 42]
+    },
+    {
+      "id": "levenshtein",
+      "entry": "levenshtein",
+      "file": "proof/dart_stack/string_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["levenshtein"],
+      "description": "Levenshtein edit distance between two strings",
+      "multiArgs": true,
+      "inputs": [
+        ["kitten", "sitting"],
+        ["flaw", "lawn"],
+        ["same", "same"],
+        ["", "abc"],
+        ["sunday", "saturday"]
+      ]
+    }
+  ]
+}

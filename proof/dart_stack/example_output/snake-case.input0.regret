@@ -1,0 +1,12 @@
+cluster: snake-case
+version: 1
+fingerprint: 69495z4
+captured: 2026-06-21T05:07:28.071Z
+watches: [snakeCase]
+entry: snakeCase
+stack: dart
+fingerprintLevel: entry
+---
+INPUT  "HelloWorld"
+OUTPUT "hello_world"
+HASH   69495z4
