@@ -1,0 +1,14 @@
+cluster: php-invoice-calculate
+version: 1
+fingerprint: 5cc8oyq
+captured: 2026-06-20T17:46:34+00:00
+watches: [calculate]
+entry: Invoice::calculate
+stack: php
+fingerprintLevel: entry
+multiArgs: true
+file: src/Invoice.php
+---
+INPUT  [[{"price":10,"qty":2},{"price":5.5,"qty":3}],0]
+OUTPUT {"subtotal":36.5,"discount":0,"tax":4.015,"total":40.515}
+HASH   5cc8oyq
