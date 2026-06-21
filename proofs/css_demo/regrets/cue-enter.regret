@@ -1,11 +1,11 @@
 cluster: cue-enter
 version: 1
-fingerprint: 5s9hdtr
-captured: 2026-06-20T18:00:22.903Z
+fingerprint: 9hc0xq7
+captured: 2026-06-21T07:02:43.277Z
 entry: .cue-enter
 stack: css
 file: ../demo.css
 ---
 INPUT  {"selector":".cue-enter"}
 OUTPUT ["animation: cue-slide-up 300ms cubic-bezier(0.16, 1, 0.3, 1) both","opacity: 0","opacity: 1","transform: translateY(0)","transform: translateY(16px)"]
-HASH   5s9hdtr
+HASH   9hc0xq7

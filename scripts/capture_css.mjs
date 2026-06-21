@@ -52,16 +52,12 @@ function fingerprint(input, output) {
   const inputStr = stableStringify(input);
   const outputStr = stableStringify(output);
   const hash = createHash('sha256').update(inputStr + '|' + outputStr).digest('hex');
-  // Convert to base36 (BigInteger)
-  let num = BigInt('0x' + hash.substring(0, 16)); // Use first 16 hex chars (64 bits)
-  let base36 = '';
-  const radix = 36n;
-  while (num > 0n) {
-    const remainder = num % radix;
-    num = num / radix;
-    base36 = remainder.toString(36) + base36;
-  }
-  return base36.substring(0, 7);
+  // Use FULL 256-bit hash (not first 16 hex chars / 64 bits) — matches
+  // scripts/fingerprint.js reference implementation for cross-stack parity.
+  // The 64-bit truncation previously used here made CSS .regret HASH values
+  // diverge from JS/Lua/Rust for identical input+output, breaking the
+  // cross-stack .regret compatibility contract.
+  return BigInt('0x' + hash).toString(36).slice(0, 7);
 }
 
 // ─── CSS Declaration Extraction ──────────────────────────────────────────────

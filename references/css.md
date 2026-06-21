@@ -23,14 +23,15 @@ CSS is a special case for Regrets because CSS doesn't have "function calls" in t
 - ✅ Property additions/removals (e.g., adding `transform: scale(1.1)` = breaking)
 - ✅ Pseudo-class/attribute selector declarations (e.g., `.cue-enter:hover`, `.cue-enter[data-active="true"]`)
 - ✅ Comment-only changes (non-breaking — comments are not declarations)
+- ✅ `@media` query declarations — declarations inside `@media` blocks ARE extracted (the media condition itself is not part of the fingerprint, but the declarations are merged with non-media declarations for the same selector)
 
 ### What this does NOT capture
 
 - ❌ Cascade interactions (how rules combine across selectors)
 - ❌ Inheritance
 - ❌ Browser-specific computed values
-- ❌ `@media` query fingerprinting (deferred to future PR)
-- ❌ `@keyframes` content fingerprinting (deferred)
+- ❌ `@keyframes` content fingerprinting (deferred — keyframe declarations like `0% { opacity: 0 }` are not extracted)
+- ❌ `@media` condition changes (only the declarations inside are fingerprinted, not the media query itself)
 
 ## Quick Start
 
@@ -117,8 +118,8 @@ This demonstrates:
 
 ## Known Gaps (future PRs)
 
-- `@media` query fingerprinting (currently ignored — declarations inside @media are not extracted)
-- `@keyframes` content fingerprinting (currently ignored)
+- `@media` condition fingerprinting (declarations inside `@media` ARE captured today, but the media condition itself — e.g. `(max-width: 600px)` vs `(max-width: 768px)` — is NOT part of the fingerprint. Changing the condition while keeping declarations unchanged would PASS validation.)
+- `@keyframes` content fingerprinting (currently ignored — keyframe declarations are not extracted)
 - Cascade resolution (multiple rules matching the same selector are merged, but specificity is not resolved)
 - `--update` mode (re-capture after intentional change)
 - Dispatch integration in `scripts/regret.js` (currently standalone scripts)

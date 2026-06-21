@@ -52,15 +52,10 @@ function fingerprint(input, output) {
   const inputStr = stableStringify(input);
   const outputStr = stableStringify(output);
   const hash = createHash('sha256').update(inputStr + '|' + outputStr).digest('hex');
-  let num = BigInt('0x' + hash.substring(0, 16));
-  let base36 = '';
-  const radix = 36n;
-  while (num > 0n) {
-    const remainder = num % radix;
-    num = num / radix;
-    base36 = remainder.toString(36) + base36;
-  }
-  return base36.substring(0, 7);
+  // Use FULL 256-bit hash (not first 16 hex chars / 64 bits) — matches
+  // scripts/fingerprint.js reference implementation for cross-stack parity.
+  // See capture_css.mjs for the rationale.
+  return BigInt('0x' + hash).toString(36).slice(0, 7);
 }
 
 // ─── CSS Declaration Extraction (identical to capture_css.mjs) ───────────────
