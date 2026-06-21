@@ -147,6 +147,24 @@ const templates = {
         ]
       }
     ]
+  },
+  csharp: {
+    clusters: [
+      {
+        id: 'example-cluster',
+        entry: 'MyFunction',
+        class: 'MyNamespace.MyClass',
+        watches: ['MyFunction'],
+        stack: 'csharp',
+        fingerprintLevel: 'entry',
+        description: 'Example C# cluster — replace with your actual cluster definitions. Requires .NET 8+ SDK and source files in src/.',
+        inputs: [
+          'sample_input_1',
+          'hello',
+          ''
+        ]
+      }
+    ]
   }
 }
 
@@ -221,6 +239,13 @@ if (stack === 'css') {
   console.log(`📦 Note for CSS stack: CSS uses the JS runner (capture.js / validate.js).`)
   console.log(`   Your module should export a function that takes CSS input and returns the transformed output.`)
   console.log(`   See references/css-stack-guide.md for PostCSS, Sass, and CSS-in-JS examples.`)
+}
+if (stack === 'csharp') {
+  console.log()
+  console.log(`📦 Note for C# stack: requires .NET 8+ SDK (\`dotnet\` on PATH).`)
+  console.log(`   Put your .cs source files in src/ (or set REGRET_CSHARP_SRC=/path/to/src).`)
+  console.log(`   The manifest uses the \`class\` field (fully-qualified type name) + \`entry\` (public static method name).`)
+  console.log(`   See proof/csharp-demo/ for a working end-to-end example.`)
 }
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)
