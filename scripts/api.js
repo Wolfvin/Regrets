@@ -712,7 +712,7 @@ function extractCjsObjectExports(source) {
  * @param {string} [options.dir='.'] - Directory to scan
  * @param {string} [options.stack] - Filter by stack (js, ts, python)
  * @param {string} [options.cwd=process.cwd()] - Working directory
- * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[]}>}>}
+ * @returns {Promise<{suggestions: Array<{id: string, entry: string, file: string, stack: string, watches: string[], fingerprintLevel: string, inputs: any[], callees: string[]}>}>}
  *
  * @example
  * const { suggestions } = await scan({ dir: 'src/', stack: 'js' })
@@ -788,12 +788,24 @@ export async function scan(options = {}) {
 
         for (const fnName of fns) {
           const clusterId = fnName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')
+          // Issue #289: align scan() output shape with install.js so MCP agents
+          // using regrets_scan get the same default behavior as CLI users running
+          // `regret install`. Previously scan() emitted `watches: [fnName]`, which
+          // triggered `fingerprintLevel: 'watched'` default mode in capture.js
+          // (ghost proxy + callee recording) — a different contract from install.js
+          // which emits `watches: []` + explicit `fingerprintLevel: 'entry'`.
+          // inputs/callees left empty: scan() is a lightweight suggestion tool and
+          // does not run probeTrivialOutputs() or analyzeScope(). MCP agents should
+          // run `regret install` to populate them, or fill them manually.
           suggestions.push({
             id: clusterId,
             entry: fnName,
             file: relPath,
             stack,
-            watches: [fnName],
+            watches: [],
+            fingerprintLevel: 'entry',
+            inputs: [],
+            callees: [],
           })
         }
       } catch { /* skip unreadable files */ }

@@ -40,6 +40,9 @@ declare module "regret-testing" {
     file: string;
     stack: string;
     watches: string[];
+    fingerprintLevel: string;
+    inputs: unknown[];
+    callees: string[];
   }
 
   export interface ScanResult {
