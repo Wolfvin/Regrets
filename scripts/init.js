@@ -165,6 +165,24 @@ const templates = {
         ]
       }
     ]
+  },
+  vue: {
+    clusters: [
+      {
+        id: 'greeting-card',
+        entry: 'GreetingCard',
+        watches: ['GreetingCard'],
+        file: 'src/GreetingCard.mjs',
+        stack: 'vue',
+        fingerprintLevel: 'entry',
+        description: 'Vue 3 component rendered to HTML via @vue/server-renderer — replace with your actual cluster definitions',
+        inputs: [
+          { name: 'World' },
+          { name: 'Vue' },
+          { name: '' }
+        ]
+      }
+    ]
   }
 }
 
@@ -253,6 +271,13 @@ if (stack === 'csharp') {
   console.log(`   Put your .cs source files in src/ (or set REGRET_CSHARP_SRC=/path/to/src).`)
   console.log(`   The manifest uses the \`class\` field (fully-qualified type name) + \`entry\` (public static method name).`)
   console.log(`   See proof/csharp-demo/ for a working end-to-end example.`)
+}
+if (stack === 'vue') {
+  console.log()
+  console.log(`📦 Note for Vue stack: requires vue@3 + @vue/server-renderer@3 as devDependencies.`)
+  console.log(`   npm install --save-dev vue @vue/server-renderer`)
+  console.log(`   Your component file (.mjs / .js) should export the component as a named export matching the manifest 'entry' field.`)
+  console.log(`   See proof/vue_demo/ for a working end-to-end example.`)
 }
 console.log()
 console.log(`See SKILL.md and references/ for full documentation.`)

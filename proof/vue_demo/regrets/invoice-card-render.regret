@@ -1,0 +1,12 @@
+cluster: invoice-card-render
+version: 1
+fingerprint: 30uqm2n
+captured: 2026-06-21T05:16:59.311Z
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: vue
+renderMode: ssr
+---
+INPUT  {"invoice":{"id":"INV-2026-001","amount":1250.5,"currency":"USD"},"customer":{"name":"Alice Anderson","email":"alice@example.com"},"status":"paid"}
+OUTPUT "<div class=\"invoice-card\"><div class=\"invoice-header\"><span class=\"invoice-id\">INV-2026-001</span><span class=\"status status-paid\">PAID</span></div><div class=\"invoice-amount\">USD 1250.50</div><div class=\"invoice-customer\"><div class=\"customer-name\">Alice Anderson</div><div class=\"customer-email\">alice@example.com</div></div></div>"
+HASH   30uqm2n
