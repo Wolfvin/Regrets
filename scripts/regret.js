@@ -260,6 +260,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_nim.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'jq') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_jq.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -309,6 +311,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'jq') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -356,7 +360,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -407,6 +411,8 @@ async function main() {
       // validate_react.mjs expects --update <id> --reason "..." (same shape as
       // Python/PHP/Rust/Go), so it goes through the same translatedArgs path.
       success = await run('node', [`${SCRIPTS_DIR}/validate_react.mjs`, ...translatedArgs])
+    } else if (targetStack === 'jq') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, ...translatedArgs])
     } else {
       // js, ts use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -458,6 +464,8 @@ async function main() {
         console.log(`  ⏭️  C drift detection: run validate_c.sh with --runs flag manually`)
       } else if (stack === 'nim') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'jq') {
+        console.log(`  ⏭️  jq drift detection: jq output is deterministic; use --runs manually if needed`)
       }
     }
     break
@@ -505,6 +513,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'nim') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'jq') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     break
@@ -555,6 +565,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
       } else if (stack === 'nim') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'jq') {
+        console.log(`  ⏭️  jq truth capture: not yet supported — use bash scripts/validate_jq.sh for validation`)
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -787,6 +799,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'nim') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'jq') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     if (success) {
