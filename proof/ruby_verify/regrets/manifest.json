@@ -1,0 +1,55 @@
+{
+  "clusters": [
+    {
+      "id": "ruby-verify-crc32",
+      "entry": "crc32",
+      "watches": ["crc32"],
+      "file": "lib/verify_lib.rb",
+      "stack": "ruby",
+      "fingerprintLevel": "entry",
+      "description": "CRC32 (zip polynomial) of 'Hello' — table-driven checksum (no Zlib.crc32 builtin)",
+      "inputs": ["Hello"]
+    },
+    {
+      "id": "ruby-verify-base64-encode",
+      "entry": "base64_encode",
+      "watches": ["base64_encode"],
+      "file": "lib/verify_lib.rb",
+      "stack": "ruby",
+      "fingerprintLevel": "entry",
+      "description": "Base64 encode 'Hello' — bitwise ops + lookup table (no Base64.encode64 builtin)",
+      "inputs": ["Hello"]
+    },
+    {
+      "id": "ruby-verify-levenshtein",
+      "entry": "levenshtein",
+      "watches": ["levenshtein"],
+      "file": "lib/verify_lib.rb",
+      "stack": "ruby",
+      "fingerprintLevel": "entry",
+      "description": "Levenshtein edit distance (kitten→sitting) — 2D DP matrix with two rolling rows",
+      "inputs": [["kitten", "sitting"]],
+      "multiArgs": true
+    },
+    {
+      "id": "ruby-verify-is-valid-ipv4",
+      "entry": "is_valid_ipv4",
+      "watches": ["is_valid_ipv4"],
+      "file": "lib/verify_lib.rb",
+      "stack": "ruby",
+      "fingerprintLevel": "entry",
+      "description": "Validate IPv4 '192.168.1.1' — multi-delimiter parser + range check",
+      "inputs": ["192.168.1.1"]
+    },
+    {
+      "id": "ruby-verify-fnv1a",
+      "entry": "fnv1a",
+      "watches": ["fnv1a"],
+      "file": "lib/verify_lib.rb",
+      "stack": "ruby",
+      "fingerprintLevel": "entry",
+      "description": "FNV-1a 32-bit hash of 'Hello' — multiply + XOR per byte",
+      "inputs": ["Hello"]
+    }
+  ]
+}

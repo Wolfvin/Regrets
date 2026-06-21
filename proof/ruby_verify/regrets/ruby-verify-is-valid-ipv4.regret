@@ -1,0 +1,13 @@
+cluster: ruby-verify-is-valid-ipv4
+version: 1
+fingerprint: 5fyfbp9
+captured: 2026-06-21T09:48:37.128981Z
+watches: [is_valid_ipv4]
+entry: is_valid_ipv4
+stack: ruby
+fingerprintLevel: entry
+file: lib/verify_lib.rb
+---
+INPUT  "192.168.1.1"
+OUTPUT true
+HASH   5fyfbp9
