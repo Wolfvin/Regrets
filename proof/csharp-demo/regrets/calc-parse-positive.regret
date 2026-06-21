@@ -1,0 +1,15 @@
+cluster: calc-parse-positive
+version: 1
+fingerprint: 1f74s4r
+captured: 2026-06-20T18:01:58.676042+00:00
+watches: [ParsePositiveInt]
+entry: ParsePositiveInt
+stack: csharp
+fingerprintLevel: entry
+class: RegretDemo.Calculator
+env: {"runtime":"dotnet","version":"8.0.28"}
+---
+INPUT  "42"
+OUTPUT 42
+HASH   1f74s4r
+INPUTS [{"input":"100","output":100,"hash":"4u9swww","threw":false}]

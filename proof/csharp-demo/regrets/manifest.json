@@ -1,0 +1,76 @@
+{
+  "clusters": [
+    {
+      "id": "calc-add",
+      "entry": "Add",
+      "class": "RegretDemo.Calculator",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "watches": ["Add"],
+      "description": "Add two integers (a + b). Input is [a, b].",
+      "inputs": [
+        [2, 3],
+        [10, 20],
+        [-5, 7],
+        [0, 0],
+        [100, 200]
+      ]
+    },
+    {
+      "id": "calc-multiply",
+      "entry": "Multiply",
+      "class": "RegretDemo.Calculator",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "watches": ["Multiply"],
+      "description": "Multiply two integers (a * b). Input is [a, b].",
+      "inputs": [
+        [3, 4],
+        [12, 12],
+        [-3, 9]
+      ]
+    },
+    {
+      "id": "calc-reverse",
+      "entry": "ReverseString",
+      "class": "RegretDemo.Calculator",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "watches": ["ReverseString"],
+      "description": "Reverse a string. Input is a single string.",
+      "inputs": [
+        "hello",
+        "Regrets",
+        "racecar",
+        ""
+      ]
+    },
+    {
+      "id": "calc-fizzbuzz",
+      "entry": "FizzBuzz",
+      "class": "RegretDemo.Calculator",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "watches": ["FizzBuzz"],
+      "description": "Classic FizzBuzz. Input is a single int n; returns array of n strings.",
+      "inputs": [
+        5,
+        15,
+        1
+      ]
+    },
+    {
+      "id": "calc-parse-positive",
+      "entry": "ParsePositiveInt",
+      "class": "RegretDemo.Calculator",
+      "stack": "csharp",
+      "fingerprintLevel": "entry",
+      "watches": ["ParsePositiveInt"],
+      "description": "Parse a non-negative integer string. Throws on negative or non-integer.",
+      "inputs": [
+        "42",
+        "100"
+      ]
+    }
+  ]
+}
