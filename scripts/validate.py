@@ -711,6 +711,15 @@ def parse_regret(content):
             meta['modes_data'][-1]['fp'] = line[7:].strip()
         elif line.startswith('  KWARGS ') and 'modes_data' in meta and meta['modes_data']:
             meta['modes_data'][-1]['kwargs'] = json.loads(line[9:])
+        elif line.startswith('INPUTS '):
+            # Issue #315: parse the INPUTS line (multi-input parent contract).
+            # Format: `INPUTS  <json-array>` where each element is
+            # { input: <value>, output: <value>, hash: <7char> } for inputs 1+.
+            # The first input is represented by the top-level INPUT/OUTPUT/HASH lines.
+            try:
+                meta['goldenInputs'] = json.loads(line[7:])
+            except (json.JSONDecodeError, ValueError):
+                meta['goldenInputs'] = None
 
     meta['raw'] = content
     return meta
@@ -912,7 +921,7 @@ def restore_instance(instance, originals):
 
 # ─── Update .regret file ─────────────────────────────────────────────────────
 
-def update_regret(regret_path, regret, new_hash, live_output, reason):
+def update_regret(regret_path, regret, new_hash, live_output, reason, live_inputs=None):
     old_hash = regret.get('goldenHash', '')
     now = datetime.now(timezone.utc).isoformat()
 
@@ -922,6 +931,27 @@ def update_regret(regret_path, regret, new_hash, live_output, reason):
     new_content = re.sub(r'^captured: .+$', f'captured: {now}', new_content, flags=re.MULTILINE)
     new_content = re.sub(r'^OUTPUT .+$', f'OUTPUT {json.dumps(_numpy_to_native(live_output), ensure_ascii=False)}', new_content, flags=re.MULTILINE)
     new_content = re.sub(r'^HASH .+$', f'HASH   {new_hash}', new_content, flags=re.MULTILINE)
+
+    # Issue #315: refresh the INPUTS line with the new per-input hashes.
+    # live_inputs[0] is the golden (already represented by the top-level lines),
+    # so we take live_inputs[1:] — matching the convention in capture.js.
+    if isinstance(live_inputs, list) and len(live_inputs) > 1:
+        inputs_payload = live_inputs[1:]
+        inputs_line = f'INPUTS {json.dumps(_numpy_to_native(inputs_payload), ensure_ascii=False)}'
+        # Replace existing INPUTS line or insert after HASH line
+        if re.search(r'^INPUTS ', new_content, flags=re.MULTILINE):
+            new_content = re.sub(r'^INPUTS .+$', inputs_line, new_content, flags=re.MULTILINE)
+        else:
+            # Insert INPUTS line right after the HASH line
+            new_content = re.sub(
+                r'^(HASH .+)$',
+                r'\1\n' + inputs_line,
+                new_content,
+                flags=re.MULTILINE,
+            )
+    else:
+        # No live multi-input data — drop any stale INPUTS line
+        new_content = re.sub(r'^INPUTS .+\n?', '', new_content, flags=re.MULTILINE)
 
     _lk = acquire_lock(regret_path)
     try:
@@ -1170,6 +1200,7 @@ def main():
 
             hashes = []           # flat list of all hashes (for backward compat)
             hashes_per_input = {}  # { inputKey: [hash_run1, hash_run2, ...] } for per-input drift
+            live_inputs = []      # Issue #315: per-input live hashes, parallel to goldenInputs
             last_output = None
             live_return_state = None
 
@@ -1199,11 +1230,11 @@ def main():
                     if Cls is None or not isinstance(Cls, type):
                         raise TypeError(f"Constructor \"{constructor_name or entry_name}\" not found or not a class in {module_path}")
 
-                    for current_input in inputs_to_validate:
+                    for input_index, current_input in enumerate(inputs_to_validate):
                         input_for_fp = deep_clone(current_input)
                         input_for_args = deep_clone(current_input)
 
-                        # ── Seed RNG if configured ────────────────────────────
+                        # ── Seed RNG if configured ────────────────────────
                         saved_rng = None
                         if seed_value is not None:
                             saved_rng = seed_rng(seed_value)
@@ -1345,6 +1376,20 @@ def main():
 
                         hashes.append(fp)
 
+                        # Issue #315: track per-input live results for multi-input contract checking
+                        if input_index < len(live_inputs):
+                            live_inputs[input_index] = {
+                                'input': deep_clone(current_input) if current_input is not None else None,
+                                'output': deep_clone(output_for_fp),
+                                'hash': fp,
+                            }
+                        else:
+                            live_inputs.append({
+                                'input': deep_clone(current_input) if current_input is not None else None,
+                                'output': deep_clone(output_for_fp),
+                                'hash': fp,
+                            })
+
                         # ── Restore RNG state after this input run ──────────────
                         if saved_rng is not None:
                             restore_rng(*saved_rng)
@@ -1401,7 +1446,7 @@ def main():
                             f"dispatch/getState or setState/getState methods."
                         )
 
-                    for current_input in inputs_to_validate:
+                    for input_index, current_input in enumerate(inputs_to_validate):
                         input_for_fp = deep_clone(current_input)
                         input_for_args = deep_clone(current_input)
 
@@ -1504,7 +1549,7 @@ def main():
                         dt_cm, time_cm = freeze_time(freeze_time_str)
                         freeze_cms = [dt_cm, time_cm]
 
-                    for current_input in inputs_to_validate:
+                    for input_index, current_input in enumerate(inputs_to_validate):
                         input_for_fp = deep_clone(current_input)
                         input_for_args = deep_clone(current_input)
 
@@ -1630,7 +1675,7 @@ def main():
                         if entry_fn is None or not callable(entry_fn):
                             raise TypeError(f"Entry \"{entry_name}\" not found in {module_path}")
 
-                    for current_input in inputs_to_validate:
+                    for input_index, current_input in enumerate(inputs_to_validate):
                         # Deep-clone input before calling to prevent mutation from corrupting fingerprint
                         input_for_fp = deep_clone(current_input)
                         input_for_args = deep_clone(current_input)
@@ -1787,6 +1832,20 @@ def main():
 
                         hashes.append(fp)
 
+                        # Issue #315: track per-input live results for multi-input contract checking
+                        if input_index < len(live_inputs):
+                            live_inputs[input_index] = {
+                                'input': deep_clone(current_input) if current_input is not None else None,
+                                'output': deep_clone(output_for_fp),
+                                'hash': fp,
+                            }
+                        else:
+                            live_inputs.append({
+                                'input': deep_clone(current_input) if current_input is not None else None,
+                                'output': deep_clone(output_for_fp),
+                                'hash': fp,
+                            })
+
                         # ── Restore RNG state after this input run ──────────────
                         if saved_rng is not None:
                             restore_rng(*saved_rng)
@@ -1799,6 +1858,39 @@ def main():
 
             live_hash = hashes[0]
             is_match = live_hash == regret.get('goldenHash')
+
+            # Issue #315: multi-input contract checking
+            # If the .regret file has a goldenInputs array, compare each golden
+            # input's hash against the corresponding live input. If ANY input's
+            # hash differs, the cluster FAILs — even when the first input still matches.
+            multi_input_failures = []  # [{ input, goldenHash, liveHash }]
+            golden_inputs = regret.get('goldenInputs')
+            if isinstance(golden_inputs, list) and len(golden_inputs) > 0:
+                for golden_entry in golden_inputs:
+                    if not isinstance(golden_entry, dict):
+                        continue
+                    golden_input_str = json.dumps(golden_entry.get('input'), sort_keys=True)
+                    # Find the matching live input by value
+                    live_entry = None
+                    for li in live_inputs:
+                        if li and json.dumps(li.get('input'), sort_keys=True) == golden_input_str:
+                            live_entry = li
+                            break
+                    if not live_entry:
+                        # Golden input is no longer in the manifest — can't re-run.
+                        # Skip with a note (the user changed inputs).
+                        if verbose and not json_output and not quiet:
+                            print(f"  │ ⏭️  input {golden_input_str} no longer in manifest — skipping (re-capture to refresh)")
+                        continue
+                    if live_entry.get('hash') != golden_entry.get('hash'):
+                        multi_input_failures.append({
+                            'input': golden_entry.get('input'),
+                            'goldenHash': golden_entry.get('hash'),
+                            'liveHash': live_entry.get('hash'),
+                        })
+                if len(multi_input_failures) > 0:
+                    is_match = False  # any input mismatch FAILs the cluster
+
             # Per-input drift detection: each input must produce the same hash across all runs.
             is_drift = drift_mode and any(
                 len(set(input_hashes)) > 1
@@ -1965,7 +2057,8 @@ def main():
                     results.append({'id': cluster_id, 'pass': True})
                 else:
                     old_hash, new_hash = update_regret(
-                        regret_path, regret, live_hash, last_output, cli['reason']
+                        regret_path, regret, live_hash, last_output, cli['reason'],
+                        live_inputs=live_inputs
                     )
                     if not json_output:
                         print(f"  ✅ {cluster_id:<35} {old_hash} → {new_hash}  UPDATED")
@@ -2005,9 +2098,18 @@ def main():
                                         print(f"       > {d['path']}: {d.get('expected_type', '?')} → {d.get('actual_type', '?')}")
                                 if len(diffs) > 10:
                                     print(f"       ... and {len(diffs) - 10} more")
+                    # Issue #315: report multi-input failures
+                    if len(multi_input_failures) > 0:
+                        print(f"    ⚠️  {len(multi_input_failures)} additional input(s) changed behavior:")
+                        for f in multi_input_failures:
+                            inp_str = json.dumps(f['input'])
+                            if len(inp_str) > 50:
+                                inp_str = inp_str[:47] + '...'
+                            print(f"      • {inp_str}: {f['goldenHash']} → {f['liveHash']}")
                 results.append({
                     'id': cluster_id, 'pass': is_match,
-                    'golden': regret.get('goldenHash'), 'live': live_hash
+                    'golden': regret.get('goldenHash'), 'live': live_hash,
+                    **({'multiInputFailures': multi_input_failures} if multi_input_failures else {}),
                 })
 
         except Exception as err:
