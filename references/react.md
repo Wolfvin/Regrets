@@ -411,10 +411,88 @@ node scripts/validate_react.mjs --json                       # machine-readable 
 
 ### End-to-end demo
 
-A complete working example lives at `proof/react_demo/` — two clusters
-captured from a real (small) React component, with a script that walks
-through PASS / valid-refactor-PASS / breaking-refactor-FAIL / update-with-audit
-/ PASS-again. See `proof/react_demo/README.md` and `proof/react_demo/demo.sh`.
+A complete working example lives at `proof/react_demo/` — three clusters
+captured from a real (small) React component, with two scripts that walk
+through:
+
+- `demo.sh` — single-input scenarios: PASS / valid-refactor-PASS /
+  breaking-refactor-FAIL / update-with-audit / PASS-again.
+- `demo_multi_input.sh` — multi-input (Issue #315 parity) scenarios:
+  shows how a refactor that only breaks `inputs[3]` (status: 'void') is
+  caught by the INPUTS contract — without multi-input, validate would
+  falsely PASS because only `inputs[0]` is checked.
+
+See `proof/react_demo/README.md` for the full documentation.
+
+---
+
+## Multi-input contract (Issue #315 parity)
+
+When a cluster's manifest declares multiple `inputs`, capture writes an
+`INPUTS <json-array>` line to the `.regret` file. Each entry is
+`{input, output, hash}` for inputs[1+] — the first input remains in the
+top-level `INPUT`/`OUTPUT`/`HASH` trio (unchanged from single-input
+behavior). validate_react.mjs then re-renders EVERY stored input and FAILs
+the cluster if ANY hash mismatches — even when the first input still matches.
+
+### Why this matters
+
+Without the INPUTS line, validate only checks `inputs[0]`. A refactor that
+breaks only `inputs[1+]` behavior is invisible — validate reports a false
+GREEN. Example: a `<StatusCard>` component with 4 inputs covering status
+values `paid`/`unpaid`/`overdue`/`void`. If you change the `void` label
+from "Void" to "Cancelled", only `inputs[3]` (status: void) produces
+different HTML. `inputs[0]` (paid) is unaffected. Without INPUTS, validate
+PASSes; with INPUTS, validate FAILs.
+
+### .regret file format
+
+Single-input (INPUTS line omitted — no overhead):
+
+```
+cluster: invoice-card-paid
+version: 1
+fingerprint: 6bwpiga
+captured: 2026-06-21T...
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: react
+renderMode: static
+---
+INPUT  {"invoice":{"id":"INV-2026-0042","amount":1250000,...}}
+OUTPUT "<div class=\"invoice-card invoice-card--paid\">...</div>"
+HASH   6bwpiga
+```
+
+Multi-input (INPUTS line present):
+
+```
+cluster: invoice-card-multi-status
+version: 1
+fingerprint: 3ikakf5
+captured: 2026-06-21T...
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: react
+renderMode: static
+stripAttrs: [data-invoice-id]
+---
+INPUT  {"invoice":{"id":"INV-2026-0001","amount":100,"currency":"USD","status":"paid",...}}
+OUTPUT "<div class=\"invoice-card invoice-card--paid\">...</div>"
+HASH   3ikakf5
+INPUTS [{"input":{"invoice":{"id":"INV-2026-0002",...,"status":"unpaid"}},"output":"...","hash":"2zeipgb"},{"input":{"invoice":{...,"status":"overdue"}},"output":"...","hash":"znl03rb"},{"input":{"invoice":{...,"status":"void"}},"output":"...","hash":"2lvul73"}]
+```
+
+### Backward compatibility
+
+- **Old `.regret` files (no INPUTS line)**: validate falls back to checking
+  only the first input. Old captures still work; re-capture to opt in.
+- **New `.regret` files with a single input**: INPUTS line is omitted (no
+  overhead for the common case).
+- **New `.regret` files with multiple inputs**: INPUTS line contains
+  `results.slice(1)` — validate compares every hash.
+- **Update mode**: refreshes BOTH the top-level `HASH` AND the `INPUTS`
+  line atomically. The next `validate` will PASS again.
 
 ---
 

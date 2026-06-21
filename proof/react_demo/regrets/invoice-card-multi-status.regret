@@ -1,0 +1,14 @@
+cluster: invoice-card-multi-status
+version: 1
+fingerprint: 3ikakf5
+captured: 2026-06-21T05:30:08.565Z
+watches: [InvoiceCard]
+entry: InvoiceCard
+stack: react
+renderMode: static
+stripAttrs: [data-invoice-id]
+---
+INPUT  {"invoice":{"id":"INV-2026-0001","amount":100,"currency":"USD","status":"paid","dueDate":"2026-07-01"},"locale":"en-US"}
+OUTPUT "<div class=\"invoice-card invoice-card--paid\"><header class=\"invoice-card__header\"><span class=\"invoice-card__id\">Invoice #INV-2026-0001</span><span class=\"invoice-card__status invoice-card__status--paid\">Paid</span></header><dl class=\"invoice-card__body\"><dt>Amount</dt><dd>USD 100.00</dd><dt>Due</dt><dd>2026-07-01</dd><dt>Locale</dt><dd>en-US</dd></dl></div>"
+HASH   3ikakf5
+INPUTS [{"input":{"invoice":{"id":"INV-2026-0002","amount":200,"currency":"USD","status":"unpaid","dueDate":"2026-07-15"},"locale":"en-US"},"output":"<div class=\"invoice-card invoice-card--unpaid\"><header class=\"invoice-card__header\"><span class=\"invoice-card__id\">Invoice #INV-2026-0002</span><span class=\"invoice-card__status invoice-card__status--unpaid\">Unpaid</span></header><dl class=\"invoice-card__body\"><dt>Amount</dt><dd>USD 200.00</dd><dt>Due</dt><dd>2026-07-15</dd><dt>Locale</dt><dd>en-US</dd></dl></div>","hash":"2zeipgb"},{"input":{"invoice":{"id":"INV-2026-0003","amount":300,"currency":"USD","status":"overdue","dueDate":"2026-05-01"},"locale":"en-US"},"output":"<div class=\"invoice-card invoice-card--overdue\"><header class=\"invoice-card__header\"><span class=\"invoice-card__id\">Invoice #INV-2026-0003</span><span class=\"invoice-card__status invoice-card__status--overdue\">Overdue</span></header><dl class=\"invoice-card__body\"><dt>Amount</dt><dd>USD 300.00</dd><dt>Due</dt><dd>2026-05-01</dd><dt>Locale</dt><dd>en-US</dd></dl></div>","hash":"znl03rb"},{"input":{"invoice":{"id":"INV-2026-0004","amount":400,"currency":"USD","status":"void","dueDate":"2026-04-01"},"locale":"en-US"},"output":"<div class=\"invoice-card invoice-card--void\"><header class=\"invoice-card__header\"><span class=\"invoice-card__id\">Invoice #INV-2026-0004</span><span class=\"invoice-card__status invoice-card__status--void\">Void</span></header><dl class=\"invoice-card__body\"><dt>Amount</dt><dd>USD 400.00</dd><dt>Due</dt><dd>2026-04-01</dd><dt>Locale</dt><dd>en-US</dd></dl></div>","hash":"2lvul73"}]

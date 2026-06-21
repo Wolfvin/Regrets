@@ -151,10 +151,12 @@ function parseRegret(content) {
     }
   }
 
-  // Parse data section: find INPUT / OUTPUT / HASH lines
+  // Parse data section: find INPUT / OUTPUT / HASH / INPUTS lines
   let parsedInput = null
   let parsedOutput = null
   let goldenHash = null
+  let goldenInputs = null  // Issue #315 — multi-input contract
+
   for (const line of dataSection.split('\n')) {
     if (line.startsWith('INPUT ')) {
       const s = line.slice('INPUT '.length)
@@ -164,6 +166,16 @@ function parseRegret(content) {
       parsedOutput = s === 'undefined' ? null : JSON.parse(s)
     } else if (line.startsWith('HASH ')) {
       goldenHash = line.slice('HASH '.length).trim()
+    } else if (line.startsWith('INPUTS ')) {
+      // Multi-input contract: array of { input, output, hash } for inputs[1+]
+      // (first input is in the top-level INPUT/OUTPUT/HASH lines).
+      // Absent on old .regret files and on single-input captures.
+      try {
+        const parsed = JSON.parse(line.slice('INPUTS '.length))
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          goldenInputs = parsed
+        }
+      } catch { goldenInputs = null }
     }
   }
 
@@ -172,6 +184,7 @@ function parseRegret(content) {
     input: parsedInput,
     output: parsedOutput,
     goldenHash,
+    goldenInputs,
     raw: content,
   }
 }
@@ -253,7 +266,7 @@ function computeFingerprint(input, html, clusterConfig = {}) {
 // React (no callee contracts, no mutationFingerprint). Writes the new hash
 // to the .regret, then appends a chain entry to audit.log.
 
-function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
+function updateRegret(regretPath, regret, newHash, liveOutput, reason, newInputsLine = null) {
   const oldHash = regret.goldenHash
   const now = new Date().toISOString()
   const safeReason = reason.replace(/[\r\n]+/g, ' ')
@@ -268,6 +281,23 @@ function updateRegret(regretPath, regret, newHash, liveOutput, reason) {
   newContent = newContent.replace(/^OUTPUT .+$/m,
     `OUTPUT ${JSON.stringify(liveOutput)}`)
   newContent = newContent.replace(/^HASH   .+$/m, `HASH   ${newHash}`)
+
+  // Refresh the INPUTS line (multi-input contract, Issue #315).
+  // - If newInputsLine is provided, replace any existing INPUTS line (or
+  //   append if none existed yet — though in practice update mode is only
+  //   reached when there's a mismatch, and a mismatch on a multi-input
+  //   cluster usually means the INPUTS line already exists).
+  // - If newInputsLine is null but the .regret had an INPUTS line, keep
+  //   the old line (we have no new live data for inputs[1+] — e.g., the
+  //   update was triggered by the golden input alone).
+  if (newInputsLine) {
+    if (/^INPUTS /m.test(newContent)) {
+      newContent = newContent.replace(/^INPUTS .+$/m, newInputsLine)
+    } else {
+      // Append INPUTS line at the end (after HASH). Trailing newline is OK.
+      newContent = newContent.replace(/\n*$/, '') + '\n' + newInputsLine + '\n'
+    }
+  }
 
   writeFileSync(regretPath, newContent, 'utf8')
 
@@ -433,21 +463,59 @@ for (const file of regretFiles) {
   const valuePaths = regret.valuePaths ?? clusterDef.valuePaths ?? []
   const clusterConfig = { normalize: normRules, ignoreFields, fingerprintMode, valuePaths }
 
-  // Re-render N times for drift detection (or once for normal validate)
-  const hashes = []
+  // Re-render N times for drift detection (or once for normal validate).
+  //
+  // Multi-input contract (Issue #315 parity): when the .regret has an
+  // `INPUTS` line (regret.goldenInputs), validate EVERY stored input's
+  // hash — not just the first. A breaking change that only affects
+  // inputs[1+] would otherwise be invisible (false GREEN).
+  //
+  // inputsToValidate = [regret.input] + (manifest inputs that differ from
+  // regret.input). The goldenInputs array covers inputs 1+ (the first
+  // input is the top-level INPUT/OUTPUT/HASH trio). liveInputs is parallel:
+  // liveInputs[0] is the golden, liveInputs[1+] correspond to
+  // goldenInputs[0+].
+  const allManifestInputs = (clusterDef.inputs && clusterDef.inputs.length > 0)
+    ? clusterDef.inputs
+    : [regret.input]
+  const inputsToValidate = [regret.input]
+  for (const inp of allManifestInputs) {
+    if (JSON.stringify(inp) !== JSON.stringify(regret.input)) {
+      inputsToValidate.push(inp)
+    }
+  }
+
+  const hashes = []           // flat list of hashes for the golden input (for backward compat)
   const hashesPerInput = new Map()  // inputKey → hash[]
+  const liveInputs = []       // parallel to inputsToValidate; each = { input, hash, output }
   let lastOutput = null
   let lastError = null
 
   try {
     for (let i = 0; i < runs; i++) {
-      const { html } = await renderComponent(Component, regret.input, stripAttrs)
-      lastOutput = html
-      const fp = computeFingerprint(regret.input, html, clusterConfig)
-      hashes.push(fp)
-      const inputKey = JSON.stringify(regret.input)
-      if (!hashesPerInput.has(inputKey)) hashesPerInput.set(inputKey, [])
-      hashesPerInput.get(inputKey).push(fp)
+      // For each run, re-render EVERY input (not just the golden).
+      for (let inpIdx = 0; inpIdx < inputsToValidate.length; inpIdx++) {
+        const currentInput = inputsToValidate[inpIdx]
+        const { html } = await renderComponent(Component, currentInput, stripAttrs)
+        const fp = computeFingerprint(currentInput, html, clusterConfig)
+
+        // Track hashes for golden input (backward compat with `hashes` array
+        // used by drift detection and update mode below)
+        if (inpIdx === 0) {
+          hashes.push(fp)
+          lastOutput = html
+        }
+
+        // Per-input drift detection
+        const inputKey = JSON.stringify(currentInput)
+        if (!hashesPerInput.has(inputKey)) hashesPerInput.set(inputKey, [])
+        hashesPerInput.get(inputKey).push(fp)
+
+        // Record live input hash on the LAST run (so update mode + multi-input
+        // refresh sees the final state). liveInputs[inpIdx] is overwritten
+        // each run; only the final value is used downstream.
+        liveInputs[inpIdx] = { input: currentInput, hash: fp, output: html }
+      }
     }
   } catch (err) {
     lastError = err
@@ -463,7 +531,42 @@ for (const file of regretFiles) {
   }
 
   const liveHash = hashes[0]
-  const isMatch = liveHash === regret.goldenHash
+  let isMatch = liveHash === regret.goldenHash
+
+  // ── Multi-input contract check (Issue #315) ──────────────────────────────
+  //
+  // Compare each goldenInputs[i].hash against the live hash of the matching
+  // input (matched by VALUE, not array index — manifest may have evolved).
+  // If a golden input is no longer in the manifest, skip with a verbose-only
+  // note (user changed inputs). If ANY golden input's live hash differs,
+  // the cluster FAILs — even when the first input still matches.
+  let multiInputFailures = []
+  if (Array.isArray(regret.goldenInputs) && regret.goldenInputs.length > 0) {
+    for (const goldenEntry of regret.goldenInputs) {
+      if (!goldenEntry || typeof goldenEntry !== 'object') continue
+      const goldenInputStr = JSON.stringify(goldenEntry.input)
+      const liveEntry = liveInputs.find(li => li && JSON.stringify(li.input) === goldenInputStr)
+      if (!liveEntry) {
+        // Golden input no longer in manifest — can't re-run. Skip with a
+        // verbose-only note (the user changed inputs).
+        if (verbose && !jsonOutput && !quiet) {
+          console.log(`  │ ⏭️  input ${goldenInputStr} no longer in manifest — skipping (re-capture to refresh)`)
+        }
+        continue
+      }
+      if (liveEntry.hash !== goldenEntry.hash) {
+        multiInputFailures.push({
+          input: goldenEntry.input,
+          goldenHash: goldenEntry.hash,
+          liveHash: liveEntry.hash,
+          output: liveEntry.output,
+        })
+      }
+    }
+    if (multiInputFailures.length > 0) {
+      isMatch = false  // any input mismatch FAILs the cluster
+    }
+  }
 
   // Drift = same input producing different hashes across runs
   const isDrift = driftMode && [...hashesPerInput.values()].some(arr => new Set(arr).size > 1)
@@ -478,6 +581,22 @@ for (const file of regretFiles) {
     if (stripAttrs.length) console.log(`  │ stripAttrs: ${stripAttrs.join(', ')}`)
     if (normRules.length)  console.log(`  │ normalize:  ${normRules.join(', ')}`)
     if (runs > 1)          console.log(`  │ Hashes:     ${hashes.join(' / ')}`)
+    if (liveInputs.length > 1) {
+      console.log(`  │ Multi-input (${liveInputs.length} inputs):`)
+      for (let li = 0; li < liveInputs.length; li++) {
+        const li_entry = liveInputs[li]
+        const golden = li === 0 ? regret.goldenHash : regret.goldenInputs?.[li - 1]?.hash
+        const ok = li_entry.hash === golden
+        console.log(`  │   [${li}] ${ok ? '✓' : '✗'} ${li_entry.hash}  input=${JSON.stringify(li_entry.input)?.slice(0, 80)}`)
+      }
+    }
+    if (multiInputFailures.length > 0) {
+      console.log(`  │ ⚠️  ${multiInputFailures.length} multi-input failure(s):`)
+      for (const f of multiInputFailures) {
+        console.log(`  │   input=${JSON.stringify(f.input)?.slice(0, 80)}`)
+        console.log(`  │     golden=${f.goldenHash} live=${f.liveHash}`)
+      }
+    }
     console.log(`  └────────────────────────────────────────────`)
   }
 
@@ -489,7 +608,19 @@ for (const file of regretFiles) {
       if (!jsonOutput && !quiet) console.log(`  ℹ️  ${idPadded} unchanged — no update needed`)
       results.push({ id, pass: true })
     } else {
-      const updateResult = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason)
+      // Refresh BOTH the top-level hash AND the INPUTS line (if multi-input).
+      // liveInputs[0] is the golden (already represented by top-level lines);
+      // liveInputs[1+] become the new INPUTS payload (mirrors validate.js).
+      let newInputsLine = null
+      if (liveInputs.length > 1) {
+        const payload = liveInputs.slice(1).map(li => ({
+          input: li.input,
+          output: li.output,
+          hash: li.hash,
+        }))
+        newInputsLine = `INPUTS ${JSON.stringify(payload)}`
+      }
+      const updateResult = updateRegret(regretPath, regret, liveHash, lastOutput, updateReason, newInputsLine)
       if (!jsonOutput && !quiet) {
         console.log(`  ✅ ${idPadded} ${updateResult.oldHash} → ${updateResult.newHash}  UPDATED`)
       }
@@ -509,11 +640,23 @@ for (const file of regretFiles) {
   } else {
     // Normal validate
     const icon = isMatch ? '✅' : '❌'
-    const hstr = isMatch ? regret.goldenHash : `${regret.goldenHash} → ${liveHash}`
+    let hstr
+    if (isMatch) {
+      hstr = regret.goldenHash
+    } else if (multiInputFailures.length > 0) {
+      // Multi-input failure: show that the cause is a non-first input
+      hstr = `${regret.goldenHash} → ${liveHash} (+${multiInputFailures.length} input fail)`
+    } else {
+      hstr = `${regret.goldenHash} → ${liveHash}`
+    }
     if (!jsonOutput && !quiet) {
       console.log(`  ${icon} ${idPadded} ${hstr.padEnd(22)} ${isMatch ? 'PASS' : 'FAIL'}`)
     }
-    results.push({ id, pass: isMatch, golden: regret.goldenHash, live: liveHash })
+    results.push({
+      id, pass: isMatch,
+      golden: regret.goldenHash, live: liveHash,
+      multiInputFailures: multiInputFailures.length > 0 ? multiInputFailures : undefined,
+    })
   }
 
   if (failFast && !results.at(-1).pass) {
@@ -555,6 +698,13 @@ if (jsonOutput) {
         console.log(`    ${r.error}`)
       } else if (r.drift) {
         console.log(`    drift: ${r.hashes.join(' / ')}`)
+      } else if (r.multiInputFailures && r.multiInputFailures.length > 0) {
+        console.log(`    Expected: ${r.golden}  Got: ${r.live}  (golden input still matches)`)
+        console.log(`    Multi-input failure(s):`)
+        for (const f of r.multiInputFailures) {
+          console.log(`      input=${JSON.stringify(f.input).slice(0, 80)}`)
+          console.log(`        golden=${f.goldenHash}  live=${f.liveHash}`)
+        }
       } else {
         console.log(`    Expected: ${r.golden}  Got: ${r.live}`)
       }
