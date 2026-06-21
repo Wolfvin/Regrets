@@ -1065,3 +1065,152 @@ final class DemoMathUtils {
         return out;
     }
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// VerifyLib — fresh functions for independent verification of the Java
+// Regrets stack (proof/java_verify/).
+//
+// The functions here are DELIBERATELY DIFFERENT from the ones in DemoMathUtils
+// (add, fibonacci, reverse, parseCsvLine, formatBytes, computeStats) to avoid
+// the confirmation-bias trap documented in CONTEXT.md "Lesson Learned":
+// "test ditulis dengan pattern yang sama dengan implementasi".
+//
+// Same algorithms as proof/c_verify/, proof/go_verify/, proof/rust_verify/,
+// proof/php_verify/ → enables 6-way cross-stack parity verification
+// (Java == PHP == Rust == Go == C == JS == Python).
+//
+// Lives inside RegretJava.java so the verify fixture also runs on a
+// JRE-only environment (no javac needed — single-file source mode).
+// ───────────────────────────────────────────────────────────────────────────
+
+final class VerifyLib {
+    private VerifyLib() {}
+
+    /** Slugify: lowercase ASCII alphanumerics, replace non-alnum runs with '-',
+     *  trim leading/trailing '-'. Returns "" for empty input. */
+    public static String slugify(String s) {
+        if (s == null || s.isEmpty()) return "";
+        StringBuilder out = new StringBuilder(s.length());
+        boolean lastSep = true; // start as sep so leading '-' is trimmed
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isLetterOrDigit(c)) {
+                out.append(Character.toLowerCase(c));
+                lastSep = false;
+            } else {
+                if (!lastSep) {
+                    out.append('-');
+                    lastSep = true;
+                }
+            }
+        }
+        // Trim trailing '-'
+        while (out.length() > 0 && out.charAt(out.length() - 1) == '-') {
+            out.setLength(out.length() - 1);
+        }
+        return out.toString();
+    }
+
+    /** Base64-encode a string using standard base64 alphabet with '=' padding.
+     *  Empty input returns "". Implemented from scratch (not using java.util.Base64)
+     *  to exercise bit manipulation code paths. */
+    public static String base64Encode(String s) {
+        if (s == null || s.isEmpty()) return "";
+        byte[] data = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        StringBuilder out = new StringBuilder(((data.length + 2) / 3) * 4);
+        for (int i = 0; i < data.length; i += 3) {
+            int b0 = data[i] & 0xFF;
+            int b1 = (i + 1 < data.length) ? (data[i + 1] & 0xFF) : 0;
+            int b2 = (i + 2 < data.length) ? (data[i + 2] & 0xFF) : 0;
+            int triple = (b0 << 16) | (b1 << 8) | b2;
+            int pad = 0;
+            if (i + 1 >= data.length) pad = 2;
+            else if (i + 2 >= data.length) pad = 1;
+            out.append(ALPHABET.charAt((triple >> 18) & 0x3F));
+            out.append(ALPHABET.charAt((triple >> 12) & 0x3F));
+            out.append(pad < 2 ? ALPHABET.charAt((triple >> 6) & 0x3F) : '=');
+            out.append(pad < 1 ? ALPHABET.charAt(triple & 0x3F) : '=');
+        }
+        return out.toString();
+    }
+
+    /** CRC32 (zlib/zip polynomial 0xEDB88320) of input string's bytes.
+     *  Returns the standard 32-bit checksum (initial 0xFFFFFFFF, final XOR 0xFFFFFFFF).
+     *  Implemented from scratch (not using java.util.zip.CRC32) to exercise
+     *  unsigned arithmetic + table initialization. */
+    public static long crc32(String s) {
+        if (s == null) s = "";
+        byte[] data = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        int[] table = new int[256];
+        for (int i = 0; i < 256; i++) {
+            int c = i;
+            for (int k = 0; k < 8; k++) {
+                if ((c & 1) == 1) {
+                    c = 0xEDB88320 ^ (c >>> 1);
+                } else {
+                    c = c >>> 1;
+                }
+            }
+            table[i] = c;
+        }
+        int crc = 0xFFFFFFFF;
+        for (byte b : data) {
+            int ub = b & 0xFF;
+            crc = table[(crc ^ ub) & 0xFF] ^ (crc >>> 8);
+        }
+        // Return as long (unsigned 32-bit) — Java int is signed, so mask to
+        // get the unsigned 32-bit value. The harness's stableStringify will
+        // serialize this long without sign extension issues.
+        return ((long) crc ^ 0xFFFFFFFFL) & 0xFFFFFFFFL;
+    }
+
+    /** FNV-1a 32-bit hash of input string's bytes. Different algorithm than
+     *  CRC32 — exercises a different bit-manipulation pattern (multiply + XOR
+     *  per byte). */
+    public static long fnv1a(String s) {
+        if (s == null) s = "";
+        byte[] data = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        long h = 2166136261L; // offset basis (unsigned 32-bit as long)
+        final long prime = 16777619L;
+        for (byte b : data) {
+            int ub = b & 0xFF;
+            h = (h ^ ub) & 0xFFFFFFFFL;
+            h = (h * prime) & 0xFFFFFFFFL;
+        }
+        return h;
+    }
+
+    /** Validate an IPv4 dotted-quad. Returns true iff s is a valid dotted-quad:
+     *  exactly 4 octets 0-255 separated by single '.', no leading zeros (except
+     *  "0" itself), no trailing junk. */
+    public static boolean isValidIPv4(String s) {
+        if (s == null || s.isEmpty()) return false;
+        int len = s.length();
+        int octets = 0;
+        int val = 0;
+        int digits = 0;
+        for (int i = 0; i < len; i++) {
+            char c = s.charAt(i);
+            if (c >= '0' && c <= '9') {
+                if (digits == 1 && val == 0) return false; // leading zero
+                if (digits >= 3) return false;
+                val = val * 10 + (c - '0');
+                digits++;
+                if (val > 255) return false;
+            } else if (c == '.') {
+                if (digits == 0) return false; // empty octet
+                octets++;
+                if (octets > 4) return false;
+                if (i + 1 >= len || s.charAt(i + 1) < '0' || s.charAt(i + 1) > '9') return false;
+                val = 0;
+                digits = 0;
+            } else {
+                return false; // invalid char
+            }
+        }
+        if (digits == 0) return false;
+        octets++;
+        return octets == 4;
+    }
+}

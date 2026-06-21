@@ -1,0 +1,13 @@
+cluster: java-verify-slugify
+version: 1
+fingerprint: 2gaag5y
+captured: 2026-06-21T07:23:40.504533505Z
+watches: [slugify]
+entry: slugify
+stack: java
+class: VerifyLib
+fingerprintLevel: entry
+---
+INPUT  "Hello, World! This is a TEST."
+OUTPUT "hello-world-this-is-a-test"
+HASH   2gaag5y

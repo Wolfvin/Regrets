@@ -1,0 +1,13 @@
+cluster: java-verify-is-valid-ipv4
+version: 1
+fingerprint: 5fyfbp9
+captured: 2026-06-21T07:23:40.512330773Z
+watches: [isValidIPv4]
+entry: isValidIPv4
+stack: java
+class: VerifyLib
+fingerprintLevel: entry
+---
+INPUT  "192.168.1.1"
+OUTPUT true
+HASH   5fyfbp9
