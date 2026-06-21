@@ -1,0 +1,55 @@
+{
+  "clusters": [
+    {
+      "id": "add",
+      "entry": "add",
+      "file": "proof/dart/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["add"],
+      "multiArgs": true,
+      "inputs": [
+        [2, 3],
+        [10, 20],
+        [0, 0],
+        [-1, 1]
+      ]
+    },
+    {
+      "id": "factorial",
+      "entry": "factorial",
+      "file": "proof/dart/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["factorial"],
+      "inputs": [0, 1, 5, 10]
+    },
+    {
+      "id": "is-prime",
+      "entry": "isPrime",
+      "file": "proof/dart/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["isPrime"],
+      "inputs": [2, 7, 10, 13, 1]
+    },
+    {
+      "id": "reverse-string",
+      "entry": "reverseString",
+      "file": "proof/dart/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["reverseString"],
+      "inputs": ["hello", "dart", ""]
+    },
+    {
+      "id": "fibonacci",
+      "entry": "fibonacci",
+      "file": "proof/dart/math_utils.dart",
+      "stack": "dart",
+      "fingerprintLevel": "entry",
+      "watches": ["fibonacci"],
+      "inputs": [0, 1, 10, 20]
+    }
+  ]
+}
