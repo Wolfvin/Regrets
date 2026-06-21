@@ -1,0 +1,14 @@
+cluster: php-fibonacci
+version: 1
+fingerprint: 5m8e79v
+captured: 2026-06-21T06:26:34+00:00
+watches: [fibonacci]
+entry: fibonacci
+stack: php
+fingerprintLevel: entry
+file: src/MathUtils.php
+---
+INPUT  0
+OUTPUT 0
+HASH   5m8e79v
+INPUTS [{"input":1,"output":1,"hash":"1kndu30"},{"input":5,"output":5,"hash":"2lkbip9"},{"input":10,"output":55,"hash":"587q30m"},{"input":20,"output":6765,"hash":"5xg14e2"}]
