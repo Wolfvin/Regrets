@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# capture_rust.sh — compile + run regret capture for Rust clusters
+# validate_rust.sh — validate Rust clusters against stored .regret files
 #
-# Reads manifest.json to find Rust clusters, invokes the target functions with
-# the specified inputs, computes fingerprints, and writes .regret files.
+# Reads manifest.json to find Rust clusters, reads corresponding .regret files,
+# re-invokes the target functions, recomputes fingerprints, and reports PASS/FAIL.
 #
-# This script delegates to the Rust integration test runner (regret_runner.rs)
-# which handles the actual function invocation and .regret file generation.
+# This script generates a temporary Rust integration test from manifest + .regret
+# data, then runs `cargo test` to execute validation.
 #
 # Usage:
-#   bash scripts/capture_rust.sh                          # capture all Rust clusters
-#   bash scripts/capture_rust.sh --cluster rust-add       # capture specific cluster
-#   bash scripts/capture_rust.sh --project ./references/rust  # specify project dir
-#   bash scripts/capture_rust.sh --verbose                # show detailed output
+#   bash scripts/validate_rust.sh                          # validate all Rust clusters
+#   bash scripts/validate_rust.sh --cluster rust-add       # validate specific cluster
+#   bash scripts/validate_rust.sh --verbose                # show detailed output
+#   bash scripts/validate_rust.sh --project ./references/rust  # specify project dir
 #
 # Prerequisites:
 #   - Rust toolchain (cargo, rustc) installed
-#   - Target crate has a test/regret_runner.rs with function dispatch
-#   - regrets/manifest.json exists with stack=rust clusters
+#   - .regret files exist (run capture first)
+#   - The target Rust crate has a test that implements function dispatch
 #
-# .regret file format (compatible with JS/Python stacks):
+# .regret file format (must be compatible with JS/Python stacks):
 #   cluster: <id>
 #   version: 1
 #   fingerprint: <7-char hash>
@@ -64,10 +64,10 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --help|-h)
-      echo "Usage: bash scripts/capture_rust.sh [OPTIONS]"
+      echo "Usage: bash scripts/validate_rust.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --cluster <id>   Capture only the specified cluster"
+      echo "  --cluster <id>   Validate only the specified cluster"
       echo "  --verbose        Show detailed output"
       echo "  --project <dir>  Path to Rust project directory (default: current dir)"
       echo "  --help           Show this help message"
@@ -93,17 +93,11 @@ if [[ -n "$CLUSTER_FILTER" ]]; then
   export REGRET_CLUSTER_FILTER="$CLUSTER_FILTER"
 fi
 
-# Ensure regrets directory exists
-mkdir -p "$REGRET_DIR"
-
 # Check prerequisites
 if ! command -v cargo &> /dev/null; then
-  echo "⚠️  Cargo is not installed. Install Rust toolchain to use the Rust stack."
+  echo "❌ Cargo is not installed. Install Rust toolchain to use the Rust stack."
   echo "   See: https://rustup.rs/"
-  echo ""
-  echo "   Alternatively, use the JS capture script for manifest processing:"
-  echo "   node ${SKILL_DIR}/scripts/capture.js ${CLUSTER_FLAG:-}"
-  exit 0
+  exit 1
 fi
 
 if [[ ! -f "$MANIFEST" ]]; then
@@ -127,8 +121,6 @@ CLUSTERS_JSON=$(node -e "
   console.log(JSON.stringify(clusters, null, 2));
 ")
 
-echo "📡 Capturing Rust clusters..."
-
 if [[ "$VERBOSE" == "true" ]]; then
   echo "📋 Rust clusters found:"
   echo "$CLUSTERS_JSON" | node -e "
@@ -137,39 +129,53 @@ if [[ "$VERBOSE" == "true" ]]; then
   "
 fi
 
-# ─── Run capture ─────────────────────────────────────────────────────────────
-# The capture is done by the Rust integration test (regret_runner.rs) which:
+# ─── Check .regret files exist ───────────────────────────────────────────────
+
+MISSING=0
+CLUSTER_IDS=$(echo "$CLUSTERS_JSON" | node -e "
+  const clusters = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+  clusters.forEach(c => console.log(c.id));
+")
+
+for id in $CLUSTER_IDS; do
+  REGRET_FILE="${REGRET_DIR}/${id}.regret"
+  if [[ ! -f "$REGRET_FILE" ]]; then
+    echo "⚠️  Missing .regret file for cluster '${id}': ${REGRET_FILE}"
+    echo "   Run capture first: cargo test --test regret_runner -- capture"
+    MISSING=$((MISSING + 1))
+  fi
+done
+
+if [[ $MISSING -gt 0 ]]; then
+  echo "❌ ${MISSING} cluster(s) missing .regret files. Run capture first."
+  exit 1
+fi
+
+# ─── Run validation ──────────────────────────────────────────────────────────
+# The validation is done by the Rust integration test (regret_runner.rs) which:
 # 1. Reads manifest.json to find Rust clusters
-# 2. For each cluster, calls the entry function with each input
-# 3. Computes fingerprint (SHA-256 → base36 → 7 chars)
-# 4. Writes .regret files with the standard format
+# 2. Reads .regret files for each cluster
+# 3. Re-invokes the function with stored input
+# 4. Recomputes fingerprint
+# 5. Compares with stored fingerprint → PASS/FAIL
+
+echo "🔍 Validating Rust clusters..."
 
 cd "$PROJECT_DIR"
 
-# Build first to ensure modules are compiled
+# Run the validate test
 if [[ "$VERBOSE" == "true" ]]; then
-  cargo build 2>&1 || true
+  cargo test --test regret_runner -- validate --nocapture 2>&1
 else
-  cargo build 2>/dev/null || true
-fi
-
-# Run capture test
-if [[ "$VERBOSE" == "true" ]]; then
-  cargo test --test regret_runner -- capture --nocapture 2>&1
-else
-  cargo test --test regret_runner -- capture --nocapture 2>&1 | grep -E '(Capturing|Cluster|Fingerprint|Written|complete|error)'
+  cargo test --test regret_runner -- validate --nocapture 2>&1 | grep -E '(PASS|FAIL|SKIP|complete|error)'
 fi
 
 EXIT_CODE=$?
 
 if [[ $EXIT_CODE -eq 0 ]]; then
-  echo "✅ Capture complete. .regret files written to ${REGRET_DIR}/"
+  echo "✅ All Rust clusters validated successfully."
 else
-  echo "⚠️  Capture test failed. Possible causes:"
-  echo "   - No tests/regret_runner.rs with capture function dispatch"
-  echo "   - Target functions not found or signature mismatch"
-  echo ""
-  echo "   For a working example, see references/rust/"
+  echo "❌ Validation failed. Check output above for details."
 fi
 
 exit $EXIT_CODE
