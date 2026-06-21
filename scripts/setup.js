@@ -448,6 +448,8 @@ if (dryRun) {
       console.log('   Would run: bash scripts/capture_rust.sh capture')
     } else if (stack === 'go') {
       console.log('   Would run: bash scripts/capture_go.sh capture')
+    } else if (stack === 'make') {
+      console.log('   Would run: bash scripts/capture_make.sh')
     }
   }
   console.log('   Would create: regrets/<cluster-id>.regret files')
@@ -487,6 +489,8 @@ if (dryRun) {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture']) && captureOk
     } else if (stack === 'go') {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture']) && captureOk
+    } else if (stack === 'make') {
+      captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_make.sh`]) && captureOk
     }
   }
 
@@ -534,6 +538,8 @@ if (dryRun) {
       console.log('   Would run: bash scripts/capture_rust.sh validate')
     } else if (stack === 'go') {
       console.log('   Would run: bash scripts/capture_go.sh validate')
+    } else if (stack === 'make') {
+      console.log('   Would run: bash scripts/validate_make.sh')
     }
   }
   console.log('   Would validate all .regret files against fresh captures')
@@ -558,6 +564,8 @@ if (dryRun) {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate']) && validateOk
     } else if (stack === 'go') {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate']) && validateOk
+    } else if (stack === 'make') {
+      validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_make.sh`]) && validateOk
     }
   }
 

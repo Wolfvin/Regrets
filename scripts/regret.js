@@ -249,8 +249,8 @@ async function main() {
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_c.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
-        success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
-      }
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success      } else if (stack === 'make') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_make.sh`, ...passThroughArgs]) && success      }
     }
     break
   }
@@ -283,8 +283,8 @@ async function main() {
       } else if (stack === 'c') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
-        success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
-      }
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success      } else if (stack === 'make') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...passThroughArgs]) && success      }
     }
     break
   }
@@ -334,8 +334,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue') {
-        translatedArgs = ['--update', targetCluster, ...remainingArgs]
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue') {      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'make') {        translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
       }
@@ -365,8 +364,8 @@ async function main() {
     } else if (targetStack === 'c') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...translatedArgs])
     } else if (targetStack === 'vue') {
-      success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...translatedArgs])
-    } else {
+      success = await run('node', [`${SCRIPTS_DIR}/validate_vue.mjs`, ...translatedArgs])    } else if (targetStack === 'make') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...translatedArgs])    } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
     }
@@ -405,8 +404,8 @@ async function main() {
         // fingerprints every time.
         console.log(`  ⏭️  Scala drift detection: run \`capture_scala.sh validate --runs N\` manually`)
       } else if (stack === 'c') {
-        console.log(`  ⏭️  C drift detection: run validate_c.sh with --runs flag manually`)
-      }
+        console.log(`  ⏭️  C drift detection: run validate_c.sh with --runs flag manually`)      } else if (stack === 'make') {
+        console.log(`  ⏭️  Make drift detection: make output is deterministic; use --runs manually if needed`)      }
     }
     break
   }
@@ -444,8 +443,8 @@ async function main() {
       } else if (stack === 'scala') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'c') {
-        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
-      }
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success      } else if (stack === 'make') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, '--fail-fast', ...passThroughArgs]) && success      }
     }
     break
   }
@@ -488,8 +487,8 @@ async function main() {
         // For now, this is a no-op: Scala truth capture would need a separate truth_scala.ts.
         console.log(`  ⏭️  Scala truth capture not yet supported — use \`regret capture\` instead`)
       } else if (stack === 'c') {
-        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
-      } else {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success      } else if (stack === 'make') {
+        console.log(`  ⏭️  Make truth capture: not yet supported — use bash scripts/validate_make.sh for validation`)      } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
     }
@@ -710,8 +709,8 @@ async function main() {
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'c') {
-        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success
-      }
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, '--fail-fast', ...passThroughArgs]) && success      } else if (stack === 'make') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, '--fail-fast', ...passThroughArgs]) && success      }
     }
     if (success) {
       console.log('\n✅ Regret guard passed — all clusters green.')

@@ -16,8 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'perl', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp']
-let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
+const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'perl', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp']const validStacks = ['js', 'python', 'php', 'go', 'ts', 'css', 'make']let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
 
@@ -257,8 +256,12 @@ if (stack === 'java') {
   console.log(`📦 Note for Java stack:`)
   console.log(`   1. Compile your project first (javac / mvn / gradle).`)
   console.log(`   2. Add "classpath" to each cluster if your classes aren't on the default classpath.`)
-  console.log(`   3. See references/java.md for the manifest schema.`)
-}
+  console.log(`   3. See references/java.md for the manifest schema.`)if (stack === 'make') {
+  console.log()
+  console.log(`📦 Note for Make stack: requires GNU Make 4.x (make --version).`)
+  console.log(`   Also requires sha256sum, python3, and jq on PATH.`)
+  console.log(`   Your .mk file must use GNU Make 'define' functions callable via $(call ...).`)
+  console.log(`   See proof/make_slugify/ for a working end-to-end example.`)}
 if (stack === 'css') {
   console.log()
   console.log(`📦 Note for CSS stack: CSS uses the JS runner (capture.js / validate.js).`)
