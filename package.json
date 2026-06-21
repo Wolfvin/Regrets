@@ -41,5 +41,9 @@
   "dependencies": {
     "chokidar": "^5.0.0",
     "web-tree-sitter": "^0.26.9"
+  },
+  "devDependencies": {
+    "vue": "^3.5.0",
+    "@vue/server-renderer": "^3.5.0"
   }
 }
