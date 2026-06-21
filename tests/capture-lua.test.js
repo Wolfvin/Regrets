@@ -15,7 +15,7 @@
 import { describe, it, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { fingerprint } from '../scripts/fingerprint.js'
 
@@ -110,7 +110,100 @@ describe('Lua stack — capture + validate', { skip: !hasLua && 'lua not on PATH
     assert.match(result.stdout, /PASS count-vowels/, 'validate should print PASS for count-vowels')
   })
 
+  it('validate --cluster <id> only validates that one cluster', () => {
+    // Should PASS and only mention `reverse`, not `count-vowels`.
+    const result = runLua(VALIDATE_LUA, ['--cluster', 'reverse'])
+    assert.equal(result.exitCode, 0, `validate --cluster reverse failed (exit ${result.exitCode})\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    assert.match(result.stdout, /PASS reverse/, 'should print PASS for reverse')
+    assert.doesNotMatch(result.stdout, /count-vowels/, 'should NOT mention count-vowels when --cluster reverse is set')
+  })
+
+  it('validate detects breaking change → exit 1, prints FAIL', () => {
+    // Mutate reverse() to return the input unchanged (instead of reversed).
+    // The fingerprint will change → validate must FAIL and exit non-zero.
+    const luaSrcPath = join(FIXTURE, 'strings.lua')
+    const original = readFileSync(luaSrcPath, 'utf8')
+    const mutated = original.replace('string.reverse(s)', 'string.upper(s)')
+    writeFileSync(luaSrcPath, mutated)
+    try {
+      const result = runLua(VALIDATE_LUA)
+      assert.notEqual(result.exitCode, 0, `validate should exit non-zero on breaking change; got exit ${result.exitCode}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+      assert.match(result.stdout, /FAIL reverse/, 'should print FAIL for the mutated reverse function')
+      // count-vowels was NOT mutated, so it should still PASS.
+      assert.match(result.stdout, /PASS count-vowels/, 'count-vowels should still PASS (not mutated)')
+    } finally {
+      // Restore original source — critical so subsequent tests see clean state.
+      writeFileSync(luaSrcPath, original)
+    }
+  })
+
+  it('validate detects valid refactor (same output) → exit 0, PASS', () => {
+    // Refactor reverse() to use a manual loop instead of string.reverse().
+    // Output is identical → fingerprint unchanged → validate should PASS.
+    const luaSrcPath = join(FIXTURE, 'strings.lua')
+    const original = readFileSync(luaSrcPath, 'utf8')
+    const refactored = original.replace(
+      'function M.reverse(s)\n    return string.reverse(s)\nend',
+      'function M.reverse(s)\n    -- Refactored: manual loop instead of string.reverse\n    local t = {}\n    for i = #s, 1, -1 do t[#t + 1] = s:sub(i, i) end\n    return table.concat(t)\nend',
+    )
+    // Sanity check: the refactor replacement actually applied.
+    assert.ok(refactored !== original, 'refactor pattern must match the original source')
+    writeFileSync(luaSrcPath, refactored)
+    try {
+      const result = runLua(VALIDATE_LUA)
+      assert.equal(result.exitCode, 0, `validate should exit 0 for valid refactor; got exit ${result.exitCode}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+      assert.match(result.stdout, /PASS reverse/, 'reverse should PASS after valid refactor (output unchanged)')
+      assert.match(result.stdout, /PASS count-vowels/, 'count-vowels should still PASS')
+    } finally {
+      writeFileSync(luaSrcPath, original)
+    }
+  })
+
+  it('validate checks ALL inputs (multi-input contract), not just the first', () => {
+    // The .regret file has 3 inputs for each cluster (INPUT + 2 in INPUTS line).
+    // Mutate reverse() so only the SECOND input's output changes — the first
+    // input would still match, but the second must FAIL. This proves the
+    // validator iterates the INPUTS array, not just the first INPUT line.
+    const luaSrcPath = join(FIXTURE, 'strings.lua')
+    const original = readFileSync(luaSrcPath, 'utf8')
+    // Replace reverse with a function that returns the input as-is ONLY when
+    // the input is "regrets" (the second input). For all other inputs, behave
+    // like the original reverse().
+    const mutated = original.replace(
+      'function M.reverse(s)\n    return string.reverse(s)\nend',
+      'function M.reverse(s)\n    if s == "regrets" then return "REGRETS" end\n    return string.reverse(s)\nend',
+    )
+    writeFileSync(luaSrcPath, mutated)
+    try {
+      const result = runLua(VALIDATE_LUA)
+      assert.notEqual(result.exitCode, 0, `validate should exit non-zero when a non-first input fails; got exit ${result.exitCode}\nstdout: ${result.stdout}`)
+      assert.match(result.stdout, /FAIL reverse.*input #2/, 'should FAIL on input #2 (regrets) — proves multi-input validation')
+    } finally {
+      writeFileSync(luaSrcPath, original)
+    }
+  })
+
+  it('capture --cluster <id> only captures that one cluster', () => {
+    // Clean both .regret files, then capture only `reverse`.
+    for (const id of ['reverse', 'count-vowels']) {
+      const p = join(FIXTURE, 'regrets', `${id}.regret`)
+      if (existsSync(p)) rmSync(p)
+    }
+    const result = runLua(CAPTURE_LUA, ['--cluster', 'reverse'])
+    assert.equal(result.exitCode, 0, `capture --cluster reverse failed\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    assert.ok(existsSync(join(FIXTURE, 'regrets', 'reverse.regret')), 'reverse.regret should exist')
+    assert.ok(!existsSync(join(FIXTURE, 'regrets', 'count-vowels.regret')), 'count-vowels.regret should NOT exist when --cluster reverse is set')
+  })
+
   it('cross-stack parity: Lua-written HASH matches JS fingerprint() for the same input/output', () => {
+    // Re-capture both clusters first — the `capture --cluster` test above
+    // may have left only `reverse.regret`. We need both present for this test.
+    for (const id of ['reverse', 'count-vowels']) {
+      const p = join(FIXTURE, 'regrets', `${id}.regret`)
+      if (!existsSync(p)) {
+        runLua(CAPTURE_LUA, ['--cluster', id])
+      }
+    }
     for (const id of ['reverse', 'count-vowels']) {
       const regretPath = join(FIXTURE, 'regrets', `${id}.regret`)
       const content = readFileSync(regretPath, 'utf8')
