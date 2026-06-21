@@ -1,0 +1,12 @@
+cluster: format-thousands
+version: 1
+fingerprint: 4jtjqn4
+captured: 2026-06-21T05:07:29.508Z
+watches: [formatThousands]
+entry: formatThousands
+stack: dart
+fingerprintLevel: entry
+---
+INPUT  1000
+OUTPUT "1,000"
+HASH   4jtjqn4

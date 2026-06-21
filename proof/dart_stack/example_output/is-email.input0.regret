@@ -1,0 +1,12 @@
+cluster: is-email
+version: 1
+fingerprint: 1cb1iqg
+captured: 2026-06-21T05:07:28.786Z
+watches: [isEmail]
+entry: isEmail
+stack: dart
+fingerprintLevel: entry
+---
+INPUT  "user@example.com"
+OUTPUT true
+HASH   1cb1iqg
