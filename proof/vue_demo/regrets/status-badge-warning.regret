@@ -1,0 +1,12 @@
+cluster: status-badge-warning
+version: 1
+fingerprint: 66k3v6p
+captured: 2026-06-21T05:16:59.314Z
+watches: [StatusBadge]
+entry: StatusBadge
+stack: vue
+renderMode: ssr
+---
+INPUT  {"label":"Pending Review","variant":"warning","size":"md"}
+OUTPUT "<span class=\"badge badge-warning badge-md\">Pending Review</span>"
+HASH   66k3v6p

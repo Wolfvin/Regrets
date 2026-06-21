@@ -86,6 +86,8 @@ def main():
                 success = run(f'python3 {SCRIPTS_DIR}/capture.py {extra_args}') and success
             elif stack == 'react':
                 success = run(f'node {SCRIPTS_DIR}/capture_react.mjs {extra_args}') and success
+            elif stack == 'vue':
+                success = run(f'node {SCRIPTS_DIR}/capture_vue.mjs {extra_args}') and success
             elif stack == 'php':
                 success = run(f'php {SCRIPTS_DIR}/capture_php.php {extra_args}') and success
             elif stack == 'ruby':
@@ -102,6 +104,8 @@ def main():
         for stack in stacks:
             if stack in ('js', 'ts', 'react', 'css'):
                 success = run(f'node {SCRIPTS_DIR}/validate.js {extra_args}') and success
+            elif stack == 'vue':
+                success = run(f'node {SCRIPTS_DIR}/validate_vue.mjs {extra_args}') and success
             elif stack == 'python':
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py {extra_args}') and success
             elif stack == 'php':
@@ -139,7 +143,7 @@ def main():
 
         # Translate args to the stack-specific --update form (mirror regret.js logic).
         # JS/TS/CSS (validate.js): `--update --cluster <id> --reason "..."`
-        # Python/PHP/C#/Rust/Go:    `--update <id> --reason "..."`
+        # Python/PHP/C#/Rust/Go/Vue: `--update <id> --reason "..."`
         # If the user already passed --update, respect their args verbatim.
         # Each remaining arg is shell-quoted so multi-word --reason strings survive the shell=True dispatch.
         if '--update' in args:
@@ -147,7 +151,7 @@ def main():
         elif target_cluster:
             remaining = [a for a in args[1:] if a != target_cluster]
             quoted_remaining = ' '.join(shlex.quote(a) for a in remaining)
-            if target_stack in ('python', 'php', 'csharp', 'rust', 'go'):
+            if target_stack in ('python', 'php', 'csharp', 'rust', 'go', 'vue'):
                 translated_args = '--update ' + shlex.quote(target_cluster) + ' ' + quoted_remaining
             else:
                 translated_args = '--update --cluster ' + shlex.quote(target_cluster) + ' ' + quoted_remaining
@@ -163,6 +167,9 @@ def main():
             success = run(f'php {SCRIPTS_DIR}/validate_php.php {translated_args}')
         elif target_stack == 'csharp':
             success = run(f'bash {SCRIPTS_DIR}/validate_csharp.sh {translated_args}')
+            success = run(f'php {SCRIPTS_DIR}/validate_php.php {translated_args}')
+        elif target_stack == 'vue':
+            success = run(f'node {SCRIPTS_DIR}/validate_vue.mjs {translated_args}')
         elif target_stack == 'rust':
             success = run(f'bash {SCRIPTS_DIR}/capture_rust.sh validate {translated_args}')
         elif target_stack == 'go':
@@ -182,6 +189,8 @@ def main():
         for stack in stacks:
             if stack in ('js', 'ts', 'react', 'css'):
                 success = run(f'node {SCRIPTS_DIR}/validate.js {drift_extra}') and success
+            elif stack == 'vue':
+                success = run(f'node {SCRIPTS_DIR}/validate_vue.mjs {drift_extra}') and success
             elif stack == 'python':
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py {drift_extra}') and success
             elif stack == 'php':
@@ -200,6 +209,8 @@ def main():
         for stack in stacks:
             if stack in ('js', 'ts', 'react', 'css'):
                 success = run(f'node {SCRIPTS_DIR}/validate.js --fail-fast {extra_args}') and success
+            elif stack == 'vue':
+                success = run(f'node {SCRIPTS_DIR}/validate_vue.mjs --fail-fast {extra_args}') and success
             elif stack == 'python':
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --fail-fast {extra_args}') and success
             elif stack == 'php':
@@ -253,6 +264,10 @@ def main():
             success = run(f'bash {SCRIPTS_DIR}/capture_csharp.sh --cluster {target_cluster}')
             if success:
                 success = run(f'bash {SCRIPTS_DIR}/validate_csharp.sh --cluster {target_cluster}')
+        elif target_stack == 'vue':
+            success = run(f'node {SCRIPTS_DIR}/capture_vue.mjs --cluster {target_cluster}')
+            if success:
+                success = run(f'node {SCRIPTS_DIR}/validate_vue.mjs --cluster {target_cluster}')
         else:
             success = run(f'node {SCRIPTS_DIR}/capture.js --cluster {target_cluster}')
             if success:
@@ -263,6 +278,8 @@ def main():
         for stack in stacks:
             if stack in ('js', 'ts', 'react', 'css'):
                 success = run(f'node {SCRIPTS_DIR}/validate.js --fail-fast {extra_args}') and success
+            elif stack == 'vue':
+                success = run(f'node {SCRIPTS_DIR}/validate_vue.mjs --fail-fast {extra_args}') and success
             elif stack == 'python':
                 success = run(f'python3 {SCRIPTS_DIR}/validate.py --fail-fast {extra_args}') and success
             elif stack == 'php':
@@ -332,6 +349,8 @@ def main():
         for stack in stacks:
             if stack in ('js', 'ts', 'react', 'css'):
                 success = run(f'node {SCRIPTS_DIR}/truth.js {extra_args}') and success
+            elif stack == 'vue':
+                print('  ⏭️  Vue truth capture: not yet supported — use node scripts/validate_vue.mjs --runs 5 for drift detection')
             elif stack == 'python':
                 success = run(f'python3 {SCRIPTS_DIR}/truth.py {extra_args}') and success
             elif stack == 'php':
@@ -431,6 +450,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   php       → capture_php.php / validate_php.php
   ruby      → capture_ruby.rb / validate_ruby.rb
   csharp    → capture_csharp.sh / validate_csharp.sh
+  vue       → capture_vue.mjs / validate_vue.mjs
   react     → capture_react.mjs / validate.js
   rust      → capture_rust.sh (capture + validate via cargo test)
   go        → capture_go.sh (Community Preview)
