@@ -1,0 +1,6 @@
+.scala-build/
+.bsp/
+*.class
+*.tasty
+project/
+target/

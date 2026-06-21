@@ -1,0 +1,64 @@
+{
+  "clusters": [
+    {
+      "id": "sum-column",
+      "stack": "awk",
+      "file": "sum_column.awk",
+      "entry": "sum_column.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": ["1\n2\n3\n4\n5\n"],
+      "description": "Sum the first column of input lines"
+    },
+    {
+      "id": "fibonacci",
+      "stack": "awk",
+      "file": "fibonacci.awk",
+      "entry": "fibonacci.awk",
+      "fingerprintLevel": "entry",
+      "watches": ["fib"],
+      "inputs": ["10", "15", "20"],
+      "description": "Fibonacci via awk user-defined function — multi-input contract (Issue #315 parity): n=10→55, n=15→610, n=20→6765"
+    },
+    {
+      "id": "reverse-lines",
+      "stack": "awk",
+      "file": "reverse_lines.awk",
+      "entry": "reverse_lines.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": ["Hello\nWorld\n"],
+      "description": "Reverse line order AND reverse each line"
+    },
+    {
+      "id": "word-count",
+      "stack": "awk",
+      "file": "word_count.awk",
+      "entry": "word_count.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": ["the quick brown fox\njumps over\n"],
+      "description": "Count whitespace-separated words in input"
+    },
+    {
+      "id": "csv-field-count",
+      "stack": "awk",
+      "file": "csv_field_count.awk",
+      "entry": "csv_field_count.awk",
+      "fingerprintLevel": "entry",
+      "watches": ["csv_field_count"],
+      "inputs": ["\"hello, world\",42,\"quoted, field\""],
+      "description": "Count CSV fields in a single line (with quoted fields)"
+    },
+    {
+      "id": "max-value",
+      "stack": "awk",
+      "file": "max_value.awk",
+      "entry": "max_value.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": ["3\n1\n4\n1\n5\n9\n2\n6\n"],
+      "description": "Find the maximum value in the first column"
+    }
+  ]
+}

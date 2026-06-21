@@ -1,0 +1,32 @@
+{
+  "clusters": [
+    {
+      "id": "reverse",
+      "entry": "Reverse",
+      "file": "strings/strings.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/test-go-example/strings",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello", "regrets", "level"]
+    },
+    {
+      "id": "count-vowels",
+      "entry": "CountVowels",
+      "file": "strings/strings.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/test-go-example/strings",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello", "aeiou", "xyz"]
+    },
+    {
+      "id": "add",
+      "entry": "Add",
+      "file": "math/math.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/test-go-example/math",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "inputs": [[1, 2], [10, 20], [-5, 5]]
+    }
+  ]
+}

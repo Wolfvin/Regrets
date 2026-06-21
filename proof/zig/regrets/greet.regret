@@ -1,0 +1,14 @@
+cluster: greet
+version: 1
+fingerprint: pn5ngnw
+captured: 2026-06-21T05:43:10.052Z
+watches: [greet]
+entry: greet
+stack: zig
+fingerprintLevel: entry
+multiArgs: true
+env: {"zig_version":"0.13.0"}
+---
+INPUT  ["world",true]
+OUTPUT "Hello, world!"
+HASH   pn5ngnw

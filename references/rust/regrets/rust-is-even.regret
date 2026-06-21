@@ -1,0 +1,12 @@
+cluster: rust-is-even
+version: 1
+fingerprint: 56d0z1f
+captured: 2026-06-20T17:52:16+00:00
+watches: [is_even]
+entry: is_even
+stack: rust
+fingerprintLevel: entry
+---
+INPUT  4
+OUTPUT true
+HASH   56d0z1f
