@@ -1,0 +1,44 @@
+{
+  "clusters": [
+    {
+      "id": "slugify",
+      "entry": "slugify",
+      "file": "TextTransform.pm",
+      "stack": "perl",
+      "fingerprintLevel": "entry",
+      "inputs": ["Hello World", "  foo   bar  ", "UPPER CASE TEXT"],
+      "watches": [],
+      "callees": []
+    },
+    {
+      "id": "title-case",
+      "entry": "title_case",
+      "file": "TextTransform.pm",
+      "stack": "perl",
+      "fingerprintLevel": "entry",
+      "inputs": ["hello world", "THE QUICK BROWN FOX"],
+      "watches": [],
+      "callees": []
+    },
+    {
+      "id": "count-words",
+      "entry": "count_words",
+      "file": "TextTransform.pm",
+      "stack": "perl",
+      "fingerprintLevel": "entry",
+      "inputs": ["one two three"],
+      "watches": [],
+      "callees": []
+    },
+    {
+      "id": "reverse-words",
+      "entry": "reverse_words",
+      "file": "TextTransform.pm",
+      "stack": "perl",
+      "fingerprintLevel": "entry",
+      "inputs": ["first second third", "a b c d"],
+      "watches": [],
+      "callees": []
+    }
+  ]
+}
