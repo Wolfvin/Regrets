@@ -234,6 +234,13 @@ if (stack === 'go') {
   console.log(`📦 Note for Go stack: make sure dependencies are available:`)
   console.log(`   go mod tidy`)
 }
+if (stack === 'java') {
+  console.log()
+  console.log(`📦 Note for Java stack:`)
+  console.log(`   1. Compile your project first (javac / mvn / gradle).`)
+  console.log(`   2. Add "classpath" to each cluster if your classes aren't on the default classpath.`)
+  console.log(`   3. See references/java.md for the manifest schema.`)
+}
 if (stack === 'css') {
   console.log()
   console.log(`📦 Note for CSS stack: CSS uses the JS runner (capture.js / validate.js).`)

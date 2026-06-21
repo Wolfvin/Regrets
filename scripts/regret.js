@@ -242,6 +242,8 @@ async function main() {
         success = await run('node', [`${SCRIPTS_DIR}/capture_awk.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'scala') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'capture', ...passThroughArgs]) && success
+      } else if (stack === 'java') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -268,6 +270,8 @@ async function main() {
         success = await run('node', [`${SCRIPTS_DIR}/validate_awk.mjs`, ...passThroughArgs]) && success
       } else if (stack === 'scala') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_scala.sh`, 'validate', ...passThroughArgs]) && success
+      } else if (stack === 'java') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
       }
     }
     break
