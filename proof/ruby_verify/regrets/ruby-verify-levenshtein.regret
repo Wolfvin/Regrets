@@ -1,0 +1,14 @@
+cluster: ruby-verify-levenshtein
+version: 1
+fingerprint: tu16lpe
+captured: 2026-06-21T09:48:37.128922Z
+watches: [levenshtein]
+entry: levenshtein
+stack: ruby
+fingerprintLevel: entry
+multiArgs: true
+file: lib/verify_lib.rb
+---
+INPUT  ["kitten","sitting"]
+OUTPUT 3
+HASH   tu16lpe

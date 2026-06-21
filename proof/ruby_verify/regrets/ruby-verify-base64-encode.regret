@@ -1,0 +1,13 @@
+cluster: ruby-verify-base64-encode
+version: 1
+fingerprint: 3db5bgz
+captured: 2026-06-21T09:48:37.128833Z
+watches: [base64_encode]
+entry: base64_encode
+stack: ruby
+fingerprintLevel: entry
+file: lib/verify_lib.rb
+---
+INPUT  "Hello"
+OUTPUT "SGVsbG8="
+HASH   3db5bgz
