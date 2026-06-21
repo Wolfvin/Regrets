@@ -1,0 +1,26 @@
+/* demo.css — fixture CSS file for CSS stack regression testing demo */
+
+.cue-enter {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: cue-slide-up 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cue-hover-lift {
+  transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cue-hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.cue-spinner {
+  animation: cue-spin 0.8s linear infinite;
+}
+
+.cue-enter[data-active="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}

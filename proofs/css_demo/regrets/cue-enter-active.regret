@@ -1,0 +1,11 @@
+cluster: cue-enter-active
+version: 1
+fingerprint: 5n42ub6
+captured: 2026-06-21T07:02:43.279Z
+entry: .cue-enter[data-active="true"]
+stack: css
+file: ../demo.css
+---
+INPUT  {"selector":".cue-enter[data-active=\"true\"]"}
+OUTPUT ["opacity: 1","transform: translateY(0)"]
+HASH   5n42ub6
