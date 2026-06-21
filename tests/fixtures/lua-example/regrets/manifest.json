@@ -1,0 +1,26 @@
+{
+  "clusters": [
+    {
+      "id": "reverse",
+      "entry": "reverse",
+      "watches": ["reverse"],
+      "file": "strings.lua",
+      "stack": "lua",
+      "fingerprintLevel": "entry",
+      "luaModule": "strings",
+      "luaPath": "./?.lua",
+      "inputs": ["hello", "regrets", "level"]
+    },
+    {
+      "id": "count-vowels",
+      "entry": "count_vowels",
+      "watches": ["count_vowels"],
+      "file": "strings.lua",
+      "stack": "lua",
+      "fingerprintLevel": "entry",
+      "luaModule": "strings",
+      "luaPath": "./?.lua",
+      "inputs": ["hello", "aeiou", "xyz"]
+    }
+  ]
+}
