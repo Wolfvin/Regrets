@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'perl', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp']
+const validStacks = ['js', 'python', 'php', 'perl', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp', 'jq']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -281,6 +281,13 @@ if (stack === 'java') {
   console.log(`   1. Compile your project first (javac / mvn / gradle).`)
   console.log(`   2. Add "classpath" to each cluster if your classes aren't on the default classpath.`)
   console.log(`   3. See references/java.md for the manifest schema.`)
+}
+if (stack === 'jq') {
+  console.log()
+  console.log(`📦 Note for jq stack: requires jq 1.6+ (jq --version).`)
+  console.log(`   Also requires sha256sum, python3, and jq on PATH.`)
+  console.log(`   Your .jq file must use jq 'def' functions callable via 'include "file"; funcname'.`)
+  console.log(`   See proof/jq_slugify/ for a working end-to-end example.`)
 }
 if (stack === 'css') {
   console.log()
