@@ -1,0 +1,13 @@
+cluster: java-verify-base64-encode
+version: 1
+fingerprint: 3db5bgz
+captured: 2026-06-21T07:23:40.507762523Z
+watches: [base64Encode]
+entry: base64Encode
+stack: java
+class: VerifyLib
+fingerprintLevel: entry
+---
+INPUT  "Hello"
+OUTPUT "SGVsbG8="
+HASH   3db5bgz

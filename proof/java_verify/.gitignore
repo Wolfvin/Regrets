@@ -1,0 +1,2 @@
+# Generated .regret files are committed as golden contracts (like proof/java/).
+# No build artifacts to ignore (single-file source mode, no .class files persisted).
