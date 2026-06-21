@@ -323,6 +323,22 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'go') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
+    } else if (targetStack === 'cpp') {
+      // C++ harness supports `update` mode natively (parity with JS/Python/Bash/Perl).
+      // regret.js's translatedArgs always starts with --update (added above);
+      // the C++ runner doesn't accept --update as a bare flag — it dispatches on
+      // the mode word. So we strip the leading --update/--cluster pair and pass
+      // `update --cluster <id> --reason "..."` to validate_cpp.sh.
+      const cppArgs = [...translatedArgs]
+      // Remove leading --update (added by regret.js translation).
+      const updateIdx = cppArgs.indexOf('--update')
+      if (updateIdx !== -1) cppArgs.splice(updateIdx, 1)
+      // If the next arg is the cluster id (positional form), prefix with --cluster.
+      // regret.js translation already uses `--update --cluster <id> --reason "..."` form
+      // for the JS branch, but for C++ we use `--update <id>` form (Python/PHP/Rust/Go).
+      // Strip a leading --cluster if present (added by JS-branch translation) since
+      // the C++ runner accepts --cluster directly.
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_cpp.sh`, 'update', ...cppArgs])
     } else {
       // js, ts, css all use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
