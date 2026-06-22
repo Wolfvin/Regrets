@@ -19,6 +19,15 @@ import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSy
 import { resolve, join, extname, relative } from 'path'
 import { analyzeScope } from './analyzer.js'
 
+// path.relative() returns OS-native separators (backslash on Windows). The
+// manifest's "file" field must stay portable across platforms — a manifest
+// generated on Windows and committed to git would otherwise fail to resolve
+// on Linux/Mac (and in this project's own Linux CI), since POSIX treats `\`
+// as a literal filename character, not a path separator (#506).
+function toPosixPath(p) {
+  return p.split('\\').join('/')
+}
+
 const args = process.argv.slice(2)
 const scanDir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : '.'
 const stackFilter = args.includes('--stack') ? args[args.indexOf('--stack') + 1] : null
@@ -483,7 +492,7 @@ function detectLargeFiles(files, projectRoot) {
     const lines = source.split('\n').length
     if (lines < LARGE_THRESHOLD) continue
 
-    const relPath = relative(projectRoot, filePath)
+    const relPath = toPosixPath(relative(projectRoot, filePath))
     const isGodObject = lines >= GOD_OBJECT_THRESHOLD
 
     // Count function declarations for context
@@ -1167,7 +1176,7 @@ const statefulIterators = []   // Classes implementing the iterator pattern
 
 for (const filePath of files) {
   const ext = extname(filePath)
-  const relPath = relative(projectRoot, filePath)
+  const relPath = toPosixPath(relative(projectRoot, filePath))
   const stack = stackFromExt(ext)
 
   if (stackFilter && stack !== stackFilter && !(stackFilter === 'js' && stack === 'ts')) continue
