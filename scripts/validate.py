@@ -1054,11 +1054,11 @@ def main():
         sys.exit(1)
 
     if not regret_files:
+        filter_msg = f' for "{filter_id}"' if filter_id else ''
         if json_output:
-            filter_msg = f' for "{filter_id}"' if filter_id else ''
             print(json.dumps({'error': f'No .regret files found{filter_msg}.'}))
         else:
-            print(f"❌ No .regret files found{' for "' + filter_id + '"' if filter_id else ''}.")
+            print(f"❌ No .regret files found{filter_msg}.")
         sys.exit(1)
 
     # Add pythonPath to sys.path if specified in any Python cluster
