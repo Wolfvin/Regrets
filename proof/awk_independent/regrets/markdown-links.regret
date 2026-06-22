@@ -1,0 +1,14 @@
+cluster: markdown-links
+version: 1
+fingerprint: 5j9ywbt
+captured: 2026-06-22T05:31:45.895Z
+watches: []
+entry: markdown_links.awk
+stack: awk
+file: markdown_links.awk
+fingerprintLevel: entry
+---
+INPUT  "See [the docs](https://example.com/docs) and [source](src/index.js).\nNo links here.\nAnother [link](https://foo.bar).\n"
+OUTPUT "the docs -> https://example.com/docs\nsource -> src/index.js\nlink -> https://foo.bar"
+HASH   5j9ywbt
+INPUTS [{"input":"Single [solo](https://solo.example) link on its own line.\n","output":"solo -> https://solo.example","hash":"5kyw4tr"}]

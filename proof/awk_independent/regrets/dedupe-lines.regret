@@ -1,0 +1,14 @@
+cluster: dedupe-lines
+version: 1
+fingerprint: 153831o
+captured: 2026-06-22T05:31:45.899Z
+watches: []
+entry: dedupe_lines.awk
+stack: awk
+file: dedupe_lines.awk
+fingerprintLevel: entry
+---
+INPUT  "alpha\nbeta\nalpha\ngamma\nbeta\n"
+OUTPUT "alpha\nbeta\ngamma"
+HASH   153831o
+INPUTS [{"input":"one\ntwo\nthree\n","output":"one\ntwo\nthree","hash":"15dzlxm"}]

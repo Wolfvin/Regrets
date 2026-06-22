@@ -1,0 +1,13 @@
+cluster: apache-status-class
+version: 1
+fingerprint: 1aonmpo
+captured: 2026-06-22T05:31:45.883Z
+watches: []
+entry: apache_status_class.awk
+stack: awk
+file: apache_status_class.awk
+fingerprintLevel: entry
+---
+INPUT  "127.0.0.1 - - [10/Oct/2026:13:55:36 -0700] \"GET / HTTP/1.1\" 200 2326\n10.0.0.5 - - [10/Oct/2026:13:55:42 -0700] \"POST /login HTTP/1.1\" 401 758\n"
+OUTPUT "2xx\n4xx"
+HASH   1aonmpo
