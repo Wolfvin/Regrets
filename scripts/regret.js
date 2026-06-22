@@ -764,9 +764,10 @@ async function main() {
   }
 
   case 'structure': {
-    console.warn('⚠️  DEPRECATED: `regret structure` is replaced by `regret analyze`')
-    console.warn('   `regret analyze` provides deep structural analysis including god functions,')
-    console.warn('   duplicates, and cross-module dependencies. Falling back to structure...\n')
+    console.warn('⚠️  DEPRECATED: `regret structure` is replaced by `regret analyze` for Python projects')
+    console.warn('   `regret analyze` (analyze.py) provides deep structural analysis including god')
+    console.warn('   functions, duplicates, and cross-module dependencies — but Python-only today.')
+    console.warn('   For JS/TS/other stacks, `structure` remains the supported tool. Falling back...\n')
     success = await run('node', [`${SCRIPTS_DIR}/structure.js`, ...passThroughArgs])
     break
   }
@@ -808,6 +809,16 @@ async function main() {
   }
 
   case 'analyze': {
+    // analyze.py is a Python-only AST analyzer (#505) — it has no awareness
+    // of other stacks and will just report "No Python functions found" on
+    // a JS/TS/etc. project, which looks like a tool bug rather than a
+    // scope limitation. Warn explicitly so users aren't misled, and point
+    // them at `structure` (the JS-aware equivalent) instead.
+    const stacksForAnalyze = detectStacks()
+    if (!stacksForAnalyze.includes('python')) {
+      console.warn(`⚠️  \`regret analyze\` is Python-only today — this project's stack(s) (${stacksForAnalyze.join(', ')}) are not supported.`)
+      console.warn('   Use `regret structure` for JS/TS structural analysis instead.\n')
+    }
     success = await run('python3', [`${SCRIPTS_DIR}/analyze.py`, ...passThroughArgs])
     break
   }
