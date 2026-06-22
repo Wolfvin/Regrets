@@ -702,12 +702,21 @@ async function main() {
   }
 
   case 'chain': {
+    // contest.mjs / contest.py expect the mode as a FLAG (--capture / --validate),
+    // but `regret chain capture` / `regret chain validate` passes it as a bare
+    // positional word. Translate here so the mode is never silently ignored
+    // (without this, --capture never matches and chain testing always falls
+    // through to validate mode, even when the user asked to capture).
+    let chainArgs = passThroughArgs
+    if (chainArgs[0] === 'capture' || chainArgs[0] === 'validate') {
+      chainArgs = [`--${chainArgs[0]}`, ...chainArgs.slice(1)]
+    }
     const stacks = detectStacks()
     for (const stack of stacks) {
       if (stack === 'js' || stack === 'ts' || stack === 'react' || stack === 'css') {
-        success = await run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...passThroughArgs]) && success
+        success = await run('node', [`${SCRIPTS_DIR}/contest.mjs`, ...chainArgs]) && success
       } else if (stack === 'python') {
-        success = await run('python3', [`${SCRIPTS_DIR}/contest.py`, ...passThroughArgs]) && success
+        success = await run('python3', [`${SCRIPTS_DIR}/contest.py`, ...chainArgs]) && success
       } else if (stack === 'php') {
         console.log(`  ⏭️  PHP chain testing: use regret chain with JS/Python stacks for now — PHP chain support coming soon`)
       } else if (stack === 'lua') {
