@@ -1,0 +1,14 @@
+cluster: fibonacci-fn
+version: 1
+fingerprint: 5m8e79v
+captured: 2026-06-22T07:30:49Z
+watches: []
+entry: fibonacci
+stack: haskell
+fingerprintLevel: entry
+file: NumericUtils.hs
+---
+INPUT  0
+OUTPUT 0
+HASH   5m8e79v
+INPUTS [{"input":1,"output":1,"hash":"1kndu30"},{"input":10,"output":55,"hash":"587q30m"},{"input":20,"output":6765,"hash":"5xg14e2"},{"input":30,"output":832040,"hash":"4r4jk75"}]

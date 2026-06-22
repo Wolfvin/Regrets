@@ -1,0 +1,15 @@
+cluster: gcd-fn
+version: 1
+fingerprint: 4x1co0j
+captured: 2026-06-22T07:30:35Z
+watches: []
+entry: gcd'
+stack: haskell
+fingerprintLevel: entry
+file: NumericUtils.hs
+multiArgs: true
+---
+INPUT  [12,8]
+OUTPUT 4
+HASH   4x1co0j
+INPUTS [{"input":[48,36],"output":12,"hash":"1ngkurw"},{"input":[17,5],"output":1,"hash":"1wepa3f"},{"input":[100,75],"output":25,"hash":"1140gjg"}]

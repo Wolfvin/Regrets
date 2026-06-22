@@ -1,0 +1,40 @@
+{
+  "clusters": [
+    {
+      "id": "factorial-fn",
+      "entry": "factorial",
+      "file": "NumericUtils.hs",
+      "stack": "haskell",
+      "inputs": [0, 1, 5, 10, 12]
+    },
+    {
+      "id": "gcd-fn",
+      "entry": "gcd'",
+      "file": "NumericUtils.hs",
+      "stack": "haskell",
+      "multiArgs": true,
+      "inputs": [[12, 8], [48, 36], [17, 5], [100, 75]]
+    },
+    {
+      "id": "is-prime-fn",
+      "entry": "isPrime",
+      "file": "NumericUtils.hs",
+      "stack": "haskell",
+      "inputs": [2, 3, 4, 17, 25, 97, 100]
+    },
+    {
+      "id": "collatz-length-fn",
+      "entry": "collatzLength",
+      "file": "NumericUtils.hs",
+      "stack": "haskell",
+      "inputs": [1, 2, 6, 27]
+    },
+    {
+      "id": "fibonacci-fn",
+      "entry": "fibonacci",
+      "file": "NumericUtils.hs",
+      "stack": "haskell",
+      "inputs": [0, 1, 10, 20, 30]
+    }
+  ]
+}

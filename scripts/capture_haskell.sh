@@ -109,7 +109,7 @@ invoke_haskell() {
       multi_dispatch='dispatchMulti _ = JNull'
       ;;
     countVowels)
-      string_dispatch='dispatchString s = JInt (M.countVowels s)'
+      string_dispatch='dispatchString s = JInt (fromIntegral (M.countVowels s) :: Integer)'
       int_dispatch='dispatchInt _ = JNull'
       multi_dispatch='dispatchMulti _ = JNull'
       ;;
@@ -121,7 +121,35 @@ invoke_haskell() {
     add)
       string_dispatch='dispatchString _ = JNull'
       int_dispatch='dispatchInt _ = JNull'
-      multi_dispatch='dispatchMulti [JInt a, JInt b] = JInt (M.add a b)'
+      multi_dispatch='dispatchMulti [JInt a, JInt b] = JInt (fromIntegral (M.add (fromIntegral a :: Int) (fromIntegral b :: Int)) :: Integer)'
+      ;;
+    # ─── Independent verification fixture (proof/haskell_indep/) ──────────
+    # These entries exercise patterns NOT covered by the bundled fixture:
+    # recursion, guards, list comprehensions, accumulators, tail recursion.
+    factorial)
+      string_dispatch='dispatchString _ = JNull'
+      int_dispatch='dispatchInt n = JInt (M.factorial n)'
+      multi_dispatch='dispatchMulti _ = JNull'
+      ;;
+    "gcd'")
+      string_dispatch='dispatchString _ = JNull'
+      int_dispatch='dispatchInt _ = JNull'
+      multi_dispatch='dispatchMulti [JInt a, JInt b] = JInt (M.gcd'\'' a b)'
+      ;;
+    isPrime)
+      string_dispatch='dispatchString _ = JNull'
+      int_dispatch='dispatchInt n = JBool (M.isPrime n)'
+      multi_dispatch='dispatchMulti _ = JNull'
+      ;;
+    collatzLength)
+      string_dispatch='dispatchString _ = JNull'
+      int_dispatch='dispatchInt n = JInt (M.collatzLength n)'
+      multi_dispatch='dispatchMulti _ = JNull'
+      ;;
+    fibonacci)
+      string_dispatch='dispatchString _ = JNull'
+      int_dispatch='dispatchInt n = JInt (M.fibonacci n)'
+      multi_dispatch='dispatchMulti _ = JNull'
       ;;
     *)
       string_dispatch='dispatchString _ = JNull'

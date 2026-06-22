@@ -1,0 +1,14 @@
+cluster: factorial-fn
+version: 1
+fingerprint: 6dnasqq
+captured: 2026-06-22T07:30:31Z
+watches: []
+entry: factorial
+stack: haskell
+fingerprintLevel: entry
+file: NumericUtils.hs
+---
+INPUT  0
+OUTPUT 1
+HASH   6dnasqq
+INPUTS [{"input":1,"output":1,"hash":"1kndu30"},{"input":5,"output":120,"hash":"3hf11ck"},{"input":10,"output":3628800,"hash":"4l9c1qw"},{"input":12,"output":479001600,"hash":"2vepisn"}]

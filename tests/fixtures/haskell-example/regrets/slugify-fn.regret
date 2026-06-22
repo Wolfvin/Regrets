@@ -1,7 +1,7 @@
 cluster: slugify-fn
 version: 1
 fingerprint: 2m64ijm
-captured: 2026-06-22T06:00:07Z
+captured: 2026-06-22T07:29:35Z
 watches: []
 entry: slugify
 stack: haskell
