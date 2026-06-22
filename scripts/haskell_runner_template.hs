@@ -16,7 +16,7 @@ import qualified __MODULE_NAME__ as M
 import Data.Char (isDigit, isSpace)
 
 -- ─── Minimal JSON value type ────────────────────────────────────────────────
-data JSON = JString String | JInt Int | JArray [JSON] | JNull deriving (Show, Eq)
+data JSON = JString String | JInt Integer | JBool Bool | JArray [JSON] | JNull deriving (Show, Eq)
 
 -- ─── Minimal JSON parser (handles strings, ints, arrays) ────────────────────
 parseJSON :: String -> Maybe JSON
@@ -35,11 +35,13 @@ value s =
       let (str, rest') = parseStr rest
       return (JString str, rest')
     ('[' : rest) -> array (dropWhile isSpace rest)
+    ('t' : 'r' : 'u' : 'e' : rest) -> Just (JBool True, rest)
+    ('f' : 'a' : 'l' : 's' : 'e' : rest) -> Just (JBool False, rest)
     (c : _)
       | c == '-' || isDigit c ->
           let numStr = takeWhile (\x -> isDigit x || x == '-') s
               rest' = drop (length numStr) s
-          in Just (JInt (read numStr :: Int), rest')
+          in Just (JInt (read numStr :: Integer), rest')
     _ -> Nothing
 
 parseStr :: String -> (String, String)
@@ -77,6 +79,8 @@ encodeJSON (JString s) = '"' : concatMap esc s ++ "\""
     esc '\t' = "\\t"
     esc c = [c]
 encodeJSON (JInt n) = show n
+encodeJSON (JBool True) = "true"
+encodeJSON (JBool False) = "false"
 encodeJSON (JArray xs) = "[" ++ intercalate "," (map encodeJSON xs) ++ "]"
 encodeJSON JNull = "null"
 
@@ -89,7 +93,7 @@ intercalate sep (x:xs) = x ++ sep ++ intercalate sep xs
 dispatchString :: String -> JSON
 __STRING_DISPATCH__
 
-dispatchInt :: Int -> JSON
+dispatchInt :: Integer -> JSON
 __INT_DISPATCH__
 
 dispatchMulti :: [JSON] -> JSON

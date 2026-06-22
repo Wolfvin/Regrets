@@ -1,7 +1,7 @@
 cluster: add-fn
 version: 1
 fingerprint: 63qoext
-captured: 2026-06-22T06:00:14Z
+captured: 2026-06-22T07:29:43Z
 watches: []
 entry: add
 stack: haskell

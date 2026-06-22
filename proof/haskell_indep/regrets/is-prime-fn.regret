@@ -1,0 +1,14 @@
+cluster: is-prime-fn
+version: 1
+fingerprint: 1r9x2ry
+captured: 2026-06-22T07:30:41Z
+watches: []
+entry: isPrime
+stack: haskell
+fingerprintLevel: entry
+file: NumericUtils.hs
+---
+INPUT  2
+OUTPUT true
+HASH   1r9x2ry
+INPUTS [{"input":3,"output":true,"hash":"5yhvi6k"},{"input":4,"output":false,"hash":"1acn21f"},{"input":17,"output":true,"hash":"487t49b"},{"input":25,"output":false,"hash":"4e9g9uh"},{"input":97,"output":true,"hash":"n743dv3"},{"input":100,"output":false,"hash":"1daexb2"}]
