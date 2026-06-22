@@ -1,0 +1,12 @@
+cluster: rust-slugify
+version: 1
+fingerprint: 2gaag5y
+captured: 2026-06-21T06:21:29+00:00
+watches: [slugify]
+entry: slugify
+stack: rust
+fingerprintLevel: entry
+---
+INPUT  "Hello, World! This is a TEST."
+OUTPUT "hello-world-this-is-a-test"
+HASH   2gaag5y
