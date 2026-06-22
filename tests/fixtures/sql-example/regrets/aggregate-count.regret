@@ -1,0 +1,13 @@
+cluster: aggregate-count
+version: 1
+fingerprint: 1dda5kj
+captured: 2026-06-22T16:32:47Z
+watches: [aggregate]
+entry: category_counts
+stack: sql
+fingerprintLevel: entry
+database: :memory:
+---
+INPUT  null
+OUTPUT [{"category":"food","cnt":3},{"category":"tools","cnt":2}]
+HASH   1dda5kj

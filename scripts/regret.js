@@ -268,6 +268,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_jq.sh`, ...passThroughArgs]) && success
       } else if (stack === 'make') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_make.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'sql') {
+        success = await run('node', [`${SCRIPTS_DIR}/capture_sql.mjs`, ...passThroughArgs]) && success
       }
     }
     break
@@ -325,6 +327,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, ...passThroughArgs]) && success
       } else if (stack === 'make') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'sql') {
+        success = await run('node', [`${SCRIPTS_DIR}/validate_sql.mjs`, ...passThroughArgs]) && success
       }
     }
     break

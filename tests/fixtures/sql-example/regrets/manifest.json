@@ -1,0 +1,42 @@
+{
+  "clusters": [
+    {
+      "id": "upper-fn",
+      "entry": "upper",
+      "stack": "sql",
+      "query": "SELECT UPPER(?) AS result",
+      "database": ":memory:",
+      "inputs": ["hello", "world", "Regrets"],
+      "watches": ["upper"]
+    },
+    {
+      "id": "length-fn",
+      "entry": "length",
+      "stack": "sql",
+      "query": "SELECT LENGTH(?) AS result",
+      "database": ":memory:",
+      "inputs": ["hello", "", "regression"],
+      "watches": ["length"]
+    },
+    {
+      "id": "product-query",
+      "entry": "products_by_category",
+      "stack": "sql",
+      "query": "SELECT name, price FROM products WHERE category = ? ORDER BY price",
+      "database": ":memory:",
+      "setup": "CREATE TABLE products (name TEXT, price REAL, category TEXT); INSERT INTO products VALUES ('Apple', 1.50, 'food'), ('Bread', 3.00, 'food'), ('Hammer', 12.99, 'tools'), ('Banana', 0.75, 'food');",
+      "inputs": ["food", "tools"],
+      "watches": ["products"]
+    },
+    {
+      "id": "aggregate-count",
+      "entry": "category_counts",
+      "stack": "sql",
+      "query": "SELECT category, COUNT(*) AS cnt FROM products GROUP BY category ORDER BY category",
+      "database": ":memory:",
+      "setup": "CREATE TABLE products (name TEXT, category TEXT); INSERT INTO products VALUES ('Apple', 'food'), ('Bread', 'food'), ('Hammer', 'tools'), ('Banana', 'food'), ('Wrench', 'tools');",
+      "inputs": [null],
+      "watches": ["aggregate"]
+    }
+  ]
+}

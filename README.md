@@ -123,6 +123,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
 | **Bash** | `bash` | `capture_bash.sh` | `validate_bash.sh` | Community Preview. See [`references/bash.md`](references/bash.md) |
 | **Make** | `make` | `capture_make.sh` | `validate_make.sh` | GNU Make 4.x `define`/`endef` functions via `$(call ...)`. See [`references/make.md`](references/make.md) |
+| **SQL** | `sql` | `capture_sql.mjs` | `validate_sql.mjs` | SQLite queries via Python3. Scalar functions, table queries, aggregates, custom functions. Community Preview |
 
 ### Stack-specific examples
 

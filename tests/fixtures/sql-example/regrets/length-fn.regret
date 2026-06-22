@@ -1,0 +1,14 @@
+cluster: length-fn
+version: 1
+fingerprint: 257otwb
+captured: 2026-06-22T16:32:46Z
+watches: [length]
+entry: length
+stack: sql
+fingerprintLevel: entry
+database: :memory:
+---
+INPUT  "hello"
+OUTPUT 5
+HASH   257otwb
+INPUTS [{"input":"","output":0,"hash":"ug4qxgh"},{"input":"regression","output":10,"hash":"1dqyr6r"}]
