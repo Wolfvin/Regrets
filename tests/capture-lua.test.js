@@ -224,4 +224,114 @@ describe('Lua stack — capture + validate', { skip: !hasLua && 'lua not on PATH
     // cross-stack constant that Lua, Go, and PHP also produce.
     assert.equal(fingerprint('hello', 'olleh'), '5nssd6s')
   })
+
+  // ─── --update mode tests (mirror JS validate.js --update contract) ─────────
+
+  it('--update without --reason → exit 2, prints ERROR', () => {
+    const result = runLua(VALIDATE_LUA, ['--update', 'reverse'])
+    assert.equal(result.exitCode, 2, `--update without --reason should exit 2; got ${result.exitCode}`)
+    assert.match(result.stdout, /--update requires --reason/, 'should explain --reason is required')
+  })
+
+  it('--update with vague --reason (<4 words) → exit 2, prints ERROR', () => {
+    const result = runLua(VALIDATE_LUA, ['--update', 'reverse', '--reason', 'fix bug'])
+    assert.equal(result.exitCode, 2, `vague --reason should exit 2; got ${result.exitCode}`)
+    assert.match(result.stdout, /too vague/, 'should explain the reason is too vague')
+  })
+
+  it('--update rewrites INPUT/OUTPUT/HASH/INPUTS + captured timestamp + appends audit.log entry', () => {
+    // Ensure clean starting state: capture fresh, remove any stale audit.log.
+    for (const id of ['reverse', 'count-vowels']) {
+      const p = join(FIXTURE, 'regrets', `${id}.regret`)
+      if (existsSync(p)) rmSync(p)
+    }
+    const auditLogPath = join(FIXTURE, 'regrets', 'audit.log')
+    if (existsSync(auditLogPath)) rmSync(auditLogPath)
+    runLua(CAPTURE_LUA)
+
+    const regretPath = join(FIXTURE, 'regrets', 'reverse.regret')
+    const before = readFileSync(regretPath, 'utf8')
+    const beforeCaptured = before.match(/^captured: (.+)$/m)[1]
+    const beforeHash = before.match(/^HASH\s+(\S+)/m)[1]
+    assert.ok(beforeCaptured, 'before: captured timestamp present')
+    assert.ok(beforeHash, 'before: HASH present')
+
+    // Sleep 1.1s so the new captured timestamp is guaranteed to differ
+    // (ISO timestamp has 1-second resolution).
+    const sleepMs = 1100
+    const end = Date.now() + sleepMs
+    while (Date.now() < end) { /* busy wait */ }
+
+    const reason = 'no behavior change just exercising update path for test'
+    const result = runLua(VALIDATE_LUA, ['--update', 'reverse', '--reason', reason])
+    assert.equal(result.exitCode, 0, `--update should exit 0 on success; got ${result.exitCode}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    assert.match(result.stdout, /UPDATE reverse:/, 'should print UPDATE summary')
+
+    const after = readFileSync(regretPath, 'utf8')
+    const afterCaptured = after.match(/^captured: (.+)$/m)[1]
+    const afterHash = after.match(/^HASH\s+(\S+)/m)[1]
+    const afterInputs = after.match(/^INPUTS\s+(\[.*\])$/m)
+
+    assert.notEqual(afterCaptured, beforeCaptured, 'captured timestamp must be refreshed')
+    // Hash unchanged because code unchanged — but the file structure must still be intact.
+    assert.equal(afterHash, beforeHash, 'hash unchanged when code unchanged')
+    assert.ok(afterInputs, 'INPUTS line must be preserved after --update (multi-input contract)')
+    // INPUT/OUTPUT lines must still be present.
+    assert.match(after, /^INPUT\s+/m, 'INPUT line present after update')
+    assert.match(after, /^OUTPUT\s+/m, 'OUTPUT line present after update')
+
+    // audit.log must exist and contain the entry.
+    assert.ok(existsSync(auditLogPath), 'audit.log must be created by --update')
+    const auditContent = readFileSync(auditLogPath, 'utf8')
+    assert.match(auditContent, /UPDATE\s+reverse/, 'audit.log must contain UPDATE reverse entry')
+    assert.match(auditContent, new RegExp(`reason: ${reason}`), 'audit.log must contain the reason')
+    assert.match(auditContent, /chain:\s+\S+/, 'audit.log must contain a chain hash')
+    assert.match(auditContent, /old:\s+\S+/, 'audit.log must record old hash')
+    assert.match(auditContent, /new:\s+\S+/, 'audit.log must record new hash')
+  })
+
+  it('--update after breaking change → re-captures NEW hash, validate then PASSes', () => {
+    // Setup: fresh capture.
+    for (const id of ['reverse', 'count-vowels']) {
+      const p = join(FIXTURE, 'regrets', `${id}.regret`)
+      if (existsSync(p)) rmSync(p)
+    }
+    runLua(CAPTURE_LUA)
+
+    const luaSrcPath = join(FIXTURE, 'strings.lua')
+    const original = readFileSync(luaSrcPath, 'utf8')
+    const regretPath = join(FIXTURE, 'regrets', 'reverse.regret')
+    const beforeHash = readFileSync(regretPath, 'utf8').match(/^HASH\s+(\S+)/m)[1]
+
+    // Breaking change: reverse() now uppercases.
+    const mutated = original.replace(
+      'function M.reverse(s)\n    return string.reverse(s)\nend',
+      'function M.reverse(s)\n    return string.upper(string.reverse(s))\nend',
+    )
+    writeFileSync(luaSrcPath, mutated)
+    try {
+      // validate should FAIL first.
+      const failResult = runLua(VALIDATE_LUA, ['--cluster', 'reverse'])
+      assert.notEqual(failResult.exitCode, 0, 'validate should FAIL after breaking change')
+      assert.match(failResult.stdout, /FAIL reverse/, 'should print FAIL')
+
+      // Now --update to re-capture the new behavior.
+      const updateResult = runLua(VALIDATE_LUA, [
+        '--update', 'reverse',
+        '--reason', 'reverse now uppercases to match new UX requirement',
+      ])
+      assert.equal(updateResult.exitCode, 0, `--update should succeed; got ${updateResult.exitCode}`)
+
+      // Hash must have changed.
+      const afterHash = readFileSync(regretPath, 'utf8').match(/^HASH\s+(\S+)/m)[1]
+      assert.notEqual(afterHash, beforeHash, 'HASH must change after --update on breaking change')
+
+      // Validate should now PASS.
+      const passResult = runLua(VALIDATE_LUA, ['--cluster', 'reverse'])
+      assert.equal(passResult.exitCode, 0, `validate should PASS after --update; got ${passResult.exitCode}`)
+      assert.match(passResult.stdout, /PASS reverse/, 'should print PASS')
+    } finally {
+      writeFileSync(luaSrcPath, original)
+    }
+  })
 })

@@ -993,6 +993,7 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Go | Generated test files + `go test` | Value / Schema / Mixed | **Working** — see `references/go.md` |
 | PHP | Ghost decorator (manual wrapping) | Value / Schema / Mixed | See `references/php.md` |
 | C# (.NET 8+) | Reflection via `Assembly.LoadFrom` + `MethodInfo.Invoke` | Value (default) + multi-input (issue #315) | See `references/csharp.md` and `proof/csharp-demo/` |
+| Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
 | Lua | `dofile()` + vendored pure-Lua SHA-256 | Value (default) | **Working** — see `references/lua.md` |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
@@ -1223,6 +1224,7 @@ regression-testing/
 │   ├── capture_go.sh           ← Go cluster capture runner (working)
 │   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)
 │   ├── validate_kotlin.sh      ← Kotlin cluster validate runner (community preview)
+│   ├── capture_go.sh           ← Go cluster capture runner (community preview)
 │   ├── capture_lua.lua         ← Lua cluster capture runner (pure-Lua SHA-256, no deps)
 │   ├── validate_lua.lua        ← Lua cluster regression validator
 │   ├── fingerprint_lua.lua     ← Lua hashing logic — stable_stringify + base36 + fingerprint
@@ -1247,6 +1249,7 @@ regression-testing/
     ├── go.md                   ← Go stack — generated test files + go test (Working)
     ├── ruby.md                 ← Ruby stack — top-level fn / class method / instance method
     ├── csharp.md               ← C# (.NET 8+) stack — reflection + dotnet runner
+    ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
     ├── lua.md                  ← Lua stack — dofile + pure-Lua SHA-256 (Working)
     ├── react.md                ← React/JSX stack — render fingerprinting
     ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)

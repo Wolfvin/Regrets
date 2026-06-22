@@ -211,6 +211,49 @@ else
   check_fail "cross-stack parity mismatch"
 fi
 
+# ─── 6. --update mode: re-capture + audit.log + chain hash ────────────────────
+step "6. --update mode — rewrites .regret + appends audit.log entry"
+# Clean audit.log to make verification deterministic
+rm -f "$FIXTURE/regrets/audit.log"
+BEFORE_CAPTURED=$(grep "^captured:" "$FIXTURE/regrets/reverse.regret" | awk '{print $2}')
+BEFORE_HASH=$(grep "^HASH" "$FIXTURE/regrets/reverse.regret" | awk '{print $2}')
+# Sleep 1.1s so the new captured timestamp is guaranteed to differ
+sleep 1.1
+( cd "$FIXTURE" && lua "$SCRIPT_DIR/validate_lua.lua" \
+    --update reverse \
+    --reason "no behavior change just verifying update flow" \
+    > /tmp/verify_lua_update.txt 2>&1 )
+rc=$?
+AFTER_CAPTURED=$(grep "^captured:" "$FIXTURE/regrets/reverse.regret" | awk '{print $2}')
+AFTER_HASH=$(grep "^HASH" "$FIXTURE/regrets/reverse.regret" | awk '{print $2}')
+UPDATE_LINE_OK=$(grep -c "^UPDATE reverse:" /tmp/verify_lua_update.txt)
+AUDIT_EXISTS=0; [[ -f "$FIXTURE/regrets/audit.log" ]] && AUDIT_EXISTS=1
+AUDIT_HAS_UPDATE=$(grep -c "UPDATE  reverse" "$FIXTURE/regrets/audit.log" 2>/dev/null || echo 0)
+AUDIT_HAS_CHAIN=$(grep -c "^  chain:" "$FIXTURE/regrets/audit.log" 2>/dev/null || echo 0)
+INPUTS_LINE_OK=0; grep -q "^INPUTS " "$FIXTURE/regrets/reverse.regret" && INPUTS_LINE_OK=1
+
+if [[ "$rc" -eq 0 \
+   && "$BEFORE_CAPTURED" != "$AFTER_CAPTURED" \
+   && "$BEFORE_HASH" == "$AFTER_HASH" \
+   && "$UPDATE_LINE_OK" -ge 1 \
+   && "$AUDIT_EXISTS" -eq 1 \
+   && "$AUDIT_HAS_UPDATE" -ge 1 \
+   && "$AUDIT_HAS_CHAIN" -ge 1 \
+   && "$INPUTS_LINE_OK" -eq 1 ]]; then
+  check_pass "--update refreshed captured, preserved INPUTS, wrote audit.log with chain hash"
+else
+  check_fail "--update mode did not meet all checks"
+  echo "      rc=$rc" >&2
+  echo "      before captured: $BEFORE_CAPTURED / after: $AFTER_CAPTURED" >&2
+  echo "      before hash: $BEFORE_HASH / after: $AFTER_HASH" >&2
+  echo "      UPDATE line: $UPDATE_LINE_OK, audit.log exists: $AUDIT_EXISTS" >&2
+  echo "      audit UPDATE entries: $AUDIT_HAS_UPDATE, audit chain entries: $AUDIT_HAS_CHAIN" >&2
+  echo "      INPUTS line preserved: $INPUTS_LINE_OK" >&2
+  cat /tmp/verify_lua_update.txt | sed 's/^/      /' >&2
+fi
+# Clean up audit.log so it doesn't get committed
+rm -f "$FIXTURE/regrets/audit.log"
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 log ""
 log "═══════════════════════════════════════════════════════════════"
