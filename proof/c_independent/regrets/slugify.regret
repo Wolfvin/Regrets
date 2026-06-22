@@ -1,0 +1,13 @@
+cluster: slugify
+version: 1
+fingerprint: 2gaag5y
+captured: 2026-06-22T05:24:46.000000+00:00
+watches: [slugify]
+entry: regret_slugify
+stack: c
+fingerprintLevel: entry
+---
+INPUT  "Hello, World! This is a TEST."
+OUTPUT "hello-world-this-is-a-test"
+HASH   2gaag5y
+INPUTS [{"input":"  multiple   spaces   here  ","output":"multiple-spaces-here","hash":"2ks6j9j"},{"input":"ABC---DEF???GHI","output":"abc-def-ghi","hash":"5wgrlov"}]

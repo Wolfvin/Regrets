@@ -1,0 +1,69 @@
+{
+  "clusters": [
+    {
+      "id": "slugify",
+      "entry": "regret_slugify",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["slugify"],
+      "inputs": [
+        "Hello, World! This is a TEST.",
+        "  multiple   spaces   here  ",
+        "ABC---DEF???GHI"
+      ],
+      "description": "URL slug transform with run-collapse and stripping"
+    },
+    {
+      "id": "base64-encode",
+      "entry": "regret_base64_encode",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["base64_encode"],
+      "inputs": [
+        "Hello",
+        "hello world",
+        ""
+      ],
+      "description": "RFC 4648 base64 encoding (bitwise + lookup table)"
+    },
+    {
+      "id": "crc32",
+      "entry": "regret_crc32",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["crc32"],
+      "inputs": [
+        "Hello",
+        "The quick brown fox jumps over the lazy dog"
+      ],
+      "description": "IEEE CRC32 checksum (table-driven, reflected, final XOR)"
+    },
+    {
+      "id": "fnv1a-32",
+      "entry": "regret_fnv1a_32",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["fnv1a_32"],
+      "inputs": [
+        "Hello",
+        ""
+      ],
+      "description": "FNV-1a 32-bit hash (multiply + XOR per byte)"
+    },
+    {
+      "id": "is-valid-ipv4",
+      "entry": "regret_is_valid_ipv4",
+      "stack": "c",
+      "fingerprintLevel": "entry",
+      "watches": ["is_valid_ipv4"],
+      "inputs": [
+        "192.168.1.1",
+        "255.255.255.255",
+        "256.0.0.1",
+        "01.02.03.04",
+        "1.2.3"
+      ],
+      "description": "Strict IPv4 dotted-quad validation (no leading zeros, 4 octets)"
+    }
+  ]
+}
