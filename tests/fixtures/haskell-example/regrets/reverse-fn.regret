@@ -1,0 +1,14 @@
+cluster: reverse-fn
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-22T06:00:11Z
+watches: []
+entry: reverseStr
+stack: haskell
+fingerprintLevel: entry
+file: StringUtils.hs
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s
+INPUTS [{"input":"regrets","output":"sterger","hash":"5hnum9u"},{"input":"level","output":"level","hash":"2e0jclf"}]

@@ -1,0 +1,15 @@
+cluster: add-fn
+version: 1
+fingerprint: 63qoext
+captured: 2026-06-22T06:00:14Z
+watches: []
+entry: add
+stack: haskell
+fingerprintLevel: entry
+file: StringUtils.hs
+multiArgs: true
+---
+INPUT  [1,2]
+OUTPUT 3
+HASH   63qoext
+INPUTS [{"input":[10,20],"output":30,"hash":"560s4tf"},{"input":[100,200],"output":300,"hash":"65bacti"}]

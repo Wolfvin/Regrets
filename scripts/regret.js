@@ -236,6 +236,8 @@ async function main() {
         success = await run('php', [`${SCRIPTS_DIR}/capture_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'perl') {
         success = await run('perl', [`${SCRIPTS_DIR}/capture_perl.pl`, ...passThroughArgs]) && success
+      } else if (stack === 'haskell') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_haskell.sh`, ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/capture_ruby.rb`, ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -289,6 +291,8 @@ async function main() {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'perl') {
         success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, ...passThroughArgs]) && success
+      } else if (stack === 'haskell') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -364,7 +368,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make' || targetStack === 'haskell') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -382,6 +386,8 @@ async function main() {
       success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...translatedArgs])
     } else if (targetStack === 'perl') {
       success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, ...translatedArgs])
+    } else if (targetStack === 'haskell') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, ...translatedArgs])
     } else if (targetStack === 'ruby') {
       success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...translatedArgs])
     } else if (targetStack === 'csharp') {
@@ -465,6 +471,8 @@ async function main() {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'perl') {
         console.log(`  ⏭️  Perl drift detection: not yet supported (perl output is deterministic by default)`)
+      } else if (stack === 'haskell') {
+        console.log(`  ⏭️  Haskell drift detection: not yet supported (haskell is pure FP — deterministic by default)`)
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -519,6 +527,8 @@ async function main() {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'perl') {
         success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'haskell') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -571,6 +581,8 @@ async function main() {
         success = await run('php', [`${SCRIPTS_DIR}/truth_php.php`, ...passThroughArgs]) && success
       } else if (stack === 'perl') {
         console.log(`  ⏭️  Perl truth capture: not yet supported — use regret capture + regret validate instead`)
+      } else if (stack === 'haskell') {
+        console.log(`  ⏭️  Haskell truth capture: not yet supported — use regret capture + regret validate instead`)
       } else if (stack === 'ruby') {
         console.log(`  ⏭️  Ruby truth capture: not yet supported — use ruby scripts/capture_ruby.rb + ruby scripts/validate_ruby.rb --runs 5 for now`)
       } else if (stack === 'csharp') {
@@ -690,6 +702,8 @@ async function main() {
         console.log(`  ⏭️  Lua chain testing: not yet supported — use regret capture/validate for Lua clusters`)
       } else if (stack === 'perl') {
         console.log(`  ⏭️  Perl chain testing: not yet supported — use regret chain with JS/Python stacks for now`)
+      } else if (stack === 'haskell') {
+        console.log(`  ⏭️  Haskell chain testing: not yet supported — use regret chain with JS/Python stacks for now`)
       }
     }
     break
@@ -811,6 +825,8 @@ async function main() {
         success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'perl') {
         success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'haskell') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
