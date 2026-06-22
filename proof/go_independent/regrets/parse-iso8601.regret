@@ -1,0 +1,12 @@
+cluster: parse-iso8601
+version: 1
+fingerprint: 3sg7uj8
+captured: 2026-06-22T07:51:51Z
+entry: ParseISO8601
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "2026-06-22T15:04:05Z"
+OUTPUT ["2026-06-22T15:04:05Z",null]
+HASH   3sg7uj8
+INPUTS [{"hash":"5hjmsck","input":"2026-01-01T00:00:00Z","output":["2026-01-01T00:00:00Z",null]},{"hash":"zsptxtb","input":"2026-12-31T23:59:59Z","output":["2026-12-31T23:59:59Z",null]}]

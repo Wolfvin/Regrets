@@ -1,0 +1,12 @@
+cluster: apply-discount
+version: 1
+fingerprint: 4zp566y
+captured: 2026-06-22T07:51:51Z
+entry: ApplyDiscount
+stack: go
+fingerprintLevel: entry
+---
+INPUT  [1000,10]
+OUTPUT 900
+HASH   4zp566y
+INPUTS [{"hash":"7mm1kvj","input":[999,50],"output":500},{"hash":"nkx1zb6","input":[1000,150],"output":-1},{"hash":"62d4r6w","input":[1000,-5],"output":-1}]

@@ -1,0 +1,12 @@
+cluster: format-cents
+version: 1
+fingerprint: 27re8gw
+captured: 2026-06-22T07:51:51Z
+entry: FormatCents
+stack: go
+fingerprintLevel: entry
+---
+INPUT  1099
+OUTPUT "$10.99"
+HASH   27re8gw
+INPUTS [{"hash":"1c2zxyy","input":0,"output":"$0.00"},{"hash":"24jzwif","input":-550,"output":"-$5.50"},{"hash":"2xqey4n","input":100000,"output":"$1000.00"}]

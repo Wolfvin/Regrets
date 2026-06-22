@@ -1,0 +1,12 @@
+cluster: days-between
+version: 1
+fingerprint: 2m9saig
+captured: 2026-06-22T07:51:51Z
+entry: DaysBetween
+stack: go
+fingerprintLevel: entry
+---
+INPUT  ["2026-01-01","2026-01-10"]
+OUTPUT 9
+HASH   2m9saig
+INPUTS [{"hash":"21j5cmr","input":["2026-01-10","2026-01-01"],"output":9},{"hash":"5jx2543","input":["2026-06-22","2026-06-22"],"output":0},{"hash":"2wnqvb2","input":["garbage","2026-01-01"],"output":-1}]

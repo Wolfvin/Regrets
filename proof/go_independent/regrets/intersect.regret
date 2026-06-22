@@ -1,0 +1,12 @@
+cluster: intersect
+version: 1
+fingerprint: 56uck20
+captured: 2026-06-22T07:51:51Z
+entry: Intersect
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "a|b|c||b|c|d"
+OUTPUT "b|c"
+HASH   56uck20
+INPUTS [{"hash":"2ux44lt","input":"a|b||c|d","output":""},{"hash":"3ricmhf","input":"x|y|z||a|b|c|x","output":"x"}]

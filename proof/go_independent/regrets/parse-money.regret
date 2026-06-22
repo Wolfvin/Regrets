@@ -1,0 +1,12 @@
+cluster: parse-money
+version: 1
+fingerprint: 3ys1ogz
+captured: 2026-06-22T07:51:51Z
+entry: ParseMoney
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "$10.99"
+OUTPUT 1099
+HASH   3ys1ogz
+INPUTS [{"hash":"5kwwpge","input":"-$5.50","output":-550},{"hash":"3cce6km","input":"$0.00","output":0},{"hash":"5eh0drh","input":"10.99","output":-1}]

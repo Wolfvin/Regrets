@@ -1,0 +1,12 @@
+cluster: count-words
+version: 1
+fingerprint: 37bmq27
+captured: 2026-06-22T07:51:51Z
+entry: CountWords
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "The Quick Brown Fox the"
+OUTPUT {"Brown":1,"Fox":1,"Quick":1,"The":1,"the":1}
+HASH   37bmq27
+INPUTS [{"hash":"40v6jks","input":"","output":{}},{"hash":"1beiq6s","input":"the The THE","output":{"THE":1,"The":1,"the":1}}]

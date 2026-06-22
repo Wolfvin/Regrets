@@ -1,0 +1,12 @@
+cluster: format-duration
+version: 1
+fingerprint: 26gxn6z
+captured: 2026-06-22T07:51:51Z
+entry: FormatDuration
+stack: go
+fingerprintLevel: entry
+---
+INPUT  3661
+OUTPUT "1h 1m 1s"
+HASH   26gxn6z
+INPUTS [{"hash":"4f63zag","input":45,"output":"0h 0m 45s"},{"hash":"3s5tfxr","input":86400,"output":"24h 0m 0s"},{"hash":"3fxjehl","input":-5,"output":"0h 0m 0s"}]
