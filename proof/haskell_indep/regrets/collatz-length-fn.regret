@@ -1,0 +1,14 @@
+cluster: collatz-length-fn
+version: 1
+fingerprint: 50v35ik
+captured: 2026-06-22T07:30:45Z
+watches: []
+entry: collatzLength
+stack: haskell
+fingerprintLevel: entry
+file: NumericUtils.hs
+---
+INPUT  1
+OUTPUT 0
+HASH   50v35ik
+INPUTS [{"input":2,"output":1,"hash":"49x1wl7"},{"input":6,"output":8,"hash":"2xojjsp"},{"input":27,"output":111,"hash":"45fi5px"}]
