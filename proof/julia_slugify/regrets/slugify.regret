@@ -1,0 +1,13 @@
+cluster: slugify
+version: 1
+fingerprint: 615ytfn
+captured: 2026-06-22T16:47:09.261Z
+watches: ["slugify"]
+entry: slugify
+stack: julia
+fingerprintLevel: entry
+file: lib/slugify.jl
+---
+INPUT  "Hello, World!"
+OUTPUT "hello-world"
+HASH   615ytfn

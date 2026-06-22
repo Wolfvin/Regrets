@@ -106,6 +106,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_bash.sh {extra_args}') and success
             elif stack == 'make':
                 success = run(f'bash {SCRIPTS_DIR}/capture_make.sh {extra_args}') and success
+            elif stack == 'julia':
+                success = run(f'bash {SCRIPTS_DIR}/capture_julia.sh {extra_args}') and success
 
     elif command == 'validate':
         stacks = detect_stacks()
@@ -134,6 +136,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh {extra_args}') and success
             elif stack == 'make':
                 success = run(f'bash {SCRIPTS_DIR}/validate_make.sh {extra_args}') and success
+            elif stack == 'julia':
+                success = run(f'bash {SCRIPTS_DIR}/validate_julia.sh {extra_args}') and success
 
     elif command == 'health':
         success = run(f'node {SCRIPTS_DIR}/health.js {extra_args}')

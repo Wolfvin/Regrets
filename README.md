@@ -120,6 +120,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **Kotlin** | `kotlin` | `capture_kotlin.sh` | `validate_kotlin.sh` | Community Preview. Top-level functions only (callee wrapping + class methods on roadmap). See [`references/kotlin.md`](references/kotlin.md) |
 | **Ruby** | `ruby` | `capture_ruby.rb` | `validate_ruby.rb` | Pure functions, class methods. See [`references/ruby.md`](references/ruby.md) |
 | **Nim** | `nim` | `capture_nim.sh` | `validate_nim.sh` | Top-level `proc` with `*` export. See [`references/nim.md`](references/nim.md) |
+| **Julia** | `julia` | `capture_julia.sh` | `validate_julia.sh` | Top-level functions, JIT-compiled. Julia 1.11+. See [`references/julia.md`](references/julia.md) and [`proof/julia_slugify/`](proof/julia_slugify/) |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
 | **Bash** | `bash` | `capture_bash.sh` | `validate_bash.sh` | Community Preview. See [`references/bash.md`](references/bash.md) |
 | **Make** | `make` | `capture_make.sh` | `validate_make.sh` | GNU Make 4.x `define`/`endef` functions via `$(call ...)`. See [`references/make.md`](references/make.md) |
