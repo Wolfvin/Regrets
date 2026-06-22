@@ -1,0 +1,13 @@
+cluster: is-valid-ipv4
+version: 1
+fingerprint: 5fyfbp9
+captured: 2026-06-22T05:24:46.000000+00:00
+watches: [is_valid_ipv4]
+entry: regret_is_valid_ipv4
+stack: c
+fingerprintLevel: entry
+---
+INPUT  "192.168.1.1"
+OUTPUT true
+HASH   5fyfbp9
+INPUTS [{"input":"255.255.255.255","output":true,"hash":"38wet0b"},{"input":"256.0.0.1","output":false,"hash":"kp4dhyi"},{"input":"01.02.03.04","output":false,"hash":"2d20mxb"},{"input":"1.2.3","output":false,"hash":"5igwwqm"}]

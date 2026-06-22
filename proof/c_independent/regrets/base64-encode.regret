@@ -1,0 +1,13 @@
+cluster: base64-encode
+version: 1
+fingerprint: 3db5bgz
+captured: 2026-06-22T05:24:46.000000+00:00
+watches: [base64_encode]
+entry: regret_base64_encode
+stack: c
+fingerprintLevel: entry
+---
+INPUT  "Hello"
+OUTPUT "SGVsbG8="
+HASH   3db5bgz
+INPUTS [{"input":"hello world","output":"aGVsbG8gd29ybGQ=","hash":"1mq1twa"},{"input":"","output":"","hash":"5oge4st"}]

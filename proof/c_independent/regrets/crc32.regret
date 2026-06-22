@@ -1,0 +1,13 @@
+cluster: crc32
+version: 1
+fingerprint: 4y0t4az
+captured: 2026-06-22T05:24:46.000000+00:00
+watches: [crc32]
+entry: regret_crc32
+stack: c
+fingerprintLevel: entry
+---
+INPUT  "Hello"
+OUTPUT 4157704578
+HASH   4y0t4az
+INPUTS [{"input":"The quick brown fox jumps over the lazy dog","output":1095738169,"hash":"5xn9776"}]
