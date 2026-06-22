@@ -1,0 +1,13 @@
+cluster: reverse-runes
+version: 1
+fingerprint: 28wkqqp
+captured: 2026-06-22T05:58:51.202Z
+watches: [reverseRunes]
+entry: reverseRunes
+stack: nim
+fingerprintLevel: entry
+file: lib/third_verify.nim
+---
+INPUT  "abc"
+OUTPUT "cba"
+HASH   28wkqqp

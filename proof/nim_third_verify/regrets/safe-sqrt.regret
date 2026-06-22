@@ -1,0 +1,13 @@
+cluster: safe-sqrt
+version: 1
+fingerprint: 45hmw2e
+captured: 2026-06-22T05:59:02.702Z
+watches: [safeSqrt]
+entry: safeSqrt
+stack: nim
+fingerprintLevel: entry
+file: lib/third_verify.nim
+---
+INPUT  2
+OUTPUT 1.414213562373095
+HASH   45hmw2e

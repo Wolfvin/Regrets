@@ -255,7 +255,16 @@ proc stripFields*(node: JsonNode, fields: seq[string] = @[]): JsonNode =
 proc toBase36*(hexStr: string): string =
   ## Convert a hex string to a lowercase base36 string.
   ## Mirrors JS BigInt.toString(36), Python to_base36, Ruby to_base36.
-  let hex = hexStr.strip(chars = {'0'}).toLowerAscii()
+  ##
+  ## BUGFIX (issue #404 third-party verification): strip ONLY leading zeros,
+  ## not trailing zeros. The previous `strip(chars = {'0'})` stripped both
+  ## leading AND trailing — which corrupts any SHA-256 hash that happens to
+  ## end in '0' (e.g. "c4c12b23...e24ff0" became "...e24ff", shifting the
+  ## BigInt value and producing a different base36 result than JS/Python).
+  ## The slugify + redteam fixtures missed this because their underlying
+  ## sha256 hashes don't end in '0'; the third_verify fixture (with input
+  ## "racecar" → true) was the first to surface the parity break.
+  let hex = hexStr.strip(leading = true, trailing = false, chars = {'0'}).toLowerAscii()
   if hex.len == 0:
     return "0"
 
