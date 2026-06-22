@@ -240,6 +240,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_haskell.sh`, ...passThroughArgs]) && success
       } else if (stack === 'tcl') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_tcl.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'swift') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_swift.sh`, ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/capture_ruby.rb`, ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -297,6 +299,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, ...passThroughArgs]) && success
       } else if (stack === 'tcl') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_tcl.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'swift') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_swift.sh`, ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -372,7 +376,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make' || targetStack === 'haskell' || targetStack === 'tcl') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make' || targetStack === 'haskell' || targetStack === 'tcl' || targetStack === 'swift') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -390,10 +394,12 @@ async function main() {
       success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...translatedArgs])
     } else if (targetStack === 'perl') {
       success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, ...translatedArgs])
-    } else if (targetStack === 'haskell' || targetStack === 'tcl') {
+    } else if (targetStack === 'haskell' || targetStack === 'tcl' || targetStack === 'swift') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, ...translatedArgs])
-    } else if (targetStack === 'tcl') {
+    } else if (targetStack === 'tcl' || targetStack === 'swift') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_tcl.sh`, ...translatedArgs])
+    } else if (targetStack === 'swift') {
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_swift.sh`, ...translatedArgs])
     } else if (targetStack === 'ruby') {
       success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...translatedArgs])
     } else if (targetStack === 'csharp') {
@@ -481,6 +487,8 @@ async function main() {
         console.log(`  ⏭️  Haskell drift detection: not yet supported (haskell is pure FP — deterministic by default)`)
       } else if (stack === 'tcl') {
         console.log(`  ⏭️  Tcl drift detection: not yet supported (tcl output is deterministic by default)`)
+      } else if (stack === 'swift') {
+        console.log(`  ⏭️  Swift drift detection: not yet supported (swift output is deterministic by default)`)
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, ...driftDefault, ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -539,6 +547,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'tcl') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_tcl.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'swift') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_swift.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'csharp') {
@@ -595,6 +605,8 @@ async function main() {
         console.log(`  ⏭️  Haskell truth capture: not yet supported — use regret capture + regret validate instead`)
       } else if (stack === 'tcl') {
         console.log(`  ⏭️  Tcl truth capture: not yet supported — use regret capture + regret validate instead`)
+      } else if (stack === 'swift') {
+        console.log(`  ⏭️  Swift truth capture: not yet supported — use regret capture + regret validate instead`)
       } else if (stack === 'ruby') {
         console.log(`  ⏭️  Ruby truth capture: not yet supported — use ruby scripts/capture_ruby.rb + ruby scripts/validate_ruby.rb --runs 5 for now`)
       } else if (stack === 'csharp') {
@@ -727,6 +739,8 @@ async function main() {
         console.log(`  ⏭️  Haskell chain testing: not yet supported — use regret chain with JS/Python stacks for now`)
       } else if (stack === 'tcl') {
         console.log(`  ⏭️  Tcl chain testing: not yet supported — use regret chain with JS/Python stacks for now`)
+      } else if (stack === 'swift') {
+        console.log(`  ⏭️  Swift chain testing: not yet supported — use regret chain with JS/Python stacks for now`)
       }
     }
     break
@@ -863,6 +877,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'tcl') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_tcl.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'swift') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_swift.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'ruby') {
         success = await run('ruby', [`${SCRIPTS_DIR}/validate_ruby.rb`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'csharp') {

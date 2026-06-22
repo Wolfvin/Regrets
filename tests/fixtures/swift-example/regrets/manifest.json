@@ -1,0 +1,33 @@
+{
+  "clusters": [
+    {
+      "id": "slugify-fn",
+      "entry": "slugify",
+      "file": "StringUtils.swift",
+      "stack": "swift",
+      "inputs": ["Hello World", "Hello, World!", "Multiple   Spaces", "UPPER"]
+    },
+    {
+      "id": "count-vowels-fn",
+      "entry": "countVowels",
+      "file": "StringUtils.swift",
+      "stack": "swift",
+      "inputs": ["hello", "aeiou", "xyz"]
+    },
+    {
+      "id": "reverse-fn",
+      "entry": "reverseStr",
+      "file": "StringUtils.swift",
+      "stack": "swift",
+      "inputs": ["hello", "regrets", "level"]
+    },
+    {
+      "id": "add-fn",
+      "entry": "add",
+      "file": "StringUtils.swift",
+      "stack": "swift",
+      "multiArgs": true,
+      "inputs": [[1, 2], [10, 20], [100, 200]]
+    }
+  ]
+}
