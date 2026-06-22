@@ -1,0 +1,69 @@
+{
+  "clusters": [
+    {
+      "id": "slugify",
+      "entry": "slugify",
+      "method": "slugify",
+      "class": "RegretVerify",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["slugify"],
+      "inputs": ["Hello World!", "  Palmier Pro  ", "Café Résumé", "a---b", ""],
+      "description": "URL slug generator — lowercase, spaces to hyphens, strip non-alphanumeric"
+    },
+    {
+      "id": "base64-encode",
+      "entry": "base64Encode",
+      "method": "base64Encode",
+      "class": "RegretVerify",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["base64Encode"],
+      "inputs": [
+        [72, 101, 108, 108, 111],
+        [0, 1, 2, 3, 4, 5],
+        [255, 254, 253],
+        [65]
+      ],
+      "description": "Base64 encoder (bitwise ops + lookup table, no java.util.Base64)"
+    },
+    {
+      "id": "crc32",
+      "entry": "crc32",
+      "method": "crc32",
+      "class": "RegretVerify",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["crc32"],
+      "inputs": [
+        [72, 101, 108, 108, 111],
+        [0, 0, 0, 0],
+        [255, 255, 255, 255],
+        []
+      ],
+      "description": "CRC32 checksum (table-driven, no java.util.zip.CRC32)"
+    },
+    {
+      "id": "fnv1a",
+      "entry": "fnv1a",
+      "method": "fnv1a",
+      "class": "RegretVerify",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["fnv1a"],
+      "inputs": ["hello", "", "test", "The quick brown fox"],
+      "description": "FNV-1a 32-bit hash (multiply + XOR per byte)"
+    },
+    {
+      "id": "is-valid-ipv4",
+      "entry": "isValidIPv4",
+      "method": "isValidIPv4",
+      "class": "RegretVerify",
+      "stack": "java",
+      "fingerprintLevel": "entry",
+      "watches": ["isValidIPv4"],
+      "inputs": ["192.168.1.1", "255.255.255.255", "0.0.0.0", "256.1.1.1", "1.2.3", "192.168.01.1"],
+      "description": "IPv4 address validator (multi-delimiter parser + range check)"
+    }
+  ]
+}

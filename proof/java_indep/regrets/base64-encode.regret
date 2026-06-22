@@ -1,0 +1,13 @@
+cluster: base64-encode
+version: 1
+fingerprint: 46c2pxi
+captured: 2026-06-22T05:33:59.041147307Z
+watches: [base64Encode]
+entry: base64Encode
+stack: java
+class: RegretVerify
+fingerprintLevel: entry
+---
+INPUT  [72,101,108,108,111]
+OUTPUT "SGVsbG8="
+HASH   46c2pxi
