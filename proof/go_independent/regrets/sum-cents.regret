@@ -1,0 +1,12 @@
+cluster: sum-cents
+version: 1
+fingerprint: 1g7ng4p
+captured: 2026-06-22T07:51:51Z
+entry: SumCents
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "100|200|300"
+OUTPUT 600
+HASH   1g7ng4p
+INPUTS [{"hash":"1b8rk4p","input":"100|-50|200","output":300},{"hash":"ug4qxgh","input":"","output":0},{"hash":"2jj4s3v","input":"-100|-200","output":0}]

@@ -1,0 +1,12 @@
+cluster: add-business-days
+version: 1
+fingerprint: 5fc5ffb
+captured: 2026-06-22T07:51:51Z
+entry: AddBusinessDays
+stack: go
+fingerprintLevel: entry
+---
+INPUT  ["2026-06-22",5]
+OUTPUT "2026-06-29"
+HASH   5fc5ffb
+INPUTS [{"hash":"3snbrov","input":["2026-06-22",0],"output":"2026-06-22"},{"hash":"5m855a3","input":["2026-06-19",1],"output":"2026-06-22"},{"hash":"51xn3os","input":["garbage",5],"output":"INVALID"}]

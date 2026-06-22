@@ -1,0 +1,12 @@
+cluster: sort-and-join
+version: 1
+fingerprint: ono4wjy
+captured: 2026-06-22T07:51:51Z
+entry: SortAndJoin
+stack: go
+fingerprintLevel: entry
+---
+INPUT  ["banana|apple|cherry",","]
+OUTPUT "apple,banana,cherry"
+HASH   ono4wjy
+INPUTS [{"hash":"3mh9um2","input":["solo","-"],"output":"solo"},{"hash":"qcu7rja","input":["",","],"output":""}]

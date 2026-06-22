@@ -1,0 +1,12 @@
+cluster: weekday-name
+version: 1
+fingerprint: 2zwbxvw
+captured: 2026-06-22T07:51:51Z
+entry: WeekdayName
+stack: go
+fingerprintLevel: entry
+---
+INPUT  "2026-06-22"
+OUTPUT "Monday"
+HASH   2zwbxvw
+INPUTS [{"hash":"3nyxnsk","input":"2026-06-21","output":"Sunday"},{"hash":"373ke88","input":"2026-01-01","output":"Thursday"},{"hash":"3qcf3i0","input":"garbage","output":"INVALID"}]

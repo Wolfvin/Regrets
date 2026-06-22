@@ -1,0 +1,213 @@
+{
+  "clusters": [
+    {
+      "id": "parse-iso8601",
+      "entry": "ParseISO8601",
+      "file": "datetime/datetime.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/datetime",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "2026-06-22T15:04:05Z",
+        "2026-01-01T00:00:00Z",
+        "2026-12-31T23:59:59Z",
+        "not-a-date"
+      ],
+      "description": "Parse ISO 8601 / RFC 3339 date-time into UTC. 4th input is intentionally invalid — exercised via error return (skipped from INPUTS line)."
+    },
+    {
+      "id": "format-duration",
+      "entry": "FormatDuration",
+      "file": "datetime/datetime.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/datetime",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        3661,
+        45,
+        86400,
+        -5
+      ],
+      "description": "Format seconds as 'Xh Ym Zs'. Negative input clamped to 0 (no error — returns '0h 0m 0s')."
+    },
+    {
+      "id": "weekday-name",
+      "entry": "WeekdayName",
+      "file": "datetime/datetime.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/datetime",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "2026-06-22",
+        "2026-06-21",
+        "2026-01-01",
+        "garbage"
+      ],
+      "description": "Weekday name for ISO date. 4th input invalid → 'INVALID' (no error)."
+    },
+    {
+      "id": "days-between",
+      "entry": "DaysBetween",
+      "file": "datetime/datetime.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/datetime",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        ["2026-01-01", "2026-01-10"],
+        ["2026-01-10", "2026-01-01"],
+        ["2026-06-22", "2026-06-22"],
+        ["garbage", "2026-01-01"]
+      ],
+      "multiArgs": true,
+      "description": "Days between two ISO dates (absolute). Multi-arg via JSON array. 4th input invalid → -1."
+    },
+    {
+      "id": "add-business-days",
+      "entry": "AddBusinessDays",
+      "file": "datetime/datetime.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/datetime",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        ["2026-06-22", 5],
+        ["2026-06-22", 0],
+        ["2026-06-19", 1],
+        ["garbage", 5]
+      ],
+      "multiArgs": true,
+      "description": "Add N business days (Mon-Fri). Multi-arg via JSON array. 4th input invalid → 'INVALID'."
+    },
+    {
+      "id": "format-cents",
+      "entry": "FormatCents",
+      "file": "finance/finance.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/finance",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        1099,
+        0,
+        -550,
+        100000
+      ],
+      "description": "Format cents as '$X.YY'. Negative → '-$X.YY'."
+    },
+    {
+      "id": "apply-discount",
+      "entry": "ApplyDiscount",
+      "file": "finance/finance.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/finance",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        [1000, 10],
+        [999, 50],
+        [1000, 150],
+        [1000, -5]
+      ],
+      "multiArgs": true,
+      "description": "Apply pct discount, floor rounding. Out-of-range pct → -1."
+    },
+    {
+      "id": "sum-cents",
+      "entry": "SumCents",
+      "file": "finance/finance.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/finance",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "100|200|300",
+        "100|-50|200",
+        "",
+        "-100|-200"
+      ],
+      "description": "Sum |-delimited cent amounts (negatives skipped). 3rd input empty → 0."
+    },
+    {
+      "id": "parse-money",
+      "entry": "ParseMoney",
+      "file": "finance/finance.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/finance",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "$10.99",
+        "-$5.50",
+        "$0.00",
+        "10.99"
+      ],
+      "description": "Parse '$X.YY' or '-$X.YY' back to cents. 4th input (missing $) → -1."
+    },
+    {
+      "id": "dedupe-strings",
+      "entry": "DedupeStrings",
+      "file": "collections/collections.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/collections",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "a|b|a|c|b",
+        "",
+        "solo"
+      ],
+      "description": "Dedupe |-delimited input preserving first-occurrence order. Empty input → empty string."
+    },
+    {
+      "id": "sort-and-join",
+      "entry": "SortAndJoin",
+      "file": "collections/collections.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/collections",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        ["banana|apple|cherry", ","],
+        ["solo", "-"],
+        ["", ","]
+      ],
+      "multiArgs": true,
+      "description": "Sort |-delimited input + join with sep. Multi-arg via JSON array [input, sep]."
+    },
+    {
+      "id": "count-words",
+      "entry": "CountWords",
+      "file": "collections/collections.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/collections",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "The Quick Brown Fox the",
+        "",
+        "the The THE"
+      ],
+      "description": "Word frequency map (case-sensitive). Mixed-case input → breaking lowercase refactor is detectable. Empty input → empty map."
+    },
+    {
+      "id": "intersect",
+      "entry": "Intersect",
+      "file": "collections/collections.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/collections",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "a|b|c||b|c|d",
+        "a|b||c|d",
+        "x|y|z||a|b|c|x"
+      ],
+      "description": "Sorted intersection of two |-delimited lists separated by ||. Empty intersection → empty string."
+    },
+    {
+      "id": "chunk",
+      "entry": "Chunk",
+      "file": "collections/collections.go",
+      "stack": "go",
+      "goPackage": "github.com/regrets/proof-go-independent/collections",
+      "fingerprintLevel": "entry",
+      "inputs": [
+        "1|2|3|4|5|2",
+        "1|2|3|5",
+        "1|2|3|0"
+      ],
+      "description": "Chunk |-delimited ints (last element = n) into groups. Returns chunks joined by ; with items joined by ,. n<=0 → empty string."
+    }
+  ]
+}
