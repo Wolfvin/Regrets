@@ -1028,6 +1028,9 @@ def main():
             print(f"   ❌ Resolved module path is empty — check manifest.")
             failed += 1
             continue
+        # Phase 2 callee wrapping (#503) — see callee-writing block below,
+        # right after the parent .regret file is saved.
+        callees = cluster.get('callees', [])
         normalize_rules = cluster.get('normalize', [])
         ignore_fields = cluster.get('ignoreFields', [])
         fingerprint_level = cluster.get('fingerprintLevel', 'entry')
@@ -1381,7 +1384,15 @@ def main():
                     freeze_cms = [dt_cm, time_cm]
 
                 recorder_local = []  # initialized here; cleared per input in the loop below
-                ghost = create_ghost(mod, watches, recorder_local, instance_methods=instance_methods)
+                # #503: include declared callees in the ghost watch list so
+                # GhostModule intercepts internal calls to them too, even if
+                # the user didn't separately duplicate them into "watches".
+                # Each recorded call is already tagged with 'fn': <name> by
+                # GhostModule, so the callee-writing block below (after the
+                # parent .regret is saved) can filter results[*]['calls'] by
+                # callee name with no further wiring needed here.
+                ghost_watch_list = list(dict.fromkeys(list(watches) + list(callees)))
+                ghost = create_ghost(mod, ghost_watch_list, recorder_local, instance_methods=instance_methods)
                 entry_fn = getattr(ghost, entry, None) or getattr(mod, entry, None)
                 if entry_fn is None or not callable(entry_fn):
                     ghost.restore()
@@ -1858,6 +1869,73 @@ def main():
             print(f"   ✅ Fingerprint: {fp}")
             print(f"   📄 Saved: regrets/{cid}.regret")
             passed += 1
+
+            # ── Phase 2: callee wrapping (#503) — opt-in via "callees": [...] ──
+            # Mirrors capture.js's callee-contract behavior: for each declared
+            # callee that was actually called (across any input), write a
+            # separate `<cid>.calls.<calleeName>.regret` contract using the
+            # FIRST observed (args, result) as the golden call. A callee
+            # declared but never called gets a warning, not an error — the
+            # parent cluster is still captured normally (matches JS).
+            if callees:
+                # `results` already holds every input's recorder snapshot
+                # ('calls': list(recorder_local) at append-time, see above),
+                # so no separate accumulator is needed — just scan across all
+                # inputs for entries tagged with each callee's name.
+                for callee_name in callees:
+                    callee_calls = [
+                        call for r in results for call in r.get('calls', [])
+                        if call.get('fn') == callee_name
+                    ]
+                    if not callee_calls:
+                        print(f"   ℹ️  Callee \"{callee_name}\" was not called during capture — no contract written (cluster: {cid})")
+                        print(f"      The callee is wrapped and callable, but the entry function's execution")
+                        print(f"      path didn't reach it for any of the {len(inputs)} input(s). If this is")
+                        print(f"      unexpected, check that \"{callee_name}\" is called via its bare name")
+                        print(f"      from within \"{entry}\" (not via an import alias or attribute access")
+                        print(f"      that bypasses the module-level binding GhostModule mutates).")
+                        continue
+
+                    golden_call = callee_calls[0]
+                    callee_cluster_id = f"{cid}.calls.{callee_name}"
+                    callee_regret_path = os.path.join(out_dir, f"{callee_cluster_id}.regret")
+                    callee_timestamp = datetime.now(timezone.utc).isoformat()
+
+                    callee_threw = 'error' in golden_call
+                    callee_fp_input = golden_call['args']
+                    callee_fp_output = {'__error': golden_call['error']} if callee_threw else golden_call.get('result')
+                    callee_fp = fingerprint(callee_fp_input, callee_fp_output, normalize_rules, ignore_fields)
+
+                    callee_lines = [
+                        f"cluster: {callee_cluster_id}",
+                        "version: 1",
+                        f"fingerprint: {callee_fp}",
+                        f"captured: {callee_timestamp}",
+                        f"parent: {cid}",
+                        f"callee: {callee_name}",
+                        f"entry: {callee_name}",
+                        "stack: python",
+                        "fingerprintLevel: entry",
+                    ]
+                    if callee_threw:
+                        callee_lines.append("threw: true")
+                    callee_lines.append(f"env: {json.dumps(get_env_snapshot(), sort_keys=True)}")
+                    callee_lines.append("---")
+                    callee_lines.append(f"INPUT  {json_serialize(golden_call['args'])}")
+                    if callee_threw:
+                        callee_lines.append(f"ERROR_CONTRACT {json_serialize({'type': 'Error', 'message': golden_call['error']})}")
+                    else:
+                        callee_lines.append(f"OUTPUT {json_serialize(golden_call.get('result'))}")
+                    callee_lines.append(f"HASH   {callee_fp}")
+
+                    _clk = acquire_lock(callee_regret_path)
+                    try:
+                        with open(callee_regret_path, 'w', encoding='utf-8') as f:
+                            f.write('\n'.join(callee_lines))
+                    finally:
+                        release_lock(_clk)
+
+                    print(f"   📄 Saved: regrets/{callee_cluster_id}.regret (callee fingerprint: {callee_fp})")
 
         except Exception as err:
             # Ensure ghost proxy is restored even on error

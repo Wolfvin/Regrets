@@ -246,6 +246,7 @@ def parse_args():
         'fail_fast': False,
         'manifest': os.path.join(os.getcwd(), 'regrets', 'manifest.json'),
         'json_output': False,
+        'skip_callees': False,
     }
 
     i = 0
@@ -268,6 +269,8 @@ def parse_args():
             result['manifest'] = args[i + 1]; i += 2
         elif args[i] == '--json':
             result['json_output'] = True; i += 1
+        elif args[i] == '--skip-callees':
+            result['skip_callees'] = True; i += 1
         else:
             i += 1
 
@@ -1026,6 +1029,24 @@ def main():
             print('   Be specific. e.g. "tax rate updated from 11% to 12% per new regulation"')
         sys.exit(1)
 
+    # #503/#288 parity with validate.js: reject direct update of a callee
+    # contract. Callee contracts are derived from the parent's inputs — they
+    # cannot be updated independently. Point the user to the parent instead.
+    if cli['update'] and '.calls.' in cli['update']:
+        parent_target = cli['update'].split('.calls.')[0]
+        err_msg = (f'Cannot update callee contract "{cli["update"]}" directly. '
+                   f'Callee contracts are derived from the parent cluster\'s inputs. '
+                   f'Update the parent instead: regret update {parent_target} --reason "..." '
+                   f'— or re-capture: regret capture --cluster {parent_target}')
+        if json_output:
+            print(json.dumps({'error': err_msg}))
+        else:
+            print(f'❌ Cannot update callee contract "{cli["update"]}" directly.')
+            print('   Callee contracts are derived from the parent cluster\'s inputs.')
+            print(f'   Update the parent instead:  regret update {parent_target} --reason "..."')
+            print(f'   Or re-capture:               regret capture --cluster {parent_target}')
+        sys.exit(1)
+
     # Load manifest
     try:
         with open(cli['manifest'], 'r', encoding='utf-8') as f:
@@ -1123,7 +1144,11 @@ def main():
                 break
 
         if not cluster_def:
-            if not json_output:
+            # Callee contract files (#503) are recognized and re-validated by
+            # the dedicated callee pass below (after this loop) — they are
+            # NOT orphaned/unrecognized files, so skip the misleading
+            # "not in manifest" warning for them specifically.
+            if not json_output and '.calls.' not in cluster_id:
                 print(f"  ⚠️  {cluster_id}: not in manifest — skipping")
             # Skipped clusters must NOT be counted as failures — the user
             # may be mid-refactor on the manifest, or this validator may be
@@ -2125,6 +2150,95 @@ def main():
             if not json_output:
                 print("\n  --fail-fast: stopping.")
             break
+
+    # ─── Phase 2: re-validate callee contracts (#503) ──────────────────────────
+    # Mirrors validate.js's callee re-validation + missing-callee detection
+    # (#288): for every Python cluster declaring "callees": [...], each
+    # `<parent>.calls.<callee>.regret` contract is re-run with its saved
+    # golden args and compared against the live result. A parent that
+    # declares callees but is missing the contract file FAILs with a clear
+    # message — this is the safety net that previously did not exist at all
+    # for the Python stack (silent pass regardless of declared callees).
+    if not cli['skip_callees'] and not (filter_id and '.calls.' in (filter_id or '')):
+        for cluster_def in manifest.get('clusters', []):
+            if cluster_def.get('stack') != 'python':
+                continue
+            callees_decl = cluster_def.get('callees', [])
+            if not callees_decl:
+                continue
+            parent_id = cluster_def['id']
+            if filter_id and parent_id != filter_id:
+                continue
+
+            try:
+                parent_module_path = cluster_def.get('module', cluster_def.get('file', ''))
+                mod_for_callees = importlib.import_module(parent_module_path)
+            except Exception as err:
+                # Parent module itself failed to import — already reported as
+                # a FAIL by the main loop above; don't double-report here.
+                continue
+
+            for callee_name in callees_decl:
+                callee_cluster_id = f"{parent_id}.calls.{callee_name}"
+                callee_path = os.path.join(regret_dir, f"{callee_cluster_id}.regret")
+
+                if not os.path.exists(callee_path):
+                    msg = (f"{callee_cluster_id}: parent declares callee \"{callee_name}\" but "
+                           f"the contract file is missing. Run `python scripts/capture.py "
+                           f"--cluster {parent_id}` to (re)generate it, or remove \"{callee_name}\" "
+                           f"from the parent's \"callees\" if it's no longer reachable.")
+                    if not json_output:
+                        print(f"  ❌ {callee_cluster_id.ljust(35)} MISSING callee contract")
+                        print(f"      {msg}")
+                    results.append({'id': callee_cluster_id, 'pass': False, 'callee_missing': True, 'error': msg})
+                    continue
+
+                with open(callee_path, 'r', encoding='utf-8') as f:
+                    callee_regret = parse_regret(f.read())
+
+                callee_fn = getattr(mod_for_callees, callee_name, None)
+                if callee_fn is None or not callable(callee_fn):
+                    err_msg = f"callee \"{callee_name}\" not found or not callable in {parent_module_path}"
+                    if not json_output:
+                        print(f"  ❌ {callee_cluster_id.ljust(35)} {err_msg}")
+                    results.append({'id': callee_cluster_id, 'pass': False, 'error': err_msg})
+                    continue
+
+                callee_args = callee_regret.get('input')
+                try:
+                    if isinstance(callee_args, list):
+                        live_result = callee_fn(*callee_args)
+                    else:
+                        live_result = callee_fn(callee_args)
+                    live_threw = False
+                    live_error = None
+                except Exception as callee_err:
+                    live_result = None
+                    live_threw = True
+                    live_error = str(callee_err)
+
+                golden_threw = 'errorContract' in callee_regret
+                callee_norm = cluster_def.get('normalize', [])
+                callee_ignore = cluster_def.get('ignoreFields', [])
+
+                if live_threw != golden_threw:
+                    callee_pass = False
+                    live_fp = None
+                else:
+                    live_fp_output = {'__error': live_error} if live_threw else live_result
+                    live_fp = fingerprint(callee_args, live_fp_output, callee_norm, callee_ignore)
+                    callee_pass = (live_fp == callee_regret.get('goldenHash'))
+
+                if not json_output:
+                    if callee_pass:
+                        print(f"  ✅ {callee_cluster_id.ljust(35)} {callee_regret.get('goldenHash')}  PASS (callee)")
+                    else:
+                        print(f"  ❌ {callee_cluster_id.ljust(35)} {callee_regret.get('goldenHash')} → {live_fp}  FAIL (callee)")
+
+                results.append({
+                    'id': callee_cluster_id, 'pass': callee_pass, 'callee': True,
+                    'expected': callee_regret.get('goldenHash'), 'actual': live_fp,
+                })
 
     # ─── Summary ──────────────────────────────────────────────────────────────
 
