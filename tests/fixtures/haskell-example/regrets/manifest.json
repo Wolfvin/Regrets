@@ -1,0 +1,33 @@
+{
+  "clusters": [
+    {
+      "id": "slugify-fn",
+      "entry": "slugify",
+      "file": "StringUtils.hs",
+      "stack": "haskell",
+      "inputs": ["Hello World", "Hello, World!", "Multiple   Spaces", "UPPER"]
+    },
+    {
+      "id": "count-vowels-fn",
+      "entry": "countVowels",
+      "file": "StringUtils.hs",
+      "stack": "haskell",
+      "inputs": ["hello", "aeiou", "xyz"]
+    },
+    {
+      "id": "reverse-fn",
+      "entry": "reverseStr",
+      "file": "StringUtils.hs",
+      "stack": "haskell",
+      "inputs": ["hello", "regrets", "level"]
+    },
+    {
+      "id": "add-fn",
+      "entry": "add",
+      "file": "StringUtils.hs",
+      "stack": "haskell",
+      "multiArgs": true,
+      "inputs": [[1, 2], [10, 20], [100, 200]]
+    }
+  ]
+}

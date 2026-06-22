@@ -1,0 +1,14 @@
+cluster: count-vowels-fn
+version: 1
+fingerprint: 5izc285
+captured: 2026-06-22T06:00:09Z
+watches: []
+entry: countVowels
+stack: haskell
+fingerprintLevel: entry
+file: StringUtils.hs
+---
+INPUT  "hello"
+OUTPUT 2
+HASH   5izc285
+INPUTS [{"input":"aeiou","output":5,"hash":"4352i39"},{"input":"xyz","output":0,"hash":"62s8gfd"}]
