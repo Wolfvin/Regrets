@@ -1,0 +1,12 @@
+cluster: make-truncate
+version: 1
+fingerprint: 4t0zo7f
+captured: 2026-06-21T11:27:17.857507+00:00
+entry: truncate
+stack: make
+file: ../text_format.mk
+INPUTS 2bcu69q 1hhazj8 4bd68vy v56xeqc
+---
+INPUT  ["Hello World", 5]
+OUTPUT "Hello..."
+HASH   4t0zo7f

@@ -1,0 +1,12 @@
+cluster: make-title-case
+version: 1
+fingerprint: 4am2hvn
+captured: 2026-06-21T11:27:19.569932+00:00
+entry: title_case
+stack: make
+file: ../text_format.mk
+INPUTS 2eferu4 2q6rj7r 3q8xg0x
+---
+INPUT  "hello world"
+OUTPUT "Hello World"
+HASH   4am2hvn
