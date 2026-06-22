@@ -1,0 +1,13 @@
+cluster: reverse-bits
+version: 1
+fingerprint: 5m8e79v
+captured: 2026-06-22T05:49:09.000000+00:00
+watches: [bitops_reverse_bits]
+entry: regret_reverse_bits
+stack: c
+fingerprintLevel: entry
+---
+INPUT  0
+OUTPUT 0
+HASH   5m8e79v
+INPUTS [{"input":1,"output":2147483648,"hash":"1lzo32t"},{"input":4294967295,"output":4294967295,"hash":"2a3hoek"},{"input":2147483648,"output":1,"hash":"4lbxmc5"},{"input":305419896,"output":510274632,"hash":"4waq47c"}]
