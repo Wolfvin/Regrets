@@ -1,0 +1,13 @@
+cluster: is-palindrome
+version: 1
+fingerprint: 4wjg59y
+captured: 2026-06-22T05:59:07.612Z
+watches: [isPalindrome]
+entry: isPalindrome
+stack: nim
+fingerprintLevel: entry
+file: lib/third_verify.nim
+---
+INPUT  "racecar"
+OUTPUT true
+HASH   4wjg59y
