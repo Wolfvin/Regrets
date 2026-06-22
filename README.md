@@ -121,6 +121,7 @@ The runner auto-detects the stack from `regrets/manifest.json` and dispatches to
 | **Nim** | `nim` | `capture_nim.sh` | `validate_nim.sh` | Top-level `proc` with `*` export. See [`references/nim.md`](references/nim.md) |
 | **React** | `react` | `capture_react.mjs` | `validate.js` | Component rendering tests |
 | **Bash** | `bash` | `capture_bash.sh` | `validate_bash.sh` | Community Preview. See [`references/bash.md`](references/bash.md) |
+| **Make** | `make` | `capture_make.sh` | `validate_make.sh` | GNU Make 4.x `define`/`endef` functions via `$(call ...)`. See [`references/make.md`](references/make.md) |
 
 ### Stack-specific examples
 

@@ -73,6 +73,51 @@ bash scripts/validate_make.sh --manifest regrets/manifest.json --cluster make-sl
 bash scripts/validate_make.sh --manifest regrets/manifest.json --fail-fast
 ```
 
+### Update (with audit trail)
+
+When you intentionally change a Make function's behavior, use `--update` to
+re-capture the new fingerprint and write an entry to `regrets/audit.log`:
+
+```bash
+bash scripts/validate_make.sh --manifest regrets/manifest.json \
+  --update make-slugify \
+  --reason "slugify now strips diacritics per spec v2"
+```
+
+The `--reason` flag is **required** with `--update` and must be at least 4 words
+(to prevent vague "changed" / "updated" reasons). The audit.log entry includes:
+
+- ISO-8601 timestamp
+- Old hash → new hash
+- Reason (sanitized: newlines replaced with spaces)
+- Git short SHA (if available)
+- Chain hash (sha256 of prior chain + entry content, first 7 base36 chars)
+  for tamper-evident history
+
+The same update flow is reachable through the unified runners:
+
+```bash
+node scripts/regret.js update make-slugify --reason "..."
+python3 scripts/regret.py update make-slugify --reason "..."
+```
+
+Both translate the positional cluster id into the `--update <id>` form expected
+by `validate_make.sh` (mirroring the Python/PHP/Rust/Go stack convention).
+
+## Unified Runner Dispatch
+
+Make is wired into all unified dispatchers (PR #470 + Task 7 extension):
+
+| Runner | Commands supported |
+|--------|---------------------|
+| `scripts/regret.js` | capture, validate, update, drift (skip), ci, truth (skip), guard |
+| `scripts/regret.py` | capture, validate, update, drift (skip), ci, rollback, guard, truth (skip) |
+| `scripts/setup.js`  | capture + validate + 2 dry-run previews |
+| `scripts/init.js`   | `validStacks` array + post-install hint |
+
+Drift detection and truth capture are explicitly skipped with a "not yet supported"
+message (Make functions are deterministic — `--runs` has no effect on output).
+
 ## Technical Approach
 
 ### Function Invocation
@@ -99,6 +144,7 @@ Verified: Make hash == JS hash for identical input/output pairs.
 ## Working Example
 
 See `proof/make_slugify/` for a complete working example with 5 clusters:
+See `proof/make_slugify/` for the original working example with 5 clusters:
 - `slugify` — text normalization via `$(shell)` + `tr`/`sed`
 - `greet` — simple string formatting
 - `join_with` — multi-arg function joining words with a separator
@@ -108,4 +154,16 @@ See `proof/make_slugify/` for a complete working example with 5 clusters:
 ```bash
 cd proof/make_slugify
 bash run-demo.sh
+See `proof/make_independent/` for the **independent verification fixture**
+(different Make patterns: `rev`, `printf '%.0s'` + `seq`, `printf '%*s'`,
+`wc -c`, `tr '[:lower:]' '[:upper:]'`):
+- `reverse` — string reverse via `rev`
+- `repeat` — string repeat via `printf` + `seq` (multiArgs)
+- `pad_left` — left-pad via `printf '%*s'` (multiArgs)
+- `count_chars` — character count via `wc -c`
+- `upper` — uppercase via `tr` (complement to slugify.mk's `to_lower`)
+
+```bash
+cd proof/make_slugify && bash run-demo.sh        # original 8-step demo
+cd proof/make_independent && bash run-demo.sh    # 10-step independent demo (incl. --update)
 ```

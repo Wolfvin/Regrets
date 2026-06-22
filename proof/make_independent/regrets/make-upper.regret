@@ -1,0 +1,12 @@
+cluster: make-upper
+version: 1
+fingerprint: 67q5v7m
+captured: 2026-06-21T09:42:03.240955+00:00
+entry: upper
+stack: make
+file: ../string_utils.mk
+INPUTS 1dmnmhg 2vvprtn 1d3y78u
+---
+INPUT  "hello"
+OUTPUT "HELLO"
+HASH   67q5v7m
