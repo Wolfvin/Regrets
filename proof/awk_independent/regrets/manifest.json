@@ -1,0 +1,69 @@
+{
+  "clusters": [
+    {
+      "id": "apache-status-class",
+      "stack": "awk",
+      "file": "apache_status_class.awk",
+      "entry": "apache_status_class.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        "127.0.0.1 - - [10/Oct/2026:13:55:36 -0700] \"GET / HTTP/1.1\" 200 2326\n10.0.0.5 - - [10/Oct/2026:13:55:42 -0700] \"POST /login HTTP/1.1\" 401 758\n"
+      ],
+      "description": "Classify Apache common-log HTTP status code (field 9) into 1xx/2xx/3xx/4xx/5xx/INVALID"
+    },
+    {
+      "id": "markdown-links",
+      "stack": "awk",
+      "file": "markdown_links.awk",
+      "entry": "markdown_links.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        "See [the docs](https://example.com/docs) and [source](src/index.js).\nNo links here.\nAnother [link](https://foo.bar).\n",
+        "Single [solo](https://solo.example) link on its own line.\n",
+        "Plain text with no links at all.\n"
+      ],
+      "description": "Extract Markdown [text](url) links; multi-input contract (Issue #315 parity) — third input has no links (trivial-output guard test)"
+    },
+    {
+      "id": "dedupe-lines",
+      "stack": "awk",
+      "file": "dedupe_lines.awk",
+      "entry": "dedupe_lines.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        "alpha\nbeta\nalpha\ngamma\nbeta\n",
+        "one\ntwo\nthree\n"
+      ],
+      "description": "Remove duplicate lines preserving first-occurrence order via associative-array dedup (idiomatic awk pattern)"
+    },
+    {
+      "id": "indent-prefix",
+      "stack": "awk",
+      "file": "indent_prefix.awk",
+      "entry": "indent_prefix.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        "one\ntwo\nthree\n"
+      ],
+      "args": ["-v", "indent=3"],
+      "description": "Prefix each line with N spaces via -v indent=N (exercises cluster.args pass-through)"
+    },
+    {
+      "id": "transpose-matrix",
+      "stack": "awk",
+      "file": "transpose_matrix.awk",
+      "entry": "transpose_matrix.awk",
+      "fingerprintLevel": "entry",
+      "watches": [],
+      "inputs": [
+        "1\t2\t3\n4\t5\t6\n",
+        "10\t20\n30\t40\n50\t60\n"
+      ],
+      "description": "Transpose tab-separated matrix via nested loop + composite-key 2D array emulation"
+    }
+  ]
+}

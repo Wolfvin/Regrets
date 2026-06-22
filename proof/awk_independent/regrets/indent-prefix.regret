@@ -1,0 +1,13 @@
+cluster: indent-prefix
+version: 1
+fingerprint: 63cq64s
+captured: 2026-06-22T05:31:45.907Z
+watches: []
+entry: indent_prefix.awk
+stack: awk
+file: indent_prefix.awk
+fingerprintLevel: entry
+---
+INPUT  "one\ntwo\nthree\n"
+OUTPUT "   one\n   two\n   three"
+HASH   63cq64s
