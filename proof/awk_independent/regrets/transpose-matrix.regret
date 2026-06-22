@@ -1,0 +1,14 @@
+cluster: transpose-matrix
+version: 1
+fingerprint: 2i4wd1z
+captured: 2026-06-22T05:31:45.914Z
+watches: []
+entry: transpose_matrix.awk
+stack: awk
+file: transpose_matrix.awk
+fingerprintLevel: entry
+---
+INPUT  "1\t2\t3\n4\t5\t6\n"
+OUTPUT "1\t4\n2\t5\n3\t6"
+HASH   2i4wd1z
+INPUTS [{"input":"10\t20\n30\t40\n50\t60\n","output":"10\t30\t50\n20\t40\t60","hash":"1u5z5ui"}]
