@@ -36,6 +36,12 @@ by `proof/cpp/verify-parity.mjs` — the C++ harness produces byte-identical
 - ❌ Callee wrapping (depth-1 contract chaining) — not implemented.
 - ❌ Auto-discovery via `regret install` — manifest must be hand-written.
 - ❌ `regret update` — not wired for C++ v1.
+- ✅ **`regret update` mode**: refreshes HASH + OUTPUT + INPUTS line
+  atomically when behavior intentionally changes, and appends a
+  chain-hashed audit.log entry (parity with JS / Python / Bash / Perl).
+  Requires `--cluster <id> --reason "<≥4 words>"`.
+- ❌ Callee wrapping (depth-1 contract chaining) — not implemented.
+- ❌ Auto-discovery via `regret install` — manifest must be hand-written.
 
 ---
 
@@ -59,6 +65,9 @@ Or via the unified CLI (auto-detects `stack: "cpp"` clusters):
 ```bash
 CPP_SOURCES="src/my_math.cpp:regret_adapter.cpp" CPP_INCLUDE="src" regret capture
 CPP_SOURCES="src/my_math.cpp:regret_adapter.cpp" CPP_INCLUDE="src" regret validate
+# Update (after intentionally changing behavior) — refreshes .regret + appends audit.log entry
+CPP_SOURCES="src/my_math.cpp:regret_adapter.cpp" CPP_INCLUDE="src" \
+    regret update <cluster-id> --reason "describe what changed and why, at least 4 words"
 ```
 
 ---
@@ -521,6 +530,8 @@ The fingerprint hashes are identical because the algorithm is the same.
   could be added to C++ in a follow-up.
 - **`regret update`** — not yet wired for C++. To refresh a golden
   contract, delete the `.regret` file and re-capture.
+- **`regret update`** — ✅ wired as of the update-mode parity pass
+  (mirrors JS / Python / Bash / Perl). See "Update Mode" section below.
 - **Template metaprogramming introspection** — templates must be
   instantiated by the user in their adapter; the harness has no way to
   discover template instantiations automatically.
@@ -553,3 +564,92 @@ The fingerprint hashes are identical because the algorithm is the same.
     CPP_INCLUDE: src
   run: regret validate
 ```
+
+---
+
+## Update Mode — `regret update` (parity with JS / Python / Bash / Perl)
+
+When you intentionally change a cluster's behavior (e.g., tax-rate update,
+rebranding, schema change), run `regret update` to refresh the `.regret`
+file's HASH + OUTPUT + INPUTS line atomically AND append a chain-hashed
+entry to `regrets/audit.log`.
+
+### Usage
+
+```bash
+# Unified CLI (auto-detects stack: "cpp" from manifest):
+CPP_SOURCES="src/my_math.cpp:regret_adapter.cpp" CPP_INCLUDE="src" \
+    regret update <cluster-id> --reason "describe what changed and why, at least 4 words"
+
+# Direct harness invocation:
+bash scripts/validate_cpp.sh update --cluster <id> \
+    --reason "describe what changed and why, at least 4 words" \
+    --manifest regrets/manifest.json
+```
+
+### What it does
+
+1. **Validates `--reason`** — must be ≥4 words (parity with JS validate.js).
+   Vague reasons like `"fix bug"` are rejected with an error.
+2. **Re-runs the cluster's entry** on `inputs[0]` → new hash + new output
+   for the top-level `INPUT/OUTPUT/HASH` lines.
+3. **Re-runs `inputs[1+]`** → rebuilds the `INPUTS` line with refreshed
+   per-input hashes (Issue #315 contract).
+4. **Rewrites the `.regret` file** with the new `fingerprint`, `captured`
+   timestamp, `OUTPUT`, `HASH`, and `INPUTS` lines (the meta block
+   `cluster/version/watches/entry/stack/fingerprintLevel` is preserved).
+5. **Appends an audit.log entry** at `regrets/audit.log` with this format:
+
+   ```
+   <ISO-8601 timestamp>  UPDATE  <clusterId>
+     old: <oldHash>
+     new: <newHash>
+     reason: <safeReason>
+     by: AI refactor session
+     gitAuthor: <name> <<email>>   (best-effort, optional)
+     gitSha: <short-sha>           (best-effort, optional)
+     ciRunId: <run-id>             (best-effort, optional)
+     chain: <7-hex-sha256-prefix>
+   ```
+
+6. **Chain hash** = `sha256(prevChain + entryContent)[:7]` where
+   `prevChain` is the chain hash of the previous audit.log entry (or
+   `"0000000"` for the genesis entry) and `entryContent` is the entry
+   lines joined with `\n` (excluding the `chain:` line itself). This
+   makes the audit.log tamper-evident: any modification to an entry
+   invalidates all subsequent chain hashes.
+
+### After update, `regret validate` PASSES
+
+The `.regret` file now reflects the new behavior, so the next `validate`
+run PASSES (no false-positive FAIL on the accepted change).
+
+### Demo
+
+See `proof/cpp_independent/run_update_demo.sh` for a full end-to-end
+demonstration (capture → break → update → validate PASS → audit.log
+chain-hash verification).
+
+### Known parity gaps (cosmetic, not functional)
+
+- **Timestamp format**: C++ uses `iso_now()` (e.g.,
+  `2026-06-21T10:32:49.000000+00:00`); JS uses `new Date().toISOString()`
+  (e.g., `2026-06-21T10:32:49.385Z`). The chain hashes will therefore
+  differ between stacks for the same conceptual update — this is
+  acceptable because the chain hash only needs to be self-consistent
+  within a single audit.log file (each entry's chain depends on the
+  previous one in the SAME file).
+
+### Test coverage
+
+`tests/cpp-stack-update-mode.test.js` (8 tests) verifies:
+- rejects `update` without `--cluster`
+- rejects `update` without `--reason`
+- rejects `--reason` with fewer than 4 words
+- refreshes `HASH` + `OUTPUT` + `INPUTS` + `captured` timestamp atomically
+- appends audit.log entry with chain hash
+- chain hash is independently verifiable via `node:crypto`'s `sha256`
+- second update's chain hash correctly chains from the first entry
+- after update, `validate` PASSES for the accepted new behavior
+  (including INPUTS line refresh + cross-stack fingerprint parity)
+

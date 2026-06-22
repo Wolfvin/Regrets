@@ -192,6 +192,22 @@ def main():
             success = run(f'bash {SCRIPTS_DIR}/validate_nim.sh {extra_args}')
         elif target_stack == 'bash':
             success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh {translated_args}')
+        elif target_stack == 'cpp':
+            # C++ harness supports `update` mode natively (parity with
+            # JS/Python/Bash/Perl). regret.py's `extra_args_list` places the
+            # cluster id as the first positional arg (`<id> --reason "..."`);
+            # the C++ runner expects `--cluster <id>` form. Translate by
+            # injecting `--cluster` before the positional id (mirrors regret.js).
+            cpp_args = list(extra_args_list)
+            if target_cluster:
+                try:
+                    idx = cpp_args.index(target_cluster)
+                    cpp_args[idx] = '--cluster'
+                    cpp_args.insert(idx + 1, target_cluster)
+                except ValueError:
+                    pass
+            extra_args_cpp = ' '.join(cpp_args)
+            success = run(f'bash {SCRIPTS_DIR}/validate_cpp.sh update {extra_args_cpp}')
         else:
             # js, ts, css all use validate.js
             success = run(f'node {SCRIPTS_DIR}/validate.js {translated_args}')
