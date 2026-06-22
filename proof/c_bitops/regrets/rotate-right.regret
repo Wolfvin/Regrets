@@ -1,0 +1,13 @@
+cluster: rotate-right
+version: 1
+fingerprint: 63k0uoo
+captured: 2026-06-22T05:49:09.000000+00:00
+watches: [bitops_rotate_right]
+entry: regret_rotate_right
+stack: c
+fingerprintLevel: entry
+---
+INPUT  [16,4]
+OUTPUT 1
+HASH   63k0uoo
+INPUTS [{"input":[1,1],"output":2147483648,"hash":"5azni7e"},{"input":[305419896,8],"output":2014458966,"hash":"5maboiw"},{"input":[4294967295,16],"output":4294967295,"hash":"1dwz4nu"},{"input":[2147483648,31],"output":1,"hash":"512bf1e"}]

@@ -1,0 +1,13 @@
+cluster: count-set-bits
+version: 1
+fingerprint: 5m8e79v
+captured: 2026-06-22T05:49:09.000000+00:00
+watches: [bitops_count_set_bits]
+entry: regret_count_set_bits
+stack: c
+fingerprintLevel: entry
+---
+INPUT  0
+OUTPUT 0
+HASH   5m8e79v
+INPUTS [{"input":1,"output":1,"hash":"1kndu30"},{"input":255,"output":8,"hash":"5c3klht"},{"input":4294967295,"output":32,"hash":"1et5xqt"},{"input":1431655765,"output":16,"hash":"hvhof7i"},{"input":2863311530,"output":16,"hash":"4gz6utc"}]
