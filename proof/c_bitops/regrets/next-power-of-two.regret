@@ -1,0 +1,13 @@
+cluster: next-power-of-two
+version: 1
+fingerprint: 6dnasqq
+captured: 2026-06-22T05:49:09.000000+00:00
+watches: [bitops_next_power_of_two]
+entry: regret_next_power_of_two
+stack: c
+fingerprintLevel: entry
+---
+INPUT  0
+OUTPUT 1
+HASH   6dnasqq
+INPUTS [{"input":1,"output":1,"hash":"1kndu30"},{"input":3,"output":4,"hash":"2396wk4"},{"input":1024,"output":1024,"hash":"400o5ci"},{"input":1000000,"output":1048576,"hash":"6bppaac"},{"input":2147483647,"output":2147483648,"hash":"2v1wq48"}]

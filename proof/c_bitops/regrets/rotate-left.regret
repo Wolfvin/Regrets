@@ -1,0 +1,13 @@
+cluster: rotate-left
+version: 1
+fingerprint: 4ji5vys
+captured: 2026-06-22T05:49:09.000000+00:00
+watches: [bitops_rotate_left]
+entry: regret_rotate_left
+stack: c
+fingerprintLevel: entry
+---
+INPUT  [1,4]
+OUTPUT 16
+HASH   4ji5vys
+INPUTS [{"input":[1,31],"output":2147483648,"hash":"3heu55n"},{"input":[305419896,8],"output":878082066,"hash":"2fjjbtv"},{"input":[4294967295,16],"output":4294967295,"hash":"1dwz4nu"},{"input":[2147483648,1],"output":1,"hash":"1qzwsls"}]
