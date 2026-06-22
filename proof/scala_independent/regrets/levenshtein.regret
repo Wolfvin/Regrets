@@ -1,0 +1,14 @@
+cluster: levenshtein
+version: 1
+fingerprint: tu16lpe
+captured: 2026-06-21T09:49:41.132646623Z
+watches: [levenshtein]
+entry: levenshtein
+stack: scala
+fingerprintLevel: entry
+object: Cases
+---
+INPUT  ["kitten","sitting"]
+OUTPUT 3
+HASH   tu16lpe
+INPUTS [{"hash":"tu16lpe","input":["kitten","sitting"],"output":3},{"hash":"1hk6fs5","input":["flaw","lawn"],"output":2},{"hash":"2rigpfk","input":["","abc"],"output":3},{"hash":"59c3vj3","input":["abc",""],"output":3},{"hash":"3ln2pds","input":["same","same"],"output":0},{"hash":"36monw1","input":["gumbo","gambol"],"output":2},{"hash":"1te35aw","input":["intention","execution"],"output":5}]

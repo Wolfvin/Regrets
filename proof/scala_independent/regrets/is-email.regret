@@ -1,0 +1,14 @@
+cluster: is-email
+version: 1
+fingerprint: 1cb1iqg
+captured: 2026-06-21T09:49:37.174718269Z
+watches: [isEmail]
+entry: isEmail
+stack: scala
+fingerprintLevel: entry
+object: Cases
+---
+INPUT  "user@example.com"
+OUTPUT true
+HASH   1cb1iqg
+INPUTS [{"hash":"1cb1iqg","input":"user@example.com","output":true},{"hash":"28o46hf","input":"plainaddress","output":false},{"hash":"3tw9180","input":"@missinglocal.com","output":false},{"hash":"9wnflot","input":"missingdomain@","output":false},{"hash":"2jcj8lr","input":"user@example","output":false},{"hash":"256u0xj","input":"a@b.c","output":true},{"hash":"3coohty","input":"two@@signs.com","output":true},{"hash":"1nmvrmn","input":"user.name+tag@sub.example.org","output":true}]

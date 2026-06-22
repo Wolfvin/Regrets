@@ -1,0 +1,75 @@
+{
+  "clusters": [
+    {
+      "id": "camel-case",
+      "entry": "camelCase",
+      "object": "Cases",
+      "watches": ["camelCase"],
+      "file": "Cases.scala",
+      "stack": "scala",
+      "fingerprintLevel": "entry",
+      "description": "snake_case → camelCase. Edge cases: empty, single word, leading underscore, trailing underscore, double underscore.",
+      "inputs": [
+        "hello_world",
+        "user_id",
+        "api_key_v2",
+        "",
+        "singleword",
+        "_private_field",
+        "trailing_",
+        "double__underscore"
+      ]
+    },
+    {
+      "id": "is-email",
+      "entry": "isEmail",
+      "object": "Cases",
+      "watches": ["isEmail"],
+      "file": "Cases.scala",
+      "stack": "scala",
+      "fingerprintLevel": "entry",
+      "description": "Naive email validation. Edge cases: valid, missing @, missing dot in domain, empty local, empty domain, multiple @.",
+      "inputs": [
+        "user@example.com",
+        "plainaddress",
+        "@missinglocal.com",
+        "missingdomain@",
+        "user@example",
+        "a@b.c",
+        "two@@signs.com",
+        "user.name+tag@sub.example.org"
+      ]
+    },
+    {
+      "id": "format-thousands",
+      "entry": "formatThousands",
+      "object": "Cases",
+      "watches": ["formatThousands"],
+      "file": "Cases.scala",
+      "stack": "scala",
+      "fingerprintLevel": "entry",
+      "description": "Integer thousands formatting. Edge cases: 0, single digit, exactly 3, exactly 4, 7-digit, negative, negative 4-digit.",
+      "inputs": [0, 5, 100, 1000, 1234567, -42, -9999, 1000000000]
+    },
+    {
+      "id": "levenshtein",
+      "entry": "levenshtein",
+      "object": "Cases",
+      "watches": ["levenshtein"],
+      "file": "Cases.scala",
+      "stack": "scala",
+      "fingerprintLevel": "entry",
+      "multiArgs": true,
+      "description": "Levenshtein distance. Edge cases: identical, one empty, one extra char at start/middle/end, totally different.",
+      "inputs": [
+        ["kitten", "sitting"],
+        ["flaw", "lawn"],
+        ["", "abc"],
+        ["abc", ""],
+        ["same", "same"],
+        ["gumbo", "gambol"],
+        ["intention", "execution"]
+      ]
+    }
+  ]
+}

@@ -274,12 +274,12 @@ object RegretHarness:
     val sb = new StringBuilder
     sb.append(s"cluster: ${opts.cluster}\n")
     sb.append("version: 1\n")
-    // For single-input: emit single fingerprint line.
-    // For multi-input: emit fingerprints joined with comma (matches JS INPUTS feature).
-    if (results.length == 1)
-      sb.append(s"fingerprint: ${results(0)._3}\n")
-    else
-      sb.append(s"fingerprints: ${results.map(_._3).mkString(",")}\n")
+    // Issue #387 verification: ALWAYS emit single `fingerprint:` field (the
+    // golden = first input's hash). The BOS contract requires
+    // `cluster/version/fingerprint/captured/INPUT/OUTPUT/HASH` — the plural
+    // `fingerprints:` field used previously broke cross-stack compatibility
+    // (other stacks parse `fingerprint:` only).
+    sb.append(s"fingerprint: ${results(0)._3}\n")
     sb.append(s"captured: $now\n")
     sb.append(s"watches: [${if (opts.watches.isEmpty) opts.entry else opts.watches}]\n")
     sb.append(s"entry: ${opts.entry}\n")
@@ -287,10 +287,24 @@ object RegretHarness:
     sb.append(s"fingerprintLevel: ${opts.fingerprintLevel}\n")
     sb.append(s"object: ${opts.objName}\n")
     sb.append("---\n")
-    for (in, out, fp) <- results do
-      sb.append("INPUT  ").append(compactJson(in)).append("\n")
-      sb.append("OUTPUT ").append(compactJson(out)).append("\n")
-      sb.append(s"HASH   $fp\n")
+    // Emit ONE INPUT/OUTPUT/HASH block (the golden = first input), matching
+    // the standard .regret format used by JS/Python/PHP/Go/Lua/etc.
+    val (goldenIn, goldenOut, goldenFp) = results(0)
+    sb.append("INPUT  ").append(compactJson(goldenIn)).append("\n")
+    sb.append("OUTPUT ").append(compactJson(goldenOut)).append("\n")
+    sb.append(s"HASH   $goldenFp\n")
+    // For multi-input clusters, emit an INPUTS line listing all input→hash
+    // pairs (matches the JS #315 INPUTS feature). This lets validate re-check
+    // every input, not just the golden.
+    if (results.length > 1)
+      val inputsArr: Array[Json] = results.map { case (in, out, fp) =>
+        Json.Obj(Array(
+          "hash" -> Json.Str(fp),
+          "input" -> in,
+          "output" -> out,
+        ))
+      }
+      sb.append("INPUTS ").append(compactJson(Json.Arr(inputsArr))).append("\n")
     sb.toString
 
   /** Compact JSON literal for INPUT/OUTPUT lines (no spaces, matches JS JSON.stringify default). */
@@ -371,17 +385,33 @@ object RegretHarness:
           else Some((line.substring(0, idx).trim, line.substring(idx + 1).trim))
       }.toMap
 
-      // Parse INPUT/OUTPUT/HASH triples from body
+      // Issue #387 verification: parse the new standard format — ONE
+      // INPUT/OUTPUT/HASH block (the golden) + optional INPUTS line listing
+      // all input→hash pairs. Backward-compat: also support the old format
+      // (multiple INPUT/OUTPUT/HASH triples) for .regret files written by
+      // prior versions.
       val lines = body.linesIterator.toArray
       val inputs  = scala.collection.mutable.ArrayBuffer[Json]()
       val outputs = scala.collection.mutable.ArrayBuffer[Json]()
       val hashes  = scala.collection.mutable.ArrayBuffer[String]()
+
+      // First, try to parse the INPUTS line (new format) — this gives us
+      // all input→output→hash triples in one shot.
+      var inputsLine: Option[Json] = None
       var i = 0
-      while (i + 2 < lines.length) do
-        val inLine  = lines(i).stripPrefix("INPUT  ").stripPrefix("INPUT ").trim
-        val outLine = lines(i + 1).stripPrefix("OUTPUT ").stripPrefix("OUTPUT  ").trim
-        val hashLine = lines(i + 2).stripPrefix("HASH   ").stripPrefix("HASH ").trim
-        if (lines(i).startsWith("INPUT") && lines(i + 1).startsWith("OUTPUT") && lines(i + 2).startsWith("HASH"))
+      while (i < lines.length) do
+        val line = lines(i)
+        if (line.startsWith("INPUTS "))
+          // Parse the INPUTS JSON array — format: [{"hash":"...","input":...,"output":...}, ...]
+          val inputsJsonStr = line.substring(7).trim
+          inputsLine = try { Some(Json.parse(inputsJsonStr)) } catch { case _ => None }
+          i += 1  // ← MUST increment to avoid infinite loop
+        else if (line.startsWith("INPUT") && i + 2 < lines.length &&
+                 lines(i + 1).startsWith("OUTPUT") && lines(i + 2).startsWith("HASH"))
+          // Old format: multiple INPUT/OUTPUT/HASH triples
+          val inLine  = line.stripPrefix("INPUT  ").stripPrefix("INPUT ").trim
+          val outLine = lines(i + 1).stripPrefix("OUTPUT ").stripPrefix("OUTPUT  ").trim
+          val hashLine = lines(i + 2).stripPrefix("HASH   ").stripPrefix("HASH ").trim
           inputs  += Json.parse(inLine)
           outputs += Json.parse(outLine)
           hashes  += hashLine
@@ -389,8 +419,34 @@ object RegretHarness:
         else
           i += 1
 
+      // If we found an INPUTS line, prefer it (it's the canonical multi-input
+      // representation). The first INPUT/OUTPUT/HASH block is the golden and
+      // should match INPUTS[0].
+      inputsLine match
+        case Some(Json.Arr(arr)) =>
+          // Reset and use INPUTS as source of truth
+          inputs.clear()
+          outputs.clear()
+          hashes.clear()
+          for entry <- arr do
+            entry match
+              case Json.Obj(entries) =>
+                // entries is Array[(String, Json)] — build a lookup map
+                val m = entries.toMap
+                val in = m.getOrElse("input", Json.Null)
+                val out = m.getOrElse("output", Json.Null)
+                val hash = m.get("hash") match
+                  case Some(Json.Str(s)) => s
+                  case _ => ""
+                inputs += in
+                outputs += out
+                hashes += hash
+              case _ =>
+        case _ => // Use the triples we already parsed (old format)
+
       // Single-input clusters store fingerprint in "fingerprint" header field.
-      // Multi-input clusters store them in "fingerprints" header (comma-separated).
+      // (Multi-input also uses "fingerprint" now — the golden = first input's hash.)
+      // Backward-compat: also check "fingerprints" (old plural form).
       val fingerprints = headerMap.getOrElse("fingerprint",
         headerMap.getOrElse("fingerprints", "")).split(',').map(_.trim).filter(_.nonEmpty)
 

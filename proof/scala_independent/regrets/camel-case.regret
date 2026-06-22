@@ -1,0 +1,14 @@
+cluster: camel-case
+version: 1
+fingerprint: 39kg52u
+captured: 2026-06-21T09:49:35.106638827Z
+watches: [camelCase]
+entry: camelCase
+stack: scala
+fingerprintLevel: entry
+object: Cases
+---
+INPUT  "hello_world"
+OUTPUT "helloWorld"
+HASH   39kg52u
+INPUTS [{"hash":"39kg52u","input":"hello_world","output":"helloWorld"},{"hash":"21mcx0p","input":"user_id","output":"userId"},{"hash":"42gukv8","input":"api_key_v2","output":"apiKeyV2"},{"hash":"5oge4st","input":"","output":""},{"hash":"4b9dqov","input":"singleword","output":"singleword"},{"hash":"31va8eh","input":"_private_field","output":"PrivateField"},{"hash":"1z8opn2","input":"trailing_","output":"trailing"},{"hash":"4vtuy65","input":"double__underscore","output":"doubleUnderscore"}]
