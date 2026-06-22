@@ -1214,3 +1214,158 @@ final class VerifyLib {
         return octets == 4;
     }
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// RegretVerify — independent verification fixture (proof/java_indep/).
+//
+// This class is deliberately DIFFERENT from both DemoMathUtils and VerifyLib
+// to provide a third independent verification surface. It exercises:
+//   1. slugify        — rune-by-rune transform + StringBuilder (different
+//                       impl from VerifyLib.slugify: uses isLetterOrDigit
+//                       + leading-hyphen guard, not "lastSep" pattern)
+//   2. base64Encode   — bitwise ops + lookup table (no java.util.Base64)
+//   3. crc32          — table-driven checksum (no java.util.zip.CRC32)
+//   4. fnv1a          — multiply + XOR per byte (32-bit unsigned masking)
+//   5. isValidIPv4    — split-based parser + leading-zero check
+//
+// Lives inside RegretJava.java so it runs on a JRE-only environment (no
+// javac needed — single-file source mode compiles this class too).
+// ───────────────────────────────────────────────────────────────────────────
+
+final class RegretVerify {
+    private RegretVerify() {}
+
+    /**
+     * Convert a string to a URL-safe slug: lowercase, spaces → hyphens,
+     * non-alphanumeric characters stripped.
+     */
+    public static String slugify(String input) {
+        if (input == null) return "";
+        StringBuilder sb = new StringBuilder();
+        boolean prevWasHyphen = false;
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (Character.isLetterOrDigit(c)) {
+                sb.append(Character.toLowerCase(c));
+                prevWasHyphen = false;
+            } else if (!prevWasHyphen && sb.length() > 0) {
+                sb.append('-');
+                prevWasHyphen = true;
+            }
+        }
+        // Strip trailing hyphen
+        int len = sb.length();
+        if (len > 0 && sb.charAt(len - 1) == '-') {
+            sb.setLength(len - 1);
+        }
+        return sb.toString();
+    }
+
+    private static final char[] B64_TABLE =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toCharArray();
+
+    /**
+     * Encode a byte array to a Base64 string (no java.util.Base64).
+     */
+    public static String base64Encode(byte[] input) {
+        if (input == null) return "";
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i + 2 < input.length) {
+            int b0 = input[i] & 0xFF;
+            int b1 = input[i + 1] & 0xFF;
+            int b2 = input[i + 2] & 0xFF;
+            sb.append(B64_TABLE[b0 >> 2]);
+            sb.append(B64_TABLE[((b0 & 0x03) << 4) | (b1 >> 4)]);
+            sb.append(B64_TABLE[((b1 & 0x0F) << 2) | (b2 >> 6)]);
+            sb.append(B64_TABLE[b2 & 0x3F]);
+            i += 3;
+        }
+        // Handle remaining bytes
+        if (i < input.length) {
+            int b0 = input[i] & 0xFF;
+            sb.append(B64_TABLE[b0 >> 2]);
+            if (i + 1 < input.length) {
+                int b1 = input[i + 1] & 0xFF;
+                sb.append(B64_TABLE[((b0 & 0x03) << 4) | (b1 >> 4)]);
+                sb.append(B64_TABLE[(b1 & 0x0F) << 2]);
+                sb.append('=');
+            } else {
+                sb.append(B64_TABLE[(b0 & 0x03) << 4]);
+                sb.append("==");
+            }
+        }
+        return sb.toString();
+    }
+
+    private static int[] crc32Table;
+
+    private static int[] getCrc32Table() {
+        if (crc32Table != null) return crc32Table;
+        crc32Table = new int[256];
+        for (int n = 0; n < 256; n++) {
+            int c = n;
+            for (int k = 0; k < 8; k++) {
+                if ((c & 1) != 0) {
+                    c = 0xEDB88320 ^ (c >>> 1);
+                } else {
+                    c = c >>> 1;
+                }
+            }
+            crc32Table[n] = c;
+        }
+        return crc32Table;
+    }
+
+    /**
+     * Compute CRC32 checksum of a byte array (no java.util.zip.CRC32).
+     * Returns the checksum as an unsigned 32-bit integer (Java long to
+     * avoid sign issues).
+     */
+    public static long crc32(byte[] input) {
+        if (input == null) return 0L;
+        int[] table = getCrc32Table();
+        int crc = 0xFFFFFFFF;
+        for (byte b : input) {
+            crc = table[(crc ^ (b & 0xFF)) & 0xFF] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFFL;
+    }
+
+    /**
+     * Compute FNV-1a 32-bit hash of a string (no java.util.Objects.hash).
+     * Returns the hash as an unsigned 32-bit integer.
+     */
+    public static long fnv1a(String input) {
+        if (input == null) return 0x811c9dc5L;
+        long hash = 0x811c9dc5L;
+        for (int i = 0; i < input.length(); i++) {
+            hash ^= input.charAt(i);
+            hash *= 0x01000193L;
+            hash &= 0xFFFFFFFFL; // Keep as 32-bit unsigned
+        }
+        return hash;
+    }
+
+    /**
+     * Validate an IPv4 address string. Returns true if the string is a
+     * valid dotted-quad IPv4 address (e.g. "192.168.1.1"), false otherwise.
+     */
+    public static boolean isValidIPv4(String input) {
+        if (input == null) return false;
+        String[] parts = input.split("\\.");
+        if (parts.length != 4) return false;
+        for (String part : parts) {
+            if (part.isEmpty() || part.length() > 3) return false;
+            // No leading zeros (except "0" itself)
+            if (part.length() > 1 && part.charAt(0) == '0') return false;
+            try {
+                int val = Integer.parseInt(part);
+                if (val < 0 || val > 255) return false;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
