@@ -1,0 +1,14 @@
+cluster: reverse-fn
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-22T07:44:31Z
+watches: []
+entry: reverse_str
+stack: tcl
+fingerprintLevel: entry
+file: stringutils.tcl
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s
+INPUTS [{"input":"regrets","output":"sterger","hash":"5hnum9u"},{"input":"level","output":"level","hash":"2e0jclf"}]

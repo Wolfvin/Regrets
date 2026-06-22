@@ -1,0 +1,33 @@
+{
+  "clusters": [
+    {
+      "id": "slugify-fn",
+      "entry": "slugify",
+      "file": "stringutils.tcl",
+      "stack": "tcl",
+      "inputs": ["Hello World", "Hello, World!", "Multiple   Spaces", "UPPER"]
+    },
+    {
+      "id": "count-vowels-fn",
+      "entry": "count_vowels",
+      "file": "stringutils.tcl",
+      "stack": "tcl",
+      "inputs": ["hello", "aeiou", "xyz"]
+    },
+    {
+      "id": "reverse-fn",
+      "entry": "reverse_str",
+      "file": "stringutils.tcl",
+      "stack": "tcl",
+      "inputs": ["hello", "regrets", "level"]
+    },
+    {
+      "id": "add-fn",
+      "entry": "add",
+      "file": "stringutils.tcl",
+      "stack": "tcl",
+      "multiArgs": true,
+      "inputs": [[1, 2], [10, 20], [100, 200]]
+    }
+  ]
+}
