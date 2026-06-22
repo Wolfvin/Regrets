@@ -1,0 +1,13 @@
+cluster: slugify
+version: 1
+fingerprint: 2o600q3
+captured: 2026-06-22T05:33:59.038129984Z
+watches: [slugify]
+entry: slugify
+stack: java
+class: RegretVerify
+fingerprintLevel: entry
+---
+INPUT  "Hello World!"
+OUTPUT "hello-world"
+HASH   2o600q3

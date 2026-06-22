@@ -1,0 +1,13 @@
+cluster: fnv1a
+version: 1
+fingerprint: 1356697
+captured: 2026-06-22T05:33:59.043874103Z
+watches: [fnv1a]
+entry: fnv1a
+stack: java
+class: RegretVerify
+fingerprintLevel: entry
+---
+INPUT  "hello"
+OUTPUT 1335831723
+HASH   1356697
