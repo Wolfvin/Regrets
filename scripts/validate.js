@@ -124,6 +124,15 @@ if (isMainModule) {
     runs = 5
   }
   updateTarget  = getArg(args, '--update')
+  // JS/TS/CSS form: `--update --cluster <id> --reason "..."` — --update is a
+  // BARE flag here (the id comes from --cluster). getArg() naively grabs the
+  // next token after --update regardless of whether it's itself a flag, so
+  // in this form updateTarget ends up holding the literal string "--cluster"
+  // instead of the real id. Detect that and fall back to clusterFilter,
+  // which IS the real id in this invocation form (#500).
+  if (updateTarget && updateTarget.startsWith('-')) {
+    updateTarget = clusterFilter
+  }
   updateReason  = getArg(args, '--reason')
   manifestPath  = getArg(args, '--manifest') ?? resolve(process.cwd(), 'regrets/manifest.json')
   regretDir     = resolve(process.cwd(), 'regrets')
