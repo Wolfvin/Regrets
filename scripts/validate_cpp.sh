@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# validate_cpp.sh — validate regret contracts for C++ clusters.
+# validate_cpp.sh — validate (or update) regret contracts for C++ clusters.
 #
 # Reads regrets/manifest.json, filters clusters with `stack: "cpp"`,
 # re-invokes each cluster's `entry` symbol with the INPUT stored in the
@@ -7,9 +7,15 @@
 # and reports PASS/FAIL per cluster. Non-zero exit on any failure.
 #
 # Usage:
-#   bash scripts/validate_cpp.sh                  # validate all C++ clusters
+#   bash scripts/validate_cpp.sh                              # validate all C++ clusters
 #   bash scripts/validate_cpp.sh --cluster <id>
 #   bash scripts/validate_cpp.sh --manifest <path>
+#   bash scripts/validate_cpp.sh update --cluster <id> --reason "..."  # update mode (parity with JS/Python/Bash/Perl)
+#
+# Mode (optional first positional arg):
+#   validate (default) — re-run + compare to golden, report PASS/FAIL
+#   update              — re-run + rewrite .regret with new hash + append audit.log entry
+#                        (requires --cluster <id> --reason "<≥4 words>")
 #
 # Environment: same as capture_cpp.sh (CPP_SOURCES, CPP_INCLUDE, CPP_LIBS, CXX).
 
@@ -26,6 +32,15 @@ if ! command -v "${CXX:-g++}" &> /dev/null; then
   echo "❌ C++ compiler (${CXX:-g++}) not found on PATH."
   echo "   Install g++ (or any C++17 compiler) to use the C++ stack."
   exit 1
+fi
+
+# Detect optional mode word as first positional arg (default: validate).
+# Known modes: validate, update. (capture is handled by capture_cpp.sh.)
+MODE="validate"
+if [ $# -ge 1 ]; then
+  case "$1" in
+    validate|update) MODE="$1"; shift ;;
+  esac
 fi
 
 ARGS=()
@@ -95,4 +110,4 @@ if [ "$COMPILE_RC" -ne 0 ]; then
   exit 1
 fi
 
-exec "$RUNNER" validate "${ARGS[@]}"
+exec "$RUNNER" "${MODE}" "${ARGS[@]}"

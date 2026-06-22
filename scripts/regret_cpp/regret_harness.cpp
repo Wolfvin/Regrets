@@ -902,12 +902,331 @@ static int run_validate(const std::string& manifest_path,
     return (failed > 0 || missing > 0) ? 1 : 0;
 }
 
+// ─── Update (parity with JS/Bash/Perl/Python validate --update) ──────────
+//
+// `regret_runner update --cluster <id> --reason "..." [--manifest <path>]`
+// re-runs the cluster's entry to compute the NEW hash + output, rewrites
+// the .regret file with the new fingerprint/OUTPUT/HASH/INPUTS, and appends
+// an audit.log entry with a chain hash (sha256(prevChain + entry)[:7]).
+//
+// Parity requirements (mirroring scripts/validate.js updateRegret):
+//   - --reason is REQUIRED (≥4 words; reject vague reasons like "fix bug").
+//   - input[0] hash refreshes top-level INPUT/OUTPUT/HASH.
+//   - inputs[1+] hashes refresh the INPUTS line atomically.
+//   - audit.log entry: timestamp, cluster, old, new, reason, by,
+//     gitAuthor (best-effort), gitSha (best-effort), ciRunId (best-effort),
+//     chain (7-hex-char sha256 prefix).
+
+// Read the LAST chain hash from audit.log (or "0000000" if missing/new).
+static std::string read_last_chain(const std::string& audit_path) {
+    std::string content = read_file(audit_path);
+    if (content.empty()) return "0000000";
+    // Walk backwards line-by-line looking for "  chain: <7-hex>".
+    size_t pos = content.size();
+    while (pos > 0) {
+        size_t line_start = content.rfind('\n', pos - 1);
+        if (line_start == std::string::npos) line_start = 0;
+        else line_start += 1;
+        std::string line = content.substr(line_start, pos - line_start);
+        // Match "  chain: <hex>"
+        size_t cpos = line.find("chain:");
+        if (cpos != std::string::npos) {
+            size_t vstart = cpos + 6;
+            while (vstart < line.size() && std::isspace(static_cast<unsigned char>(line[vstart]))) vstart++;
+            std::string chain_val = line.substr(vstart);
+            // Trim trailing whitespace
+            while (!chain_val.empty() && std::isspace(static_cast<unsigned char>(chain_val.back()))) chain_val.pop_back();
+            if (!chain_val.empty()) return chain_val;
+        }
+        if (line_start == 0) break;
+        pos = line_start - 1;
+    }
+    return "0000000";
+}
+
+// Best-effort: run a shell command and capture stdout (trim trailing whitespace).
+static std::string try_exec(const std::string& cmd) {
+    FILE* p = popen(cmd.c_str(), "r");
+    if (!p) return "";
+    std::string out;
+    char buf[256];
+    while (std::fgets(buf, sizeof(buf), p)) out += buf;
+    pclose(p);
+    // Trim trailing whitespace
+    while (!out.empty() && std::isspace(static_cast<unsigned char>(out.back()))) out.pop_back();
+    return out;
+}
+
+static int word_count_simple(const std::string& s) {
+    int n = 0;
+    bool in_word = false;
+    for (char c : s) {
+        if (std::isspace(static_cast<unsigned char>(c))) {
+            if (in_word) { n++; in_word = false; }
+        } else {
+            in_word = true;
+        }
+    }
+    if (in_word) n++;
+    return n;
+}
+
+static int run_update(const std::string& manifest_path,
+                      const std::string& cluster_filter,
+                      const std::string& reason) {
+    if (cluster_filter.empty()) {
+        std::fprintf(stderr, "❌ update mode requires --cluster <id>\n");
+        std::fprintf(stderr, "   Example: regret_runner update --cluster reverse --reason \"...\"\n");
+        return 2;
+    }
+    if (reason.empty()) {
+        std::fprintf(stderr, "❌ --update requires --reason\n");
+        std::fprintf(stderr, "   Example: --update reverse --reason \"describe why behavior changed\"\n");
+        return 2;
+    }
+    if (word_count_simple(reason) < 4) {
+        std::fprintf(stderr, "❌ --reason is too vague: \"%s\"\n", reason.c_str());
+        std::fprintf(stderr, "   Be specific. e.g. \"tax rate updated from 11%% to 12%% per new regulation\"\n");
+        return 2;
+    }
+
+    auto clusters = read_clusters(manifest_path, cluster_filter);
+    if (clusters.empty()) {
+        std::printf("No C++ cluster matching filter: %s\n", cluster_filter.c_str());
+        return 1;
+    }
+    if (clusters.size() > 1) {
+        std::printf("⚠️  Multiple clusters matched filter; only updating the first: %s\n",
+                    clusters[0].id.c_str());
+    }
+
+    auto& ci = clusters[0];
+    std::printf("\n🔄 Update mode — cluster: %s\n", ci.id.c_str());
+    std::printf("   Reason: %s\n", reason.c_str());
+
+    std::string regret_dir = dirname_of(manifest_path);
+
+    regret_entry_fn fn = reinterpret_cast<regret_entry_fn>(
+        dlsym(RTLD_DEFAULT, ci.entry.c_str()));
+    if (!fn) {
+        std::printf("❌ Entry symbol not found: %s (%s)\n",
+                    ci.entry.c_str(), dlerror());
+        return 1;
+    }
+
+    // ─── Read existing .regret to extract old hash ────────────────────────
+    std::string regret_path = regret_dir + "/" + ci.id + ".regret";
+    std::string old_regret = read_file(regret_path);
+    if (old_regret.empty()) {
+        std::printf("❌ MISSING .regret file: %s\n", regret_path.c_str());
+        std::printf("   Run `regret capture --cluster %s` first to establish a baseline.\n",
+                    ci.id.c_str());
+        return 1;
+    }
+    ParsedRegret parsed_old;
+    if (!parse_regret(old_regret, parsed_old)) {
+        std::printf("❌ Failed to parse existing .regret file\n");
+        return 1;
+    }
+    std::string old_hash = parsed_old.hash;
+
+    // ─── Re-run input[0] for the new top-level hash/output ────────────────
+    struct json_object* inputs = nullptr;
+    json_object_object_get_ex(ci.cluster_obj.get(), "inputs", &inputs);
+
+    json_object* input0_raw = nullptr;
+    if (inputs && json_object_is_type(inputs, json_type_array) &&
+        json_object_array_length(inputs) > 0) {
+        input0_raw = json_object_array_get_idx(inputs, 0);
+        json_object_get(input0_raw);
+    } else {
+        input0_raw = json_object_new_null();
+    }
+    JsonPtr input0(input0_raw);
+
+    std::string input0_str = json_object_to_json_string_ext(
+        input0.get(), JSON_C_TO_STRING_PLAIN);
+
+    InvokeResult inv0 = invoke_adapter(fn, input0_str);
+    if (inv0.threw) {
+        std::printf("❌ Adapter threw C++ exception on re-invoke: %s\n",
+                    inv0.error_msg.c_str());
+        return 1;
+    }
+    if (!inv0.output) {
+        std::printf("❌ Entry returned NULL on re-invoke\n");
+        return 1;
+    }
+
+    json_object* out0_raw = json_tokener_parse(inv0.output.get());
+    if (!out0_raw) {
+        std::printf("❌ Entry returned invalid JSON on re-invoke\n");
+        return 1;
+    }
+    JsonPtr out0(out0_raw);
+
+    std::string new_fp = compute_fingerprint(input0.get(), out0.get());
+    if (new_fp.empty()) {
+        std::printf("❌ Fingerprint computation failed\n");
+        return 1;
+    }
+
+    // ─── Re-run inputs[1+] to rebuild INPUTS line ─────────────────────────
+    // (Mirrors capture's multi-input INPUTS contract; only when inputs > 1.)
+    std::string new_inputs_line;
+    if (inputs && json_object_is_type(inputs, json_type_array) &&
+        json_object_array_length(inputs) > 1) {
+        json_object* inputs_arr_raw = json_object_new_array();
+        JsonPtr inputs_arr(inputs_arr_raw);
+
+        size_t n_inputs = json_object_array_length(inputs);
+        for (size_t i = 1; i < n_inputs; i++) {
+            json_object* cur_raw = json_object_array_get_idx(inputs, i);
+            json_object_get(cur_raw);
+            JsonPtr cur(cur_raw);
+
+            std::string cur_str = json_object_to_json_string_ext(
+                cur.get(), JSON_C_TO_STRING_PLAIN);
+
+            InvokeResult cur_inv = invoke_adapter(fn, cur_str);
+            if (cur_inv.threw || !cur_inv.output) continue;
+
+            json_object* cur_out_raw = json_tokener_parse(cur_inv.output.get());
+            if (!cur_out_raw) continue;
+            JsonPtr cur_out(cur_out_raw);
+            if (json_object_is_type(cur_out.get(), json_type_null)) continue;
+
+            std::string cur_fp = compute_fingerprint(cur.get(), cur_out.get());
+            if (cur_fp.empty()) continue;
+
+            json_object* entry = json_object_new_object();
+            json_object_object_add(entry, "input", json_object_get(cur.get()));
+            json_object_object_add(entry, "output", json_object_get(cur_out.get()));
+            json_object_object_add(entry, "hash", json_object_new_string(cur_fp.c_str()));
+            json_object_array_add(inputs_arr.get(), entry);
+        }
+
+        if (json_object_array_length(inputs_arr.get()) > 0) {
+            const char* arr_str = json_object_to_json_string_ext(
+                inputs_arr.get(), JSON_C_TO_STRING_PLAIN);
+            new_inputs_line = std::string(arr_str);
+        }
+    }
+
+    // ─── Write new .regret content ───────────────────────────────────────
+    // Strategy: rebuild the file using build_regret_content() (same path as
+    // capture), so the meta block (cluster/version/fingerprint/captured/
+    // watches/entry/stack/fingerprintLevel) is refreshed alongside the data
+    // block. This matches the JS updateRegret behavior which writes new
+    // fingerprint + captured + OUTPUT + HASH + INPUTS.
+    std::string new_regret = build_regret_content(
+        ci.cluster_obj.get(), ci.id, ci.entry, new_fp,
+        input0.get(), out0.get(), new_inputs_line);
+
+    FILE* rf = std::fopen(regret_path.c_str(), "wb");
+    if (!rf) {
+        std::printf("❌ Cannot write %s: %s\n", regret_path.c_str(), std::strerror(errno));
+        return 1;
+    }
+    std::fputs(new_regret.c_str(), rf);
+    std::fclose(rf);
+
+    std::printf("   ✅ Updated: %s\n", regret_path.c_str());
+    std::printf("   old: %s\n", old_hash.c_str());
+    std::printf("   new: %s\n", new_fp.c_str());
+
+    // ─── Append audit.log entry with chain hash ──────────────────────────
+    // Format mirrors scripts/validate.js updateRegret's audit entry:
+    //   <ISO timestamp>  UPDATE  <clusterId>
+    //     old: <oldHash>
+    //     new: <newHash>
+    //     reason: <safeReason>
+    //     by: AI refactor session
+    //     gitAuthor: <name> <<email>>   (optional, best-effort)
+    //     gitSha: <short-sha>           (optional, best-effort)
+    //     ciRunId: <run-id>             (optional, best-effort)
+    //     chain: <7-hex-sha256-prefix>
+    //
+    // The chain hash is sha256(prevChain + entryContent) where entryContent
+    // is the lines joined with '\n' (excluding the chain line itself).
+    std::string audit_path = regret_dir + "/audit.log";
+    std::string prev_chain = read_last_chain(audit_path);
+
+    // Sanitize reason: replace newlines with spaces (audit.log integrity).
+    std::string safe_reason;
+    safe_reason.reserve(reason.size());
+    for (char c : reason) {
+        if (c == '\n' || c == '\r') safe_reason += ' ';
+        else safe_reason += c;
+    }
+
+    std::string now = iso_now();
+
+    // Best-effort git provenance.
+    std::string git_author;
+    {
+        std::string name = try_exec("git config user.name 2>/dev/null");
+        std::string email = try_exec("git config user.email 2>/dev/null");
+        if (!name.empty()) {
+            git_author = email.empty() ? name : (name + " <" + email + ">");
+        }
+    }
+    std::string git_sha = try_exec("git rev-parse --short HEAD 2>/dev/null");
+    const char* ci_run_id = std::getenv("GITHUB_RUN_ID");
+    if (!ci_run_id) ci_run_id = std::getenv("CI_RUN_ID");
+
+    // Build entry content (without chain line) for hash computation.
+    std::vector<std::string> entry_lines;
+    entry_lines.push_back(now + "  UPDATE  " + ci.id);
+    entry_lines.push_back("  old: " + old_hash);
+    entry_lines.push_back("  new: " + new_fp);
+    entry_lines.push_back("  reason: " + safe_reason);
+    entry_lines.push_back("  by: AI refactor session");
+    if (!git_author.empty()) entry_lines.push_back("  gitAuthor: " + git_author);
+    if (!git_sha.empty())    entry_lines.push_back("  gitSha: " + git_sha);
+    if (ci_run_id)           entry_lines.push_back("  ciRunId: " + std::string(ci_run_id));
+
+    std::string entry_content;
+    for (size_t i = 0; i < entry_lines.size(); i++) {
+        if (i > 0) entry_content += "\n";
+        entry_content += entry_lines[i];
+    }
+
+    // sha256(prevChain + entryContent) → first 7 hex chars.
+    // Mirrors JS validate.js: createHash('sha256').update(prevChain + entryContent).digest('hex').slice(0, 7)
+    std::string chain_input = prev_chain + entry_content;
+    unsigned char chain_hash_raw[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(chain_input.data()),
+           chain_input.size(), chain_hash_raw);
+    char chain_hex_full[2 * SHA256_DIGEST_LENGTH + 1];
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        std::snprintf(chain_hex_full + 2 * i, 4, "%02x", chain_hash_raw[i]);
+    }
+    chain_hex_full[2 * SHA256_DIGEST_LENGTH] = '\0';
+    std::string chain_hash(chain_hex_full, 7);
+
+    // Append entry to audit.log.
+    FILE* af = std::fopen(audit_path.c_str(), "ab");
+    if (!af) {
+        std::printf("⚠️  Cannot append to audit.log: %s\n", std::strerror(errno));
+        // Still consider the update successful — the .regret file was updated.
+        return 0;
+    }
+    std::fprintf(af, "\n%s\n  chain: %s", entry_content.c_str(), chain_hash.c_str());
+    std::fclose(af);
+
+    std::printf("   Audit: %s\n", audit_path.c_str());
+    std::printf("   Chain: %s (prev %s)\n", chain_hash.c_str(), prev_chain.c_str());
+
+    return 0;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr,
-            "Usage: %s <capture|validate> [--cluster <id>] [--manifest <path>]\n",
+            "Usage: %s <capture|validate|update> [--cluster <id>] [--manifest <path>] [--reason \"...\"]\n",
             argv[0]);
         return 2;
     }
@@ -915,6 +1234,7 @@ int main(int argc, char** argv) {
     std::string mode = argv[1];
     std::string cluster_filter;
     std::string manifest_path;
+    std::string reason;
 
     char cwd[1024];
     if (!getcwd(cwd, sizeof(cwd))) die("getcwd failed");
@@ -926,12 +1246,15 @@ int main(int argc, char** argv) {
             cluster_filter = argv[++i];
         } else if (arg == "--manifest" && i + 1 < argc) {
             manifest_path = argv[++i];
+        } else if (arg == "--reason" && i + 1 < argc) {
+            reason = argv[++i];
         }
     }
     if (manifest_path.empty()) manifest_path = default_manifest;
 
     if (mode == "capture")  return run_capture(manifest_path, cluster_filter);
     if (mode == "validate") return run_validate(manifest_path, cluster_filter);
+    if (mode == "update")   return run_update(manifest_path, cluster_filter, reason);
 
     std::fprintf(stderr, "Unknown mode: %s\n", mode.c_str());
     return 2;
