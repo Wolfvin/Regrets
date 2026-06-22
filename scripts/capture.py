@@ -918,7 +918,8 @@ def main():
         clusters = [c for c in clusters if c['id'] == cluster_filter]
 
     if not clusters:
-        print(f"❌ No clusters found{' matching "' + cluster_filter + '"' if cluster_filter else ''}")
+        suffix = f' matching "{cluster_filter}"' if cluster_filter else ''
+        print(f"❌ No clusters found{suffix}")
         sys.exit(1)
 
     # Filter to Python clusters only
