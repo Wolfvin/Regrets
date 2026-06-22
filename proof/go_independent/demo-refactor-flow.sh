@@ -22,11 +22,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROOF_DIR="${ROOT}/proof/go_independent"
 CAPTURE_GO="bash ${ROOT}/scripts/capture_go.sh"
 
-export PATH="/home/z/go/bin:${PATH}"
-export GOPATH=/home/z/go-path
+export PATH="$HOME/go/bin:${PATH}"
+export GOPATH="$HOME/go-path"
 export GOCACHE=/tmp/go-cache
-export GOMODCACHE=/home/z/go-path/pkg/mod
-mkdir -p /home/z/go-path
+export GOMODCACHE="$HOME/go-path/pkg/mod"
+mkdir -p "$HOME/go-path"
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 

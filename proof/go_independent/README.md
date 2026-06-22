@@ -57,10 +57,10 @@ covered by the author's fixture:
 
 ```bash
 # Set up Go env (adjust paths to your local install)
-export PATH="/home/z/go/bin:${PATH}"
-export GOPATH=/home/z/go-path
+export PATH="$HOME/go/bin:${PATH}"
+export GOPATH="$HOME/go-path"
 export GOCACHE=/tmp/go-cache
-export GOMODCACHE=/home/z/go-path/pkg/mod
+export GOMODCACHE="$HOME/go-path/pkg/mod"
 
 # End-to-end demo (14 checks)
 bash proof/go_independent/demo-refactor-flow.sh
