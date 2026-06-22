@@ -1,0 +1,13 @@
+cluster: frequency-pairs
+version: 1
+fingerprint: 4uybivj
+captured: 2026-06-22T05:58:58.837Z
+watches: [frequencyPairs]
+entry: frequencyPairs
+stack: nim
+fingerprintLevel: entry
+file: lib/third_verify.nim
+---
+INPUT  [1,2,2,3,3,3]
+OUTPUT [{"Field0":1,"Field1":1},{"Field0":2,"Field1":2},{"Field0":3,"Field1":3}]
+HASH   4uybivj

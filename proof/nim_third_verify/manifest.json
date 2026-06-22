@@ -1,0 +1,90 @@
+{
+  "clusters": [
+    {
+      "id": "reverse-runes",
+      "entry": "reverseRunes",
+      "watches": ["reverseRunes"],
+      "file": "lib/third_verify.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "description": "Rune-aware string reverse — preserves unicode code points (different from slugify which is ASCII-only).",
+      "inputs": [
+        "abc",
+        "héllo",
+        "racecar",
+        "",
+        "a",
+        "🚀🌕",
+        "Hello, World!"
+      ]
+    },
+    {
+      "id": "sum-and-count",
+      "entry": "sumAndCount",
+      "watches": ["sumAndCount"],
+      "file": "lib/third_verify.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "description": "Aggregate (sum, count) of seq[int] — returns tuple, but aggregate not extremes (different from redteam maxPair).",
+      "inputs": [
+        [1, 2, 3, 4, 5],
+        [10, -10, 100, -100],
+        [],
+        [42],
+        [0, 0, 0, 0, 0]
+      ]
+    },
+    {
+      "id": "frequency-pairs",
+      "entry": "frequencyPairs",
+      "watches": ["frequencyPairs"],
+      "file": "lib/third_verify.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "description": "Frequency count of seq[int] as seq[(value, count)] sorted by value ascending — exercises seq-of-tuples serialization.",
+      "inputs": [
+        [1, 2, 2, 3, 3, 3],
+        [5, 5, 5, 5],
+        [],
+        [1],
+        [3, 1, 2, 1, 3, 1, 2]
+      ]
+    },
+    {
+      "id": "safe-sqrt",
+      "entry": "safeSqrt",
+      "watches": ["safeSqrt"],
+      "file": "lib/third_verify.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "description": "Newton's method square root returning Option[float] — None for negative input. Exercises std/json's built-in Option[T] % overload. Inputs chosen to produce non-whole-number outputs (see Finding #2 in PR description — whole-number floats like 2.0 serialize as '2.0' in Nim but '2' in JS, breaking cross-stack parity).",
+      "inputs": [
+        2.0,
+        10.0,
+        0.5,
+        8.0,
+        -1.0,
+        3.0
+      ]
+    },
+    {
+      "id": "is-palindrome",
+      "entry": "isPalindrome",
+      "watches": ["isPalindrome"],
+      "file": "lib/third_verify.nim",
+      "stack": "nim",
+      "fingerprintLevel": "entry",
+      "description": "Case-sensitive palindrome check (rune-aware). Returns bool — exercises bool return type serialization.",
+      "inputs": [
+        "racecar",
+        "hello",
+        "",
+        "a",
+        "aa",
+        "ab",
+        "🚀🚀",
+        "a man a plan a canal panama"
+      ]
+    }
+  ]
+}

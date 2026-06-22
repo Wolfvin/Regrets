@@ -1,0 +1,13 @@
+cluster: sum-and-count
+version: 1
+fingerprint: yiosn9h
+captured: 2026-06-22T05:58:54.852Z
+watches: [sumAndCount]
+entry: sumAndCount
+stack: nim
+fingerprintLevel: entry
+file: lib/third_verify.nim
+---
+INPUT  [1,2,3,4,5]
+OUTPUT {"count":5,"sum":15}
+HASH   yiosn9h
