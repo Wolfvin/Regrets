@@ -104,6 +104,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/capture_nim.sh {extra_args}') and success
             elif stack == 'bash':
                 success = run(f'bash {SCRIPTS_DIR}/capture_bash.sh {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/capture_make.sh {extra_args}') and success
 
     elif command == 'validate':
         stacks = detect_stacks()
@@ -130,6 +132,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/validate_nim.sh {extra_args}') and success
             elif stack == 'bash':
                 success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh {extra_args}') and success
 
     elif command == 'health':
         success = run(f'node {SCRIPTS_DIR}/health.js {extra_args}')
@@ -163,7 +167,7 @@ def main():
         elif target_cluster:
             remaining = [a for a in args[1:] if a != target_cluster]
             quoted_remaining = ' '.join(shlex.quote(a) for a in remaining)
-            if target_stack in ('python', 'php', 'csharp', 'rust', 'go', 'vue', 'perl', 'ruby'):
+            if target_stack in ('python', 'php', 'csharp', 'rust', 'go', 'vue', 'perl', 'ruby', 'make'):
                 translated_args = '--update ' + shlex.quote(target_cluster) + ' ' + quoted_remaining
             else:
                 translated_args = '--update --cluster ' + shlex.quote(target_cluster) + ' ' + quoted_remaining
@@ -192,6 +196,8 @@ def main():
             success = run(f'bash {SCRIPTS_DIR}/validate_nim.sh {extra_args}')
         elif target_stack == 'bash':
             success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh {translated_args}')
+        elif target_stack == 'make':
+            success = run(f'bash {SCRIPTS_DIR}/validate_make.sh {translated_args}')
         else:
             # js, ts, css all use validate.js
             success = run(f'node {SCRIPTS_DIR}/validate.js {translated_args}')
@@ -227,6 +233,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/validate_nim.sh {extra_args}') and success
             elif stack == 'bash':
                 print('  ⏭️  Bash drift detection: not yet supported (bash output is deterministic by default)')
+            elif stack == 'make':
+                print('  ⏭️  Make drift detection: make output is deterministic; use --runs manually if needed')
 
     elif command == 'ci':
         stacks = detect_stacks()
@@ -253,6 +261,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/validate_nim.sh --fail-fast {extra_args}') and success
             elif stack == 'bash':
                 success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh --fail-fast {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh --fail-fast {extra_args}') and success
 
     elif command == 'rollback':
         target_cluster = None
@@ -302,6 +312,10 @@ def main():
             success = run(f'node {SCRIPTS_DIR}/capture_vue.mjs --cluster {target_cluster}')
             if success:
                 success = run(f'node {SCRIPTS_DIR}/validate_vue.mjs --cluster {target_cluster}')
+        elif target_stack == 'make':
+            success = run(f'bash {SCRIPTS_DIR}/capture_make.sh --cluster {target_cluster}')
+            if success:
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh --cluster {target_cluster}')
         else:
             success = run(f'node {SCRIPTS_DIR}/capture.js --cluster {target_cluster}')
             if success:
@@ -332,6 +346,8 @@ def main():
                 success = run(f'bash {SCRIPTS_DIR}/validate_nim.sh --fail-fast {extra_args}') and success
             elif stack == 'bash':
                 success = run(f'bash {SCRIPTS_DIR}/validate_bash.sh --fail-fast {extra_args}') and success
+            elif stack == 'make':
+                success = run(f'bash {SCRIPTS_DIR}/validate_make.sh --fail-fast {extra_args}') and success
         if success:
             print('\n✅ Regret guard passed — all clusters green.')
         else:

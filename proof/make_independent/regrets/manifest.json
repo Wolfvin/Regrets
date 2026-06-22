@@ -1,0 +1,66 @@
+{
+  "clusters": [
+    {
+      "id": "make-reverse",
+      "entry": "reverse",
+      "file": "../string_utils.mk",
+      "stack": "make",
+      "description": "Reverse a string character-by-character via rev",
+      "inputs": [
+        "hello",
+        "Make",
+        "regrets"
+      ]
+    },
+    {
+      "id": "make-repeat",
+      "entry": "repeat",
+      "file": "../string_utils.mk",
+      "stack": "make",
+      "description": "Repeat a string N times via printf + seq",
+      "multiArgs": true,
+      "inputs": [
+        ["ab", 3],
+        ["x", 5],
+        ["hi", 2]
+      ]
+    },
+    {
+      "id": "make-pad-left",
+      "entry": "pad_left",
+      "file": "../string_utils.mk",
+      "stack": "make",
+      "description": "Left-pad a string to a given width via printf '%*s'",
+      "multiArgs": true,
+      "inputs": [
+        ["42", 5],
+        ["hi", 4],
+        ["x", 3]
+      ]
+    },
+    {
+      "id": "make-count-chars",
+      "entry": "count_chars",
+      "file": "../string_utils.mk",
+      "stack": "make",
+      "description": "Count characters in a string via wc -c",
+      "inputs": [
+        "hello",
+        "Make",
+        "regrets"
+      ]
+    },
+    {
+      "id": "make-upper",
+      "entry": "upper",
+      "file": "../string_utils.mk",
+      "stack": "make",
+      "description": "Convert a string to uppercase via tr (complement to slugify.mk's to_lower)",
+      "inputs": [
+        "hello",
+        "Make",
+        "regrets"
+      ]
+    }
+  ]
+}

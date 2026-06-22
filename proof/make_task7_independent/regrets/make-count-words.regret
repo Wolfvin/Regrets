@@ -1,0 +1,12 @@
+cluster: make-count-words
+version: 1
+fingerprint: 1m29nxw
+captured: 2026-06-21T11:27:19.149369+00:00
+entry: count_words
+stack: make
+file: ../text_format.mk
+INPUTS 2eferu4 13irc5r 8rae0p2
+---
+INPUT  "hello world"
+OUTPUT "2"
+HASH   1m29nxw

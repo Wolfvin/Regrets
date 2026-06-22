@@ -1,0 +1,12 @@
+cluster: make-pad-left
+version: 1
+fingerprint: 3np1pbd
+captured: 2026-06-21T09:42:02.417925+00:00
+entry: pad_left
+stack: make
+file: ../string_utils.mk
+INPUTS r8qulqj 29wc3bb 3oqn5qf
+---
+INPUT  ["42", 5]
+OUTPUT "   42"
+HASH   3np1pbd

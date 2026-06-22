@@ -44,7 +44,7 @@ console.log(`\n🔍 Pre-flight Check — ${clusters.length} cluster(s)\n`)
 // ─── Phase 1: Manifest structure validation ──────────────────────────────────
 // Collect ALL errors and warnings first, then print them at once.
 
-const VALID_STACKS = ['js', 'ts', 'python', 'react', 'vue', 'go', 'php', 'rust', 'ruby', 'perl', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp', 'css']
+const VALID_STACKS = ['js', 'ts', 'python', 'react', 'vue', 'go', 'php', 'rust', 'ruby', 'perl', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp', 'css', 'make']
 const VALID_FINGERPRINT_LEVELS = ['entry', 'full', 'watched']
 
 const structErrors = []   // { clusterId, message }

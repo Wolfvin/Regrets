@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'perl', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp', 'jq']
+const validStacks = ['js', 'python', 'php', 'perl', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp', 'jq', 'make']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -197,6 +197,23 @@ const templates = {
           { name: 'World' },
           { name: 'Vue' },
           { name: '' }
+        ]
+      }
+    ]
+  },
+  make: {
+    clusters: [
+      {
+        id: 'example-make-cluster',
+        entry: 'slugify',
+        watches: ['slugify'],
+        file: 'src/slugify.mk',
+        stack: 'make',
+        description: 'Example Make cluster — define functions with `define slugify ... endef` and invoke via $(call slugify,$(1)). Replace with your actual .mk file path and function names.',
+        inputs: [
+          'Hello World',
+          'Make it work',
+          ''
         ]
       }
     ]

@@ -37,6 +37,7 @@ const EXPECTED_STACKS = [
   'js', 'ts', 'python', 'react', 'vue', 'go', 'php', 'rust', 'ruby',
   'perl', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp',
   'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp', 'css',
+  'make',
 ]
 
 describe('VALID_STACKS registry — all stacks present in init.js / check.js / api.js', () => {

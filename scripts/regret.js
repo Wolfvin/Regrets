@@ -262,6 +262,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
       } else if (stack === 'jq') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_jq.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'make') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_make.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -313,6 +315,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
       } else if (stack === 'jq') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'make') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -360,7 +364,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -413,6 +417,11 @@ async function main() {
       success = await run('node', [`${SCRIPTS_DIR}/validate_react.mjs`, ...translatedArgs])
     } else if (targetStack === 'jq') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, ...translatedArgs])
+    } else if (targetStack === 'make') {
+      // validate_make.sh --update <id> --reason "..." — same shape as
+      // Python/PHP/Rust/Go. validate_make.sh handles audit.log chain
+      // hashing internally.
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...translatedArgs])
     } else {
       // js, ts use validate.js
       success = await run('node', [`${SCRIPTS_DIR}/validate.js`, ...translatedArgs])
@@ -466,6 +475,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
       } else if (stack === 'jq') {
         console.log(`  ⏭️  jq drift detection: jq output is deterministic; use --runs manually if needed`)
+      } else if (stack === 'make') {
+        console.log(`  ⏭️  Make drift detection: make output is deterministic; use --runs manually if needed`)
       }
     }
     break
@@ -515,6 +526,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'jq') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'make') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, '--fail-fast', ...passThroughArgs]) && success
       }
     }
     break

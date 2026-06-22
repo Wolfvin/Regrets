@@ -454,6 +454,8 @@ if (dryRun) {
       console.log('   Would run: bash scripts/capture_nim.sh')
     } else if (stack === 'jq') {
       console.log('   Would run: bash scripts/capture_jq.sh')
+    } else if (stack === 'make') {
+      console.log('   Would run: bash scripts/capture_make.sh')
     }
   }
   console.log('   Would create: regrets/<cluster-id>.regret files')
@@ -499,6 +501,8 @@ if (dryRun) {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_nim.sh`]) && captureOk
     } else if (stack === 'jq') {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_jq.sh`]) && captureOk
+    } else if (stack === 'make') {
+      captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_make.sh`]) && captureOk
     }
   }
 
@@ -552,6 +556,8 @@ if (dryRun) {
       console.log('   Would run: bash scripts/validate_nim.sh')
     } else if (stack === 'jq') {
       console.log('   Would run: bash scripts/validate_jq.sh')
+    } else if (stack === 'make') {
+      console.log('   Would run: bash scripts/validate_make.sh')
     }
   }
   console.log('   Would validate all .regret files against fresh captures')
@@ -582,6 +588,8 @@ if (dryRun) {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_nim.sh`]) && validateOk
     } else if (stack === 'jq') {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_jq.sh`]) && validateOk
+    } else if (stack === 'make') {
+      validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_make.sh`]) && validateOk
     }
   }
 

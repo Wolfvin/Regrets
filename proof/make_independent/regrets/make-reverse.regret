@@ -1,0 +1,12 @@
+cluster: make-reverse
+version: 1
+fingerprint: 5nssd6s
+captured: 2026-06-21T09:42:01.595610+00:00
+entry: reverse
+stack: make
+file: ../string_utils.mk
+INPUTS 1dmnmhg 2vvprtn 1d3y78u
+---
+INPUT  "hello"
+OUTPUT "olleh"
+HASH   5nssd6s

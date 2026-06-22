@@ -1,0 +1,67 @@
+{
+  "clusters": [
+    {
+      "id": "make-truncate",
+      "entry": "truncate",
+      "file": "../text_format.mk",
+      "stack": "make",
+      "description": "Truncate a string to N chars and append ellipsis if shortened",
+      "multiArgs": true,
+      "inputs": [
+        ["Hello World", 5],
+        ["Hi", 10],
+        ["abcdefghij", 4],
+        ["x", 1]
+      ]
+    },
+    {
+      "id": "make-sanitize",
+      "entry": "sanitize",
+      "file": "../text_format.mk",
+      "stack": "make",
+      "description": "Remove non-printable chars from a string via tr -d and tr -cd",
+      "inputs": [
+        "hello world",
+        "ABC123",
+        "punctuation!@#"
+      ]
+    },
+    {
+      "id": "make-wrap",
+      "entry": "wrap",
+      "file": "../text_format.mk",
+      "stack": "make",
+      "description": "Wrap a string at the specified width using fold",
+      "multiArgs": true,
+      "inputs": [
+        ["abcdefghij", 4],
+        ["hello", 3],
+        ["xyz", 10]
+      ]
+    },
+    {
+      "id": "make-count-words",
+      "entry": "count_words",
+      "file": "../text_format.mk",
+      "stack": "make",
+      "description": "Count whitespace-separated words via wc -w",
+      "inputs": [
+        "hello world",
+        "one two three four",
+        "single"
+      ]
+    },
+    {
+      "id": "make-title-case",
+      "entry": "title_case",
+      "file": "../text_format.mk",
+      "stack": "make",
+      "description": "Capitalize first letter of each word via awk",
+      "inputs": [
+        "hello world",
+        "HELLO WORLD FOO",
+        "mixed CASE test"
+      ]
+    }
+  ]
+}

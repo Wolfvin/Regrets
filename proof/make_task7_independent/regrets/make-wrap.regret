@@ -1,0 +1,12 @@
+cluster: make-wrap
+version: 1
+fingerprint: 2p2hh9f
+captured: 2026-06-21T11:27:18.731192+00:00
+entry: wrap
+stack: make
+file: ../text_format.mk
+INPUTS 4bd68vy y05qdan 2amhnyr
+---
+INPUT  ["abcdefghij", 4]
+OUTPUT "abcd efgh ij"
+HASH   2p2hh9f
