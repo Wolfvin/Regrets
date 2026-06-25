@@ -23,6 +23,20 @@ PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
+# tclsh (MSYS2/MinGW build) and node.exe (native Windows) do not resolve
+# Git Bash's POSIX path mapping (/c/Users/..., /tmp/...) — both fail to open
+# files at paths bash itself resolves fine. Convert via cygpath when
+# available (Git Bash / MSYS2 / Cygwin) for any path handed to either.
+# No-op on Linux/Mac. See issue #519.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
+
 source "${SCRIPT_DIR}/fingerprint_tcl.sh"
 
 # ─── CLI args ────────────────────────────────────────────────────────────────
@@ -82,6 +96,7 @@ invoke_tcl() {
 
   local src_abs
   src_abs=$(realpath "$src_file" 2>/dev/null || echo "$PROJECT_DIR/$src_file")
+  src_abs="$(node_path "$src_abs")"
 
   local runner
   runner=$(mktemp /tmp/regrets_tcl_XXXXXX.tcl)
