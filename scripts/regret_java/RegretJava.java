@@ -40,6 +40,7 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Locale;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -452,6 +453,14 @@ public class RegretJava {
 
     private static Map<String, Object> parseRegret(String content) {
         Map<String, Object> result = new LinkedHashMap<>();
+        // Normalize CRLF -> LF before splitting. Git's core.autocrlf=true (the
+        // standard recommended Windows setting, often enabled by the Git
+        // installer itself) rewrites .regret files to CRLF on checkout. Every
+        // line then carries a trailing '\r' that the parsing below failed to
+        // strip, causing parseRegret() to silently drop the HASH/OUTPUT keys —
+        // every Java cluster reported FAIL with an empty golden hash on a
+        // completely fresh, unmodified checkout.
+        content = content.replace("\r\n", "\n");
         String[] lines = content.split("\n", -1);
         // Match the first word (key) followed by whitespace, then the rest (value).
         // Works for both `key: value` header lines and `KEY  value` / `KEY value`
@@ -1036,7 +1045,14 @@ final class DemoMathUtils {
             v /= 1024.0;
             unitIdx++;
         }
-        return String.format("%.2f %s", v, units[unitIdx]);
+        // Locale.ROOT, not the default locale: String.format("%.2f", ...) uses
+        // the JVM's default locale's decimal separator (e.g. ',' on
+        // Indonesian/German/etc. locales), which made this cluster's golden
+        // fingerprint (captured under a US/ROOT-like locale: "1.00 GiB")
+        // un-reproducible on any machine whose system locale uses ',' for
+        // decimals — a refactor-free, code-unchanged FAIL purely from running
+        // validate on a different locale than the one that captured it.
+        return String.format(Locale.ROOT, "%.2f %s", v, units[unitIdx]);
     }
 
     /**
