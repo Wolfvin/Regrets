@@ -392,7 +392,16 @@ static int parse_regret(const char* content, parsed_regret_t* out) {
     while (*p) {
         const char* eol = strchr(p, '\n');
         if (!eol) eol = p + strlen(p);
-        size_t line_len = eol - p;
+        // line_content_end excludes a trailing '\r' left over from CRLF line
+        // endings (eol itself still points at the real '\n' so the p = eol+1
+        // advance below is unaffected). Git's core.autocrlf=true (the
+        // standard Windows git setting) rewrites .regret files to CRLF on
+        // checkout; without this, every value would carry a trailing '\r'
+        // that never matches a freshly computed value, failing every
+        // cluster on an unmodified checkout (confirmed root cause of the
+        // equivalent bug in RegretJava.java's parseRegret()).
+        const char* line_content_end = (eol > p && *(eol - 1) == '\r') ? eol - 1 : eol;
+        size_t line_len = line_content_end - p;
 
         if (line_len == 3 && strncmp(p, "---", 3) == 0) {
             p = (*eol) ? eol + 1 : eol;
@@ -408,8 +417,8 @@ static int parse_regret(const char* content, parsed_regret_t* out) {
 
         size_t key_len = sep - p;
         const char* val_start = sep;
-        while (val_start < eol && (*val_start == ' ' || *val_start == '\t')) val_start++;
-        size_t val_len = eol - val_start;
+        while (val_start < line_content_end && (*val_start == ' ' || *val_start == '\t')) val_start++;
+        size_t val_len = line_content_end - val_start;
 
         if (key_len == 5 && strncmp(p, "INPUT", 5) == 0 && strncmp(p, "INPUTS", 6) != 0) {
             if (val_len < sizeof(out->input_json)) {
