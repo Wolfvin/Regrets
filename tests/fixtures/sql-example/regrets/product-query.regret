@@ -1,0 +1,14 @@
+cluster: product-query
+version: 1
+fingerprint: 43a0srq
+captured: 2026-06-22T16:32:46Z
+watches: [products]
+entry: products_by_category
+stack: sql
+fingerprintLevel: entry
+database: :memory:
+---
+INPUT  "food"
+OUTPUT [{"name":"Banana","price":0.75},{"name":"Apple","price":1.5},{"name":"Bread","price":3}]
+HASH   43a0srq
+INPUTS [{"input":"tools","output":[{"name":"Hammer","price":12.99}],"hash":"1d2urxg"}]

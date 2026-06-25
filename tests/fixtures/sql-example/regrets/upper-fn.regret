@@ -1,0 +1,14 @@
+cluster: upper-fn
+version: 1
+fingerprint: 67q5v7m
+captured: 2026-06-22T16:32:46Z
+watches: [upper]
+entry: upper
+stack: sql
+fingerprintLevel: entry
+database: :memory:
+---
+INPUT  "hello"
+OUTPUT "HELLO"
+HASH   67q5v7m
+INPUTS [{"input":"world","output":"WORLD","hash":"1afb9yq"},{"input":"Regrets","output":"REGRETS","hash":"3ziugci"}]
