@@ -199,8 +199,13 @@ while IFS= read -r cluster_line; do
   # to get ALL expected hashes (not just the golden). This lets validate
   # re-check every input, catching breaking refactors that only affect
   # input 2+. Falls back to golden-only for old .regret files without INPUTS.
-  EXPECTED_HASH=$(grep -m1 '^HASH ' "$REGRET_PATH" | sed 's/^HASH   //')
-  INPUTS_LINE=$(grep -m1 '^INPUTS ' "$REGRET_PATH" | sed 's/^INPUTS //')
+  # tr -d '\r' guards against CRLF .regret files (git core.autocrlf=true,
+  # the standard Windows git setting): without it, EXPECTED_HASH/INPUTS_LINE
+  # would carry a trailing '\r' that never matches a freshly computed value,
+  # failing every cluster on an unmodified checkout (same root cause as the
+  # confirmed-via-execution bug in RegretJava.java, #522).
+  EXPECTED_HASH=$(grep -m1 '^HASH ' "$REGRET_PATH" | sed 's/^HASH   //' | tr -d '\r')
+  INPUTS_LINE=$(grep -m1 '^INPUTS ' "$REGRET_PATH" | sed 's/^INPUTS //' | tr -d '\r')
 
   # Build the expected array: if INPUTS line exists, use it; else fall back
   # to golden-only (input 0 gets EXPECTED_HASH, inputs 1+ get null).

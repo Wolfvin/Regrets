@@ -292,7 +292,16 @@ public static class RegretValidate
         var id = cluster.GetProperty("id").GetString()!;
         var entry = cluster.GetProperty("entry").GetString()!;
         var className = cluster.GetProperty("class").GetString()!;
-        var regretRaw = File.ReadAllText(regretPath);
+        var regretRaw = File.ReadAllText(regretPath).Replace("\r\n", "\n");
+        // Normalize CRLF -> LF before splitting on the literal "\n---\n"
+        // separator. Git's core.autocrlf=true (the standard Windows git
+        // setting) rewrites .regret files to CRLF on checkout, turning the
+        // separator into "\r\n---\r\n" — which does NOT contain "\n---\n"
+        // as a substring, so the split below silently fails to find it,
+        // failing every cluster with "malformed .regret file: no '---'
+        // separator" on a completely unmodified checkout. Same root cause
+        // (and same severity) as the confirmed-via-execution bug in
+        // scripts/regret_java/RegretJava.java's parseRegret() (see #522).
 
         var parts = regretRaw.Split("\n---\n", 2, StringSplitOptions.None);
         if (parts.Length < 2)
