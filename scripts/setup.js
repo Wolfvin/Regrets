@@ -452,6 +452,8 @@ if (dryRun) {
       console.log('   Would run: bash scripts/capture_go.sh capture')
     } else if (stack === 'nim') {
       console.log('   Would run: bash scripts/capture_nim.sh')
+    } else if (stack === 'julia') {
+      console.log('   Would run: bash scripts/capture_julia.sh')
     } else if (stack === 'jq') {
       console.log('   Would run: bash scripts/capture_jq.sh')
     } else if (stack === 'make') {
@@ -499,6 +501,8 @@ if (dryRun) {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture']) && captureOk
     } else if (stack === 'nim') {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_nim.sh`]) && captureOk
+    } else if (stack === 'julia') {
+      captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_julia.sh`]) && captureOk
     } else if (stack === 'jq') {
       captureOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_jq.sh`]) && captureOk
     } else if (stack === 'make') {
@@ -554,6 +558,8 @@ if (dryRun) {
       console.log('   Would run: bash scripts/capture_go.sh validate')
     } else if (stack === 'nim') {
       console.log('   Would run: bash scripts/validate_nim.sh')
+    } else if (stack === 'julia') {
+      console.log('   Would run: bash scripts/validate_julia.sh')
     } else if (stack === 'jq') {
       console.log('   Would run: bash scripts/validate_jq.sh')
     } else if (stack === 'make') {
@@ -586,6 +592,8 @@ if (dryRun) {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate']) && validateOk
     } else if (stack === 'nim') {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_nim.sh`]) && validateOk
+    } else if (stack === 'julia') {
+      validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_julia.sh`]) && validateOk
     } else if (stack === 'jq') {
       validateOk = runVisible('bash', [`${SCRIPTS_DIR}/validate_jq.sh`]) && validateOk
     } else if (stack === 'make') {

@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 
 const args = process.argv.slice(2)
 const force = args.includes('--force')
-const validStacks = ['js', 'python', 'php', 'perl', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'zig', 'crystal', 'fsharp', 'jq', 'make']
+const validStacks = ['js', 'python', 'php', 'perl', 'go', 'ts', 'css', 'react', 'vue', 'rust', 'ruby', 'lua', 'kotlin', 'scala', 'dart', 'java', 'c', 'cpp', 'csharp', 'bash', 'awk', 'nim', 'julia', 'zig', 'crystal', 'fsharp', 'jq', 'make']
 let stack = args.find(a => a.startsWith('--stack='))?.split('=')[1]
   ?? args[args.indexOf('--stack') + 1]
   ?? 'js'
@@ -274,6 +274,15 @@ if (stack === 'go') {
   console.log()
   console.log(`📦 Note for Go stack: make sure dependencies are available:`)
   console.log(`   go mod tidy`)
+}
+if (stack === 'julia') {
+  console.log()
+  console.log(`📦 Note for Julia stack: requires Julia 1.11+ on PATH (\`julia --version\`).`)
+  console.log(`   The JSON stdlib is auto-installed on first capture into ~/.julia/environments/regrets.`)
+  console.log(`   Set JULIA=/path/to/julia to use a non-default binary.`)
+  console.log(`   Set JULIA_PROJECT=/path/to/env to use a custom project env (e.g. one with extra packages).`)
+  console.log(`   Your .jl file must define top-level functions (not closures) callable with a single argument.`)
+  console.log(`   See references/julia.md for the manifest schema + proof/julia_slugify/ for a working example.`)
 }
 if (stack === 'java') {
   console.log()

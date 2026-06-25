@@ -262,6 +262,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_c.sh`, ...passThroughArgs]) && success
       } else if (stack === 'nim') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_nim.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'julia') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_julia.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_java.sh`, ...passThroughArgs]) && success
       } else if (stack === 'jq') {
@@ -319,6 +321,8 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_c.sh`, ...passThroughArgs]) && success
       } else if (stack === 'nim') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_nim.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'julia') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_julia.sh`, ...passThroughArgs]) && success
       } else if (stack === 'java') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_java.sh`, ...passThroughArgs]) && success
       } else if (stack === 'jq') {
@@ -372,7 +376,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make' || targetStack === 'haskell' || targetStack === 'tcl') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make' || targetStack === 'haskell' || targetStack === 'tcl' || targetStack === 'julia') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -431,6 +435,13 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, ...translatedArgs])
     } else if (targetStack === 'make') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...translatedArgs])
+    } else if (targetStack === 'julia') {
+      // Julia harness does NOT support --update mode yet (parity gap with JS/Python/Bash/Perl/C++).
+      // Print a clear error message instead of silently doing nothing.
+      console.error('Julia stack does not yet support --update mode.')
+      console.error('  Workaround: re-capture with `regret capture --cluster ' + targetCluster + '`')
+      console.error('             then commit the new .regret file with a reason in the commit message.')
+      success = false
     } else if (targetStack === 'cpp') {
       // C++ harness supports `update` mode natively (parity with JS/Python/Bash/Perl).
       // regret.js's translatedArgs always starts with --update (added above);
