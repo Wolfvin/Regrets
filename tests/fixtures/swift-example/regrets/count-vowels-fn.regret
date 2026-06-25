@@ -1,0 +1,14 @@
+cluster: count-vowels-fn
+version: 1
+fingerprint: 5izc285
+captured: 2026-06-22T16:24:02Z
+watches: []
+entry: countVowels
+stack: swift
+fingerprintLevel: entry
+file: StringUtils.swift
+---
+INPUT  "hello"
+OUTPUT 2
+HASH   5izc285
+INPUTS [{"input":"aeiou","output":5,"hash":"4352i39"},{"input":"xyz","output":0,"hash":"62s8gfd"}]
