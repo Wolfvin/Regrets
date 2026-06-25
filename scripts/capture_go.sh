@@ -32,6 +32,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does -- /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
 mkdir -p "$REGRET_DIR"
@@ -56,6 +70,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 # ─── Helper: Emit the shared fingerprint + reflect helpers file ────────────────
 # This file is written once per capture/validate run and shared by both the
@@ -377,7 +392,7 @@ read_go_clusters() {
     exit 1
   fi
   node -e "
-    const m = JSON.parse(require('fs').readFileSync('$MANIFEST', 'utf8'));
+    const m = JSON.parse(require('fs').readFileSync('$NODE_MANIFEST', 'utf8'));
     const clusters = m.clusters.filter(c => c.stack === 'go');
     if ('$CLUSTER_FILTER') {
       const id = '$CLUSTER_FILTER'.trim();
@@ -631,7 +646,7 @@ case "$MODE" in
 
     echo "Found Go clusters:"
     echo "$CLUSTERS_JSON" | node -e "
-      const clusters = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+      const clusters = JSON.parse(require('fs').readFileSync(0, 'utf8'));
       clusters.forEach(c => console.log('  - ' + c.id + ' (' + c.entry + ')'));
     "
 

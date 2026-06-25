@@ -28,6 +28,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does -- /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
 mkdir -p "$REGRET_DIR"
@@ -61,6 +75,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 if [[ "$MODE" == "health" ]]; then
   node "$SKILL_DIR/scripts/health.js"
@@ -89,7 +104,7 @@ fi
 
 # Use node to emit one cluster per line as TSV (id, object, entry, file, inputs, multiArgs, fingerprintLevel, watches)
 mapfile -t CLUSTER_ROWS < <(node -e "
-  const m = JSON.parse(require('fs').readFileSync('$MANIFEST', 'utf8'));
+  const m = JSON.parse(require('fs').readFileSync('$NODE_MANIFEST', 'utf8'));
   let clusters = (m.clusters || []).filter(c => c.stack === 'scala');
   if ('$CLUSTER_FILTER') {
     clusters = clusters.filter(c => c.id === '$CLUSTER_FILTER');
