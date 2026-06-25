@@ -1,0 +1,14 @@
+cluster: slugify-fn
+version: 1
+fingerprint: 2m64ijm
+captured: 2026-06-22T16:24:00Z
+watches: []
+entry: slugify
+stack: swift
+fingerprintLevel: entry
+file: StringUtils.swift
+---
+INPUT  "Hello World"
+OUTPUT "hello-world"
+HASH   2m64ijm
+INPUTS [{"input":"Hello, World!","output":"hello-world","hash":"615ytfn"},{"input":"Multiple   Spaces","output":"multiple-spaces","hash":"gs5pym5"},{"input":"UPPER","output":"upper","hash":"2jaw9mt"}]
