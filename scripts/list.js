@@ -28,7 +28,9 @@ catch { console.error(`❌ Could not read manifest: ${manifestPath}`); process.e
 
 function parseRegretMeta(content) {
   const meta = {}
-  const metaSection = content.split('\n---\n')[0]
+  // CRLF -> LF guard, see validate.js's parseRegret() for the full
+  // explanation (git core.autocrlf=true breaks this split otherwise).
+  const metaSection = content.replaceAll('\r\n', '\n').split('\n---\n')[0]
   for (const line of metaSection.split('\n')) {
     const colonIdx = line.indexOf(': ')
     if (colonIdx === -1) continue

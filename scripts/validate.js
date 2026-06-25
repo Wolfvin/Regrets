@@ -191,6 +191,13 @@ if (isMainModule) {
 // ─── Parse a .regret file ─────────────────────────────────────────────────────
 
 export function parseRegret(content) {
+  // Normalize CRLF -> LF before splitting on the literal '\n---\n'
+  // separator. Git's core.autocrlf=true (the standard Windows git setting)
+  // rewrites .regret files to CRLF on checkout, turning the separator into
+  // '\r\n---\r\n' -- which does not contain '\n---\n' as a substring, so
+  // split() silently fails to find it, breaking every cluster (manifest
+  // golden hash reads as undefined) on an otherwise unmodified checkout.
+  content = content.replaceAll('\r\n', '\n')
   const [metaSection, dataSection] = content.split('\n---\n')
   const meta = {}
   for (const line of metaSection.split('\n')) {

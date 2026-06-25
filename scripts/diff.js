@@ -32,6 +32,9 @@ const regretDir = resolve(process.cwd(), 'regrets')
 // ─── Parse .regret file ──────────────────────────────────────────────────────
 
 function parseRegret(content) {
+  // CRLF -> LF guard, see validate.js's parseRegret() for the full
+  // explanation (git core.autocrlf=true breaks this split otherwise).
+  content = content.replaceAll('\r\n', '\n')
   const [metaSection, dataSection] = content.split('\n---\n')
   const meta = {}
   for (const line of metaSection.split('\n')) {
