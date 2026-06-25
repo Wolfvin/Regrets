@@ -197,7 +197,7 @@ export function parseRegret(content) {
   // '\r\n---\r\n' -- which does not contain '\n---\n' as a substring, so
   // split() silently fails to find it, breaking every cluster (manifest
   // golden hash reads as undefined) on an otherwise unmodified checkout.
-  content = content.replace(/\r\n/g, '\n')
+  content = content.replaceAll('\r\n', '\n')
   const [metaSection, dataSection] = content.split('\n---\n')
   const meta = {}
   for (const line of metaSection.split('\n')) {
