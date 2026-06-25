@@ -21,6 +21,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does -- /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
 # ─── Parse CLI args ───────────────────────────────────────────────────────────
@@ -62,6 +76,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 [[ -n "$MANIFEST_FLAG" ]] && MANIFEST="$MANIFEST_FLAG"
 
@@ -102,7 +117,7 @@ regret_to_cluster_json() {
   node -e "
     const fs = require('fs');
     const path = require('path');
-    const manifest = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
+    const manifest = JSON.parse(fs.readFileSync('$NODE_MANIFEST', 'utf8'));
     const regretContent = fs.readFileSync('$regret_path', 'utf8');
 
     // Parse .regret file: metadata section + data section (split by '---' line)
@@ -157,7 +172,7 @@ run_harness_for_cluster() {
 
   local cluster_id cluster_safe
   cluster_id=$(echo "$cluster_json" | node -e "
-    const c = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    const c = JSON.parse(require('fs').readFileSync(0,'utf8'));
     process.stdout.write(c.id);
   ")
   cluster_safe=$(echo "$cluster_id" | sed 's/[^A-Za-z0-9_]/_/g')
@@ -343,7 +358,7 @@ for regret_path in "${NIM_REGRET_FILES[@]}"; do
       new_output=$(node -e "
         const fs = require('fs');
         const path = require('path');
-        const manifest = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
+        const manifest = JSON.parse(fs.readFileSync('$NODE_MANIFEST', 'utf8'));
         const regretContent = fs.readFileSync('$regret_path', 'utf8');
         // Build a synthetic cluster with the existing input and re-run to get fresh output.
         // Actually, we already ran the harness and got the new hash. We just need to also

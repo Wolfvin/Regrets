@@ -22,6 +22,20 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does -- /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
 source "${SCRIPT_DIR}/fingerprint_swift.sh"
@@ -41,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "❌ Manifest not found: $MANIFEST" >&2
@@ -66,7 +81,7 @@ fi
 # ─── Read Swift clusters ─────────────────────────────────────────────────────
 read_swift_clusters() {
   FILTER="$CLUSTER_FILTER" node -e "
-    const m = JSON.parse(require('fs').readFileSync('$MANIFEST', 'utf8'));
+    const m = JSON.parse(require('fs').readFileSync('$NODE_MANIFEST', 'utf8'));
     let clusters = m.clusters.filter(c => c.stack === 'swift');
     const filter = process.env.FILTER || '';
     if (filter) clusters = clusters.filter(c => c.id === filter);

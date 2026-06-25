@@ -18,6 +18,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does -- /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
 QUIET=0
@@ -58,6 +72,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 if [[ -n "$UPDATE_TARGET" ]]; then
   if [[ -z "$UPDATE_REASON" ]]; then
@@ -181,7 +196,7 @@ for regret_file in "${REGRET_FILES[@]}"; do
   # Look up file + multiArgs from manifest for this cluster.
   node -e "
     const fs = require('fs');
-    const m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
+    const m = JSON.parse(fs.readFileSync('$NODE_MANIFEST', 'utf8'));
     const parsed = JSON.parse(fs.readFileSync('$TMP_PKG/parsed.json', 'utf8'));
     const c = (m.clusters || []).find(c => c.id === parsed.cluster_id);
     if (!c) {
@@ -234,7 +249,7 @@ for regret_file in "${REGRET_FILES[@]}"; do
   RESULT=$(printf '%s' "$RAW_OUTPUT" | node -e "
     const fs = require('fs');
     const cm = JSON.parse(fs.readFileSync('$TMP_PKG/cluster_meta.json', 'utf8'));
-    const live = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    const live = JSON.parse(require('fs').readFileSync(0,'utf8'));
     const pass = (live.hash === cm.golden_hash);
     console.log(JSON.stringify({
       pass: pass,
@@ -247,13 +262,13 @@ for regret_file in "${REGRET_FILES[@]}"; do
     }));
   ")
 
-  PASS=$(printf '%s' "$RESULT" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).pass)")
+  PASS=$(printf '%s' "$RESULT" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).pass)")
 
-  REGRET_CID=$(printf '%s' "$PARSED" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).cluster_id)")
+  REGRET_CID=$(printf '%s' "$PARSED" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).cluster_id)")
 
   if [[ "$PASS" == "true" ]]; then
     if [[ $QUIET -eq 0 ]]; then
-      HASH_VAL=$(printf '%s' "$RESULT" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).actual_hash)")
+      HASH_VAL=$(printf '%s' "$RESULT" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).actual_hash)")
       echo "✅ PASS  $(basename "$regret_file")  hash=$HASH_VAL"
     fi
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -272,7 +287,7 @@ for regret_file in "${REGRET_FILES[@]}"; do
     else
       echo "❌ FAIL  $(basename "$regret_file")" >&2
       printf '%s' "$RESULT" | node -e "
-        const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        const r = JSON.parse(require('fs').readFileSync(0,'utf8'));
         console.error('   cluster:        ' + r.cluster);
         console.error('   expected hash:  ' + r.expected_hash);
         console.error('   actual hash:    ' + r.actual_hash);

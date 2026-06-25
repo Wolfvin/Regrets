@@ -41,6 +41,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does -- /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 HELPER_CS="${SCRIPT_DIR}/RegretFingerprint.cs"
 
@@ -69,6 +83,7 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 # ─── Validate --update usage ──────────────────────────────────────────────────
 if [[ -n "$UPDATE_TARGET" && -z "$UPDATE_REASON" ]]; then
@@ -113,7 +128,7 @@ fi
 
 CLUSTERS_JSON=$(node -e "
   const fs = require('fs');
-  const m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
+  const m = JSON.parse(fs.readFileSync('$NODE_MANIFEST', 'utf8'));
   let clusters = (m.clusters || []).filter(c => c.stack === 'csharp');
   if ('$CLUSTER_FILTER') {
     clusters = clusters.filter(c => c.id === '$CLUSTER_FILTER');
@@ -277,7 +292,16 @@ public static class RegretValidate
         var id = cluster.GetProperty("id").GetString()!;
         var entry = cluster.GetProperty("entry").GetString()!;
         var className = cluster.GetProperty("class").GetString()!;
-        var regretRaw = File.ReadAllText(regretPath);
+        var regretRaw = File.ReadAllText(regretPath).Replace("\r\n", "\n");
+        // Normalize CRLF -> LF before splitting on the literal "\n---\n"
+        // separator. Git's core.autocrlf=true (the standard Windows git
+        // setting) rewrites .regret files to CRLF on checkout, turning the
+        // separator into "\r\n---\r\n" — which does NOT contain "\n---\n"
+        // as a substring, so the split below silently fails to find it,
+        // failing every cluster with "malformed .regret file: no '---'
+        // separator" on a completely unmodified checkout. Same root cause
+        // (and same severity) as the confirmed-via-execution bug in
+        // scripts/regret_java/RegretJava.java's parseRegret() (see #522).
 
         var parts = regretRaw.Split("\n---\n", 2, StringSplitOptions.None);
         if (parts.Length < 2)

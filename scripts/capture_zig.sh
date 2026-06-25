@@ -38,6 +38,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
+
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does -- /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
 # ─── Locate zig ─────────────────────────────────────────────────────────────
@@ -81,6 +95,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 # ─── --emit-runner: write the shared runner lib .zig and exit ────────────────
 
@@ -102,7 +117,7 @@ mkdir -p "$REGRET_DIR"
 # ─── Read Zig clusters from manifest ─────────────────────────────────────────
 
 CLUSTERS_JSON=$(node -e "
-  const m = JSON.parse(require('fs').readFileSync('$MANIFEST', 'utf8'));
+  const m = JSON.parse(require('fs').readFileSync('$NODE_MANIFEST', 'utf8'));
   let cs = (m.clusters || []).filter(c => c.stack === 'zig');
   if ('$CLUSTER_FILTER') {
     cs = cs.filter(c => c.id === '$CLUSTER_FILTER');
@@ -607,7 +622,7 @@ CLUSTER_LINES_FILE="$(mktemp)"
 trap 'rm -f "$CLUSTER_LINES_FILE"' EXIT
 
 echo "$CLUSTERS_JSON" | node -e "
-  const clusters = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+  const clusters = JSON.parse(require('fs').readFileSync(0, 'utf8'));
   for (const c of clusters) {
     console.log(JSON.stringify({
       id: c.id,
@@ -620,10 +635,10 @@ echo "$CLUSTERS_JSON" | node -e "
 " > "$CLUSTER_LINES_FILE"
 
 while IFS= read -r cluster_line; do
-  CLUSTER_ID=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).id)")
-  CLUSTER_ENTRY=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).entry)")
-  CLUSTER_FILE=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).file)")
-  CLUSTER_MULTI=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).multiArgs)")
+  CLUSTER_ID=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).id)")
+  CLUSTER_ENTRY=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).entry)")
+  CLUSTER_FILE=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).file)")
+  CLUSTER_MULTI=$(echo "$cluster_line" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).multiArgs)")
 
   [[ $QUIET -eq 1 ]] || echo "  Capturing: $CLUSTER_ID ($CLUSTER_ENTRY)"
 
@@ -899,7 +914,7 @@ ZIG_MAIN_EOF
 
   # Build the invocation spec JSON.
   INVOCATION_SPEC=$(echo "$cluster_line" | node -e "
-    const c = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    const c = JSON.parse(require('fs').readFileSync(0,'utf8'));
     console.log(JSON.stringify({
       function: c.entry,
       multiArgs: c.multiArgs,
