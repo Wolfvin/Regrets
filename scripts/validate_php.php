@@ -55,6 +55,15 @@ if ($updateReason && str_word_count($updateReason) < 4) {
 
 function parse_regret(string $content): array
 {
+    // Normalize CRLF -> LF before exploding on the literal "\n---\n"
+    // separator. Git's core.autocrlf=true (the standard Windows git
+    // setting) rewrites .regret files to CRLF on checkout, turning the
+    // separator into "\r\n---\r\n" -- which does NOT contain "\n---\n" as
+    // a substring, so explode() silently fails to find it, breaking every
+    // cluster on an unmodified checkout. Same root cause (and severity) as
+    // the confirmed-via-execution bug in RegretJava.java's parseRegret()
+    // (#522).
+    $content = str_replace("\r\n", "\n", $content);
     $sections = explode("\n---\n", $content, 2);
     $metaSection = $sections[0];
     $dataSection = $sections[1] ?? '';
