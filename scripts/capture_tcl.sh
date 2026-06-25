@@ -24,6 +24,20 @@ PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does — /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
+
 source "${SCRIPT_DIR}/fingerprint_tcl.sh"
 
 # ─── CLI args ────────────────────────────────────────────────────────────────
@@ -41,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
+NODE_MANIFEST="$(node_path "$MANIFEST")"
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "❌ Manifest not found: $MANIFEST" >&2
@@ -68,7 +83,7 @@ fi
 # ─── Read Tcl clusters ───────────────────────────────────────────────────────
 read_tcl_clusters() {
   FILTER="$CLUSTER_FILTER" node -e "
-    const m = JSON.parse(require('fs').readFileSync('$MANIFEST', 'utf8'));
+    const m = JSON.parse(require('fs').readFileSync('$NODE_MANIFEST', 'utf8'));
     let clusters = m.clusters.filter(c => c.stack === 'tcl');
     const filter = process.env.FILTER || '';
     if (filter) clusters = clusters.filter(c => c.id === filter);
@@ -95,6 +110,12 @@ invoke_tcl() {
 
   local src_abs
   src_abs=$(realpath "$src_file" 2>/dev/null || echo "$PROJECT_DIR/$src_file")
+  # tclsh (MSYS2/MinGW build) does not resolve Git Bash's POSIX path mapping
+  # the way bash itself does — `source "/tmp/..."` inside a generated Tcl
+  # script fails with "no such file or directory" even though the file
+  # genuinely exists, because tclsh looks for it relative to a different
+  # root. Convert via cygpath -m (same fix as the Node.js path bug, #519).
+  src_abs="$(node_path "$src_abs")"
 
   # Generate a Tcl runner script
   local runner
