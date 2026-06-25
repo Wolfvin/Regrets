@@ -17,10 +17,34 @@ import types
 import time
 import random
 import errno
+import shutil
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from unittest.mock import patch
+
+# Bypass .pyc bytecode caching entirely. Without this, importlib.import_module()
+# can serve a STALE cached .pyc when a user module is rewritten in-place
+# between two captures/validates that happen within the filesystem's mtime
+# resolution window: a size-unchanged edit (e.g. a single-character behavior
+# change) can leave both mtime and size identical to the cached .pyc header,
+# so Python skips recompilation and silently returns the OLD bytecode. This
+# caused a real false-negative: validate reported PASS on a target module
+# whose behavior had actually changed. `dont_write_bytecode` only stops new
+# .pyc files from being written in THIS process — it does NOT stop Python
+# from reading an existing stale .pyc left on disk by a prior process, so we
+# also proactively delete any __pycache__ directories before importing
+# anything, and invalidate_caches() so importlib's finder doesn't reuse the
+# now-removed entries.
+def _purge_pycache(root):
+    for dirpath, dirnames, _ in os.walk(root):
+        if '__pycache__' in dirnames:
+            shutil.rmtree(os.path.join(dirpath, '__pycache__'), ignore_errors=True)
+            dirnames.remove('__pycache__')
+
+sys.dont_write_bytecode = True
+_purge_pycache(os.getcwd())
+importlib.invalidate_caches()
 
 # ─── Lightweight file locking ─────────────────────────────────────────────────
 # Uses fcntl.flock on Unix for locking, with fallback to lockfile pattern
