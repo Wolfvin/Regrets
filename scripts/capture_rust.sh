@@ -40,6 +40,22 @@ PROJECT_DIR="$(pwd)"
 MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
 REGRET_DIR="${PROJECT_DIR}/regrets"
 
+# Node.js (native Windows binary) does not resolve POSIX-style paths the way
+# Git Bash does — /c/Users/... gets misread as a relative path under the
+# current drive, producing nonsense like C:\c\Users\.... Convert via cygpath
+# when available (Git Bash / MSYS2 / Cygwin) so every `node -e` call below
+# gets a path Node actually understands. No-op on Linux/Mac.
+node_path() {
+  if command -v cygpath &> /dev/null; then
+    # -m (not -w): forward slashes avoid having to escape backslashes when
+    # this value is interpolated into a single-quoted JS string literal below.
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+NODE_MANIFEST="$(node_path "$MANIFEST")"
+
 # Parse CLI flags
 CLUSTER_FILTER=""
 VERBOSE=false
@@ -85,6 +101,7 @@ if [[ -n "$PROJECT_PATH" ]]; then
   PROJECT_DIR="$(cd "$PROJECT_PATH" && pwd)"
   MANIFEST="${PROJECT_DIR}/regrets/manifest.json"
   REGRET_DIR="${PROJECT_DIR}/regrets"
+  NODE_MANIFEST="$(node_path "$MANIFEST")"
 fi
 
 # If a cluster filter was set, export it so the Rust test runner honors it
@@ -115,7 +132,7 @@ fi
 # ─── Read Rust clusters from manifest ────────────────────────────────────────
 
 CLUSTERS_JSON=$(node -e "
-  const m = JSON.parse(require('fs').readFileSync('${MANIFEST}', 'utf8'));
+  const m = JSON.parse(require('fs').readFileSync('${NODE_MANIFEST}', 'utf8'));
   let clusters = m.clusters.filter(c => c.stack === 'rust');
   if ('${CLUSTER_FILTER}') {
     clusters = clusters.filter(c => c.id === '${CLUSTER_FILTER}');
@@ -132,7 +149,7 @@ echo "📡 Capturing Rust clusters..."
 if [[ "$VERBOSE" == "true" ]]; then
   echo "📋 Rust clusters found:"
   echo "$CLUSTERS_JSON" | node -e "
-    const clusters = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+    const clusters = JSON.parse(require('fs').readFileSync(0, 'utf8'));
     clusters.forEach(c => console.log('  - ' + c.id + ' (' + c.entry + ')'));
   "
 fi
