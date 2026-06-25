@@ -52,6 +52,14 @@ end
 # ─── Parse a .regret file ─────────────────────────────────────────────────────
 
 def parse_regret(content)
+  # Normalize CRLF -> LF before splitting on the literal "\n---\n" separator.
+  # Git's core.autocrlf=true (the standard Windows git setting) rewrites
+  # .regret files to CRLF on checkout, turning the separator into
+  # "\r\n---\r\n" -- which does NOT contain "\n---\n" as a substring, so
+  # the split below silently fails to find it, breaking every cluster on
+  # an unmodified checkout. Same root cause (and severity) as the
+  # confirmed-via-execution bug in RegretJava.java's parseRegret() (#522).
+  content = content.gsub("\r\n", "\n")
   sections = content.split("\n---\n", 2)
   meta_section = sections[0]
   data_section = sections[1] || ''

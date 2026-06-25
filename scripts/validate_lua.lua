@@ -116,6 +116,14 @@ end
 -- ─── Parse a .regret file ─────────────────────────────────────────────────────
 
 local function parse_regret(content)
+  -- Normalize CRLF -> LF first. Git's core.autocrlf=true (the standard
+  -- Windows git setting) rewrites .regret files to CRLF on checkout; the
+  -- gmatch pattern below captures "[^\n]*" which includes a trailing '\r'
+  -- on each line, so `line == "---"` never matches ("---\r" ~= "---"),
+  -- breaking every cluster's separator detection on an unmodified
+  -- checkout. Same root cause (and severity) as the confirmed-via-
+  -- execution bug in RegretJava.java's parseRegret() (#522).
+  content = content:gsub("\r\n", "\n")
   -- Split into header + data on the first line that is exactly "---".
   local headerLines = {}
   local dataLines = {}
@@ -341,6 +349,10 @@ local function update_regret(regretPath, reason)
     print('UPDATE FAIL ' .. id .. ': could not read ' .. regretPath)
     return false
   end
+  -- Same CRLF normalization as parse_regret() -- this function re-parses
+  -- the header lines independently below (its own gmatch loop), so the
+  -- normalization there doesn't cover this one.
+  content = content:gsub("\r\n", "\n")
 
   local regret = parse_regret(content)
   local cfg = find_cluster_config(id) or {}
