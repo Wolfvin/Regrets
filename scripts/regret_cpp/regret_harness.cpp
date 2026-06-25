@@ -392,6 +392,15 @@ static bool parse_regret(const std::string& content, ParsedRegret& out) {
         std::string line = content.substr(pos, eol - pos);
         pos = (eol == content.size()) ? eol : eol + 1;
 
+        // Strip a trailing '\r' left over from CRLF line endings. Git's
+        // core.autocrlf=true (the standard Windows git setting) rewrites
+        // .regret files to CRLF on checkout; without this, every value
+        // (HASH/OUTPUT/etc.) below would carry a trailing '\r' that never
+        // matches a freshly computed value, failing every cluster on an
+        // unmodified checkout (confirmed root cause of the equivalent bug
+        // in scripts/regret_java/RegretJava.java's parseRegret()).
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
         if (line == "---") continue;
         if (line.empty()) continue;
 
