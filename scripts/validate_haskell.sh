@@ -200,7 +200,13 @@ invoke_haskell() {
 
 # ─── Parse .regret file ──────────────────────────────────────────────────────
 parse_regret() {
-  local content="$1"
+  # CRLF guard: git core.autocrlf=true (Windows default) rewrites .regret
+  # files to CRLF on checkout. Linux awk (mawk/gawk) does NOT auto-strip the
+  # trailing \r (only MSYS2/Git-Bash gawk does), so every field below would
+  # come back contaminated with \r, breaking entry-name dispatch downstream.
+  # Same root cause/severity as confirmed Java bug #522.
+  local content
+  content=$(tr -d '\r' <<< "$1")
   # Extract metadata fields
   local cid entry file multi_args
   cid=$(echo "$content" | awk -F': ' '/^cluster: / {print $2; exit}')

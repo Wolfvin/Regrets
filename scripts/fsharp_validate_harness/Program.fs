@@ -61,6 +61,13 @@ let parseListField (v: string) : string list =
             inner.Split(',') |> Array.map (fun s -> s.Trim()) |> Array.filter (fun s -> s.Length > 0) |> Array.toList
 
 let parseRegret (content: string) : RegretFile option =
+    // CRLF -> LF guard: git core.autocrlf=true (Windows default) rewrites
+    // .regret files to CRLF on checkout. Without normalizing, every
+    // extracted meta/data value below (file, entry, INPUT, OUTPUT, HASH)
+    // keeps a trailing '\r' -- e.g. "file" becomes "MathUtils.fs\r", which
+    // fails File.Exists downstream with a misleading "target file not
+    // found" (same root cause/severity as confirmed Java bug #522).
+    let content = content.Replace("\r\n", "\n")
     let sections = content.Split([|"---"|], StringSplitOptions.None)
     if sections.Length < 2 then None
     else

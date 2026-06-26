@@ -154,7 +154,14 @@ parse_regret_field() {
   local file="$1"
   local field="$2"
   # Only look in the metadata section (before "---")
+  # CRLF guard: git core.autocrlf=true (Windows default) rewrites .regret
+  # files to CRLF on checkout. Unlike Git Bash/MSYS2 gawk, Linux awk (mawk
+  # or gawk) does NOT auto-strip the trailing \r, so "---\r" never matches
+  # /^---$/ and "FIELD: value\r" never matches the field regex. Stripping
+  # \r from every line ($0) before pattern-matching fixes both (same root
+  # cause as confirmed Java bug #522).
   awk -v field="$field" '
+    { sub(/\r$/, "") }
     /^---$/ { exit }
     $0 ~ "^" field ": " { sub("^" field ": ", ""); print; exit }
   ' "$file"
@@ -177,8 +184,10 @@ parse_regret_data_field() {
   local field="$2"
   # Find the line that starts with "<field>" followed by whitespace
   # The data section starts after "---"
+  # CRLF guard: see parse_regret_field() above for the full explanation.
   awk -v field="$field" '
     BEGIN { in_data = 0 }
+    { sub(/\r$/, "") }
     /^---$/ { in_data = 1; next }
     in_data && $0 ~ "^" field "[ \t]+" {
       # Strip the field name and any whitespace following it
