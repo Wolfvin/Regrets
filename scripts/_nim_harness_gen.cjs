@@ -21,7 +21,14 @@ const cluster = JSON.parse(clusterJson);
 const srcRelPath = cluster.file;
 if (!srcRelPath) throw new Error('cluster.file is required for Nim stack');
 
-const absSrcPath = path.resolve(process.cwd(), srcRelPath);
+// Nim's `include "..."` argument is a double-quoted string literal, where
+// a backslash starts an escape sequence (e.g. \x41). path.resolve() on
+// native Windows produces backslash-separated paths, so any path segment
+// starting with a letter that looks like a hex digit after the backslash
+// (e.g. "...\slugify.nim") gets misparsed by Nim's lexer as a malformed
+// escape ("expected a hex digit, but found: s"). Forward slashes work
+// fine cross-platform in Nim, so normalize before embedding.
+const absSrcPath = path.resolve(process.cwd(), srcRelPath).replace(/\\/g, '/');
 
 const inputs = cluster.inputs || [null];
 if (inputs.length === 0) inputs.push(null);
