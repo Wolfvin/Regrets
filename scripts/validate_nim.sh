@@ -113,8 +113,9 @@ fi
 # ─── Build a synthetic cluster JSON for the harness from a .regret file ───────
 # Args: regret_path  → outputs cluster_json on stdout
 regret_to_cluster_json() {
+  local raw_path="$1"
   local regret_path
-  regret_path="$(node_path "$1")"
+  regret_path="$(node_path "$raw_path")"
   node -e "
     const fs = require('fs');
     const path = require('path');

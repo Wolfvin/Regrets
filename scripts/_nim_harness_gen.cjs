@@ -28,7 +28,7 @@ if (!srcRelPath) throw new Error('cluster.file is required for Nim stack');
 // (e.g. "...\slugify.nim") gets misparsed by Nim's lexer as a malformed
 // escape ("expected a hex digit, but found: s"). Forward slashes work
 // fine cross-platform in Nim, so normalize before embedding.
-const absSrcPath = path.resolve(process.cwd(), srcRelPath).replace(/\\/g, '/');
+const absSrcPath = path.resolve(process.cwd(), srcRelPath).replaceAll('\\', '/');
 
 const inputs = cluster.inputs || [null];
 if (inputs.length === 0) inputs.push(null);
