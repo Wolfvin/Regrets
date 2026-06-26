@@ -283,6 +283,12 @@ while IFS= read -r cluster_id; do
   # Read meta section (before ---) and data section (after ---)
   in_data=false
   while IFS= read -r line; do
+    # Strip trailing \r: git core.autocrlf=true (standard Windows git
+    # setting) rewrites .regret files to CRLF on checkout. bash's `read`
+    # only splits on \n, so $line keeps a trailing \r, and `[[ "$line" ==
+    # "---" ]]` never matches ("---\r" != "---"), breaking separator
+    # detection (same root cause/severity as the confirmed Java bug, #522).
+    line="${line%$'\r'}"
     if [[ "$line" == "---" ]]; then
       in_data=true
       continue

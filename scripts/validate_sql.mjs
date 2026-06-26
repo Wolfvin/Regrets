@@ -75,7 +75,10 @@ function parseArgs(argv) {
 // ─── Parse .regret file ──────────────────────────────────────────────────
 
 function parseRegret(content) {
-  const lines = content.split('\n')
+  // CRLF -> LF guard, see scripts/validate.js's parseRegret() for the
+  // full explanation (git core.autocrlf=true breaks line === '---' checks
+  // otherwise, since the line keeps a trailing '\r').
+  const lines = content.replaceAll('\r\n', '\n').split('\n')
   const header = {}
   const body = {}
   let inBody = false
