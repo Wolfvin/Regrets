@@ -73,9 +73,9 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 [[ -n "$MANIFEST_FLAG" ]] && MANIFEST="$MANIFEST_FLAG"
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "❌ Could not read manifest: $MANIFEST" >&2

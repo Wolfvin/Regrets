@@ -76,9 +76,9 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 [[ -n "$MANIFEST_FLAG" ]] && MANIFEST="$MANIFEST_FLAG"
+NODE_MANIFEST="$(node_path "$MANIFEST")"  # recompute after flag parsing (--manifest/--project may have changed MANIFEST)
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "❌ Could not read manifest: $MANIFEST" >&2
@@ -113,7 +113,9 @@ fi
 # ─── Build a synthetic cluster JSON for the harness from a .regret file ───────
 # Args: regret_path  → outputs cluster_json on stdout
 regret_to_cluster_json() {
-  local regret_path="$1"
+  local raw_path="$1"
+  local regret_path
+  regret_path="$(node_path "$raw_path")"
   node -e "
     const fs = require('fs');
     const path = require('path');
@@ -276,6 +278,7 @@ declare -a FAILED_IDS
 
 for regret_path in "${NIM_REGRET_FILES[@]}"; do
   cluster_id=$(basename "$regret_path" .regret)
+  regret_path_node="$(node_path "$regret_path")"
   printf "  "
 
   # Parse .regret file
@@ -294,7 +297,7 @@ for regret_path in "${NIM_REGRET_FILES[@]}"; do
   fi
 
   # Build cluster JSON from .regret + manifest
-  if ! cluster_json=$(regret_to_cluster_json "$regret_path" 2>/dev/null); then
+  if ! cluster_json=$(regret_to_cluster_json "$regret_path"); then
     echo "❌ $(printf '%-35s' "$cluster_id") ERROR: cluster not in manifest or .regret malformed"
     FAIL=$((FAIL + 1))
     FAILED_IDS+=("$cluster_id")
@@ -363,7 +366,7 @@ for regret_path in "${NIM_REGRET_FILES[@]}"; do
         const fs = require('fs');
         const path = require('path');
         const manifest = JSON.parse(fs.readFileSync('$NODE_MANIFEST', 'utf8'));
-        const regretContent = fs.readFileSync('$regret_path', 'utf8');
+        const regretContent = fs.readFileSync('$regret_path_node', 'utf8');
         // Build a synthetic cluster with the existing input and re-run to get fresh output.
         // Actually, we already ran the harness and got the new hash. We just need to also
         // know the new OUTPUT. The harness outputs that on stdout — but we already
@@ -399,12 +402,12 @@ for regret_path in "${NIM_REGRET_FILES[@]}"; do
         const reason = process.argv[1];
         const clusterId = '$cluster_id';
 
-        let content = fs.readFileSync('$regret_path', 'utf8');
+        let content = fs.readFileSync('$regret_path_node', 'utf8');
         content = content.replace(/^fingerprint: .+$/m, 'fingerprint: ' + newHash);
         content = content.replace(/^captured: .+$/m, 'captured: ' + now);
         content = content.replace(/^OUTPUT .+$/m, 'OUTPUT ' + newOutput);
         content = content.replace(/^HASH .+$/m, 'HASH   ' + newHash);
-        fs.writeFileSync('$regret_path', content);
+        fs.writeFileSync('$regret_path_node', content);
 
         // Append to audit.log
         const auditPath = path.join(process.cwd(), 'regrets', 'audit.log');
