@@ -155,7 +155,11 @@ for regret_file in "${REGRET_FILES[@]}"; do
   # Parse the .regret file via node.
   PARSED=$(node -e "
     const fs = require('fs');
-    const content = fs.readFileSync('$regret_file', 'utf8');
+    // CRLF -> LF guard: git core.autocrlf=true (Windows default) rewrites
+    // .regret files to CRLF on checkout, turning the separator into
+    // '\\r\\n---\\r\\n', which the split below would not match otherwise
+    // (same root cause as #522).
+    const content = fs.readFileSync('$regret_file', 'utf8').replace(/\\r\\n/g, '\\n');
     const [metaSection, dataSection] = content.split('\\n---\\n');
     const meta = {};
     for (const line of metaSection.split('\\n')) {
