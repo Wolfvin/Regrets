@@ -100,6 +100,11 @@ CAPTURED=0
 SKIPPED=0
 
 while IFS= read -r cluster_id; do
+  # jq.exe (Windows build) emits CRLF line endings on -r text output, so
+  # every cluster_id but the last one (command substitution strips only
+  # the final trailing newline) carries a trailing \r here, making every
+  # subsequent jq lookup keyed on this id silently return empty/null.
+  cluster_id="${cluster_id%$'\r'}"
   [[ -z "$cluster_id" ]] && continue
 
   if [[ -n "$CLUSTER_FILTER" && "$cluster_id" != "$CLUSTER_FILTER" ]]; then

@@ -89,6 +89,10 @@ FAILED=0
 SKIPPED=0
 
 while IFS= read -r cluster_id; do
+  # jq.exe (Windows build) emits CRLF line endings on -r text output, so
+  # every cluster_id but the last one carries a trailing \r here, making
+  # every subsequent jq lookup keyed on this id silently return empty/null.
+  cluster_id="${cluster_id%$'\r'}"
   [[ -z "$cluster_id" ]] && continue
 
   if [[ -n "$CLUSTER_FILTER" && "$cluster_id" != "$CLUSTER_FILTER" ]]; then
@@ -113,6 +117,12 @@ while IFS= read -r cluster_id; do
 
   in_data=false
   while IFS= read -r line; do
+    # Strip trailing \r: git core.autocrlf=true (standard Windows git
+    # setting) rewrites .regret files to CRLF on checkout. bash's `read`
+    # only splits on \n, so $line keeps a trailing \r, and `[[ "$line" ==
+    # "---" ]]` never matches ("---\r" != "---"), breaking separator
+    # detection (same root cause/severity as the confirmed Java bug, #522).
+    line="${line%$'\r'}"
     if [[ "$line" == "---" ]]; then
       in_data=true
       continue

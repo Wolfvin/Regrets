@@ -118,7 +118,11 @@ regret_to_cluster_json() {
     const fs = require('fs');
     const path = require('path');
     const manifest = JSON.parse(fs.readFileSync('$NODE_MANIFEST', 'utf8'));
-    const regretContent = fs.readFileSync('$regret_path', 'utf8');
+    // CRLF -> LF guard: git core.autocrlf=true (Windows default) rewrites
+    // .regret files to CRLF on checkout, turning the separator into
+    // '\r\n---\r\n', which the regex below (anchored on literal \n) would
+    // not match, breaking every cluster (same root cause as #522).
+    const regretContent = fs.readFileSync('$regret_path', 'utf8').replace(/\r\n/g, '\n');
 
     // Parse .regret file: metadata section + data section (split by '---' line)
     const sections = regretContent.split(/\n---\n/, 2);
