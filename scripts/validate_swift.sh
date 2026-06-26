@@ -177,7 +177,21 @@ for regret_path in "${REGRET_FILES[@]}"; do
     continue
   fi
 
-  content=$(cat "$regret_path")
+  # CRLF -> LF guard: git core.autocrlf=true (Windows default) rewrites
+  # .regret files to CRLF on checkout. Without stripping \r here, every
+  # awk extraction below (ENTRY, FILE, MULTI_ARGS, FIRST_INPUT, FIRST_HASH,
+  # INPUTS_LINE) carries a trailing '\r', which then leaks into:
+  #   - invoke_swift()'s `cat "$src_abs"` → "file not found" because the
+  #     filename argument becomes "StringUtils.swift\r" (same root cause as
+  #     #522 / #519: non-printing char in path arg passed to a native binary)
+  #   - fingerprint()'s input/output JSON → hash mismatch because the
+  #     computed LIVE_FP never matches the stored HASH (which also has \r)
+  #   - jq parsing of INPUTS_LINE (jq tolerates trailing whitespace, but the
+  #     downstream GOLDEN_INPUT_K / GOLDEN_HASH_K values would be suspect)
+  # Stripping \r once at read time fixes all 7 downstream awk extractions
+  # symmetrically with validate_dart.sh:162 (JS replace /\r\n/g, '\n') and
+  # validate_kotlin.sh:207-208 (per-line tr -d '\r').
+  content=$(tr -d '\r' < "$regret_path")
 
   ENTRY=$(echo "$content" | awk -F': ' '/^entry: / {print $2; exit}')
   FILE=$(echo "$content" | awk -F': ' '/^file: / {print $2; exit}')

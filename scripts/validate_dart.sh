@@ -107,11 +107,25 @@ fi
 shopt -s nullglob globstar
 REGRET_FILES=()
 for f in "$REGRET_DIR"/**/*.regret; do
-  if ! grep -q '^stack: dart$' "$f"; then
+  # CRLF guard: git core.autocrlf=true (Windows default) rewrites .regret
+  # files to CRLF on checkout. The line content becomes "stack: dart\r\n",
+  # and grep's `$` anchor matches end-of-line BEFORE the \r, so
+  # `^stack: dart$` fails to match `stack: dart\r` — every Dart .regret
+  # file gets silently skipped, validate prints "No Dart .regret files
+  # found." and exits 0 (silent success on an empty validation set).
+  # A breaking refactor would NOT be caught. Stripping \r before grep
+  # mirrors the CRLF guard already present in this file at line 162
+  # (JS-side `content.replace(/\r\n/g, '\n')`) and in validate_kotlin.sh
+  # (per-line `tr -d '\r'`).
+  if ! tr -d '\r' < "$f" | grep -q '^stack: dart$'; then
     continue
   fi
   if [[ -n "$CLUSTER_FILTER" ]]; then
-    CID=$(grep -m1 '^cluster:' "$f" | sed 's/^cluster: *//')
+    # CRLF guard: same root cause as the stack: filter above —
+    # `cluster: snake-case\r` would never equal "$CLUSTER_FILTER"
+    # (which is "snake-case"), silently skipping the file under
+    # --cluster <id> mode on a CRLF checkout.
+    CID=$(grep -m1 '^cluster:' "$f" | sed 's/^cluster: *//' | tr -d '\r')
     if [[ "$CID" != "$CLUSTER_FILTER" ]]; then
       continue
     fi
