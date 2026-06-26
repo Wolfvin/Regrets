@@ -168,6 +168,10 @@ CSPROJ="${HARNESS_DIR}/RegretCapture.csproj"
   echo "  </PropertyGroup>"
   echo "  <ItemGroup>"
   for f in "${USER_CS_FILES[@]}"; do
+    # csc/MSBuild (native Windows binary) does not resolve Git Bash's POSIX
+    # path mapping (/tmp/..., /c/Users/...) -- same root cause as issue #519.
+    # Convert via cygpath -m before writing into the .csproj.
+    f="$(node_path "$f")"
     echo "    <Compile Include=\"$f\" />"
   done
   echo "    <!-- RegretFingerprint.cs and RegretCapture.cs are auto-included by the SDK -->"
