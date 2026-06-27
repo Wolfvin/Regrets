@@ -76,6 +76,12 @@ module RegretRunner
 
   def self.parse_regret(content : String) : RegretFile
     rf = RegretFile.new
+    # CRLF -> LF guard: git core.autocrlf=true (Windows default) rewrites
+    # .regret files to CRLF on checkout, turning the separator into
+    # "\r\n---\r\n", which does not contain "\n---\n" as a substring, so
+    # the split below silently fails to find it, leaving data_section
+    # empty and rf.input nil (same root cause/severity as #522).
+    content = content.gsub("\r\n", "\n")
     sections = content.split("\n---\n", 2)
     meta_section = sections[0]
     data_section = sections[1]? || ""
