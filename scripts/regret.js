@@ -432,9 +432,9 @@ async function main() {
       success = await run('php', [`${SCRIPTS_DIR}/validate_php.php`, ...translatedArgs])
     } else if (targetStack === 'perl') {
       success = await run('perl', [`${SCRIPTS_DIR}/validate_perl.pl`, ...translatedArgs])
-    } else if (targetStack === 'haskell' || targetStack === 'tcl' || targetStack === 'swift') {
+    } else if (targetStack === 'haskell') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_haskell.sh`, ...translatedArgs])
-    } else if (targetStack === 'tcl' || targetStack === 'swift') {
+    } else if (targetStack === 'tcl') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_tcl.sh`, ...translatedArgs])
     } else if (targetStack === 'swift') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_swift.sh`, ...translatedArgs])
