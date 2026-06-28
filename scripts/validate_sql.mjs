@@ -47,7 +47,10 @@ try:
 except Exception as e:
     print(json.dumps({"__error__": str(e)}))
 `
-  const result = spawnSync('python3', ['-c', pythonScript], { input: request, encoding: 'utf8', timeout: 30_000, env: { ...process.env } })
+  // #521: PYTHONIOENCODING=utf-8 — see capture_sql.mjs for the full
+  // explanation. Without this, Windows native Python's cp1252 stdin
+  // crashes on UTF-8 multi-byte chars in the SQL request JSON.
+  const result = spawnSync('python3', ['-c', pythonScript], { input: request, encoding: 'utf8', timeout: 30_000, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } })
   if (result.status !== 0) return { output: null, error: result.stderr || `python3 exited with code ${result.status}` }
   try {
     const parsed = JSON.parse(result.stdout.trim())
