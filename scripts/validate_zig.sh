@@ -55,7 +55,7 @@ if [[ -z "$ZIG_BIN" ]]; then
 fi
 
 if [[ -z "$ZIG_BIN" ]]; then
-  echo "❌ zig not found. Install Zig 0.13.0+ or set ZIG_BIN." >&2
+  echo "❌ zig not found. Install Zig 0.16.0+ or set ZIG_BIN." >&2
   exit 2
 fi
 
