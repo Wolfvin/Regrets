@@ -15,7 +15,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18.x, 20.x]
+        # Node 18.x dropped: 63 test files use `import.meta.dirname`
+        # (available since Node 20.11). On Node 18.20.8 it returns undefined,
+        # causing `path.resolve(undefined, ...)` → ERR_INVALID_ARG_TYPE.
+        # See PR #545 for context. Re-add 18.x only if those tests are
+        # rewritten to avoid `import.meta.dirname`.
+        node-version: [20.x, 22.x]
 
     steps:
       - name: Checkout
