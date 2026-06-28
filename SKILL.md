@@ -632,7 +632,7 @@ Add these to the target project's `package.json`:
   "regret:chain": "node ../../The-skill/regresion-testing/scripts/regret.js chain",
   "regret:diff": "node ../../The-skill/regresion-testing/scripts/regret.js diff",
   "regret:coverage": "node ../../The-skill/regresion-testing/scripts/regret.js coverage",
-  "regret:scan": "node ../../The-skill/regresion-testing/scripts/regret.js scan"
+  "regret:discover": "node ../../The-skill/regresion-testing/scripts/regret.js install --dry-run"
 }
 ```
 
@@ -646,7 +646,7 @@ Add these to the target project's `package.json`:
 - `regret:chain` — chain testing (multi-step flow validation)
 - `regret:diff` — show output diff (what changed when a cluster goes RED)
 - `regret:coverage` — branch coverage analysis (detects under-covered clusters)
-- `regret:scan` — scan project for cluster suggestions (useful for new projects)
+- `regret:discover` — preview auto-discovered clusters without writing/capturing (useful for new projects; replaces deprecated `regret:scan`)
 - `regret:list` — list all clusters with status, stack, and fingerprints
 - `regret:verify-kebenaran` — verify KEBENARAN 1 vs KEBENARAN 2 identity (auto-detects Python vs JS stack)
 - The unified runner (`regret.js`) auto-detects stack from manifest and dispatches to the right handler. You can also call individual scripts directly (see Decision Tree below).
@@ -843,18 +843,34 @@ SUGGESTED INPUTS — Concrete inputs to cover uncovered branches
 
 This directly addresses the critical gap: **"clusters only fingerprint one execution path; branching functions need inputs covering ALL branches."** Instead of guessing what inputs to add, the tool tells you exactly what values would exercise each branch.
 
-### Scan Command
+### Discover Command (`regret install --dry-run`)
 
-For new projects, use `regret scan` to discover candidate functions:
+For new projects, use `regret install --dry-run` to preview auto-discovered clusters (no files written, no capture run):
 
 ```bash
-node scripts/scan.js                              # scan entire project
-node scripts/scan.js --dir src/lib/               # scan specific directory
-node scripts/scan.js --stack python               # filter by stack
-node scripts/scan.js --format manifest            # output as manifest.json snippet
+regret install --dry-run                       # preview clusters for entire project
+regret install --dir src/lib/ --dry-run        # preview for a specific directory
+regret install --stack python --dry-run        # filter by stack
+regret install --scope src/utils/math.js --dry-run   # preview a single file
 ```
 
-The scan identifies exported functions, estimates cyclomatic complexity, and suggests clusters prioritized by complexity. It also detects **Zustand store actions** — pure logic buried inside `create()` closures — and suggests extracting them to `*-logic.ts` files before fingerprinting (see `references/zustand-store.md`).
+`install --dry-run` prints the manifest that *would* be written if `--dry-run` were omitted — every discovered exported function becomes one cluster entry. The output is already in manifest.json format, so there is no separate `--format manifest` flag (the legacy `scan --format manifest` mode is replaced by the default behavior here). See "Flag compatibility" below for the full mapping.
+
+> **Backward compat.** `regret scan` still works — `regret.js` prints a deprecation warning and falls through to `scan.js` / `scan.py`. New code and tutorials should use `regret install --dry-run` (or the `regret:discover` NPM script above).
+
+The discovery scan identifies exported functions, estimates cyclomatic complexity, and suggests clusters prioritized by complexity. It also detects **Zustand store actions** — pure logic buried inside `create()` closures — and suggests extracting them to `*-logic.ts` files before fingerprinting (see `references/zustand-store.md`).
+
+#### Flag compatibility: `regret scan` → `regret install --dry-run`
+
+| `regret scan` flag | `regret install --dry-run` equivalent | Status |
+|---|---|---|
+| `--dir <path>` | `--dir <path>` | ✅ Supported |
+| `--stack <stack>` | `--stack <stack>` | ✅ Supported |
+| `--scope <path>` (file/dir/workspace) | `--scope <path>` | ✅ Supported (new in `install`) |
+| `--depth <n>` | `--depth <n>` | ✅ Supported (new in `install`) |
+| `--format manifest` | *(default behavior — output IS manifest)* | ✅ Implicit — no flag needed |
+| `--json` | *(not supported)* | ⚠️ Dropped — `install --dry-run` prints a human-readable preview. Use `regret list --json` to enumerate clusters from an existing manifest. |
+| `--decompose` (Python only) | *(not supported)* | ⚠️ Dropped — `scan.py --decompose` decomposes compound Python modules into suggested sub-clusters. No equivalent in `install`; if you relied on this, run `python3 scripts/scan.py <dir> --decompose` directly until an equivalent lands in `install`. |
 
 Read `references/branch-coverage.md` for the full specification and branch-map pattern.
 
@@ -862,15 +878,15 @@ Read `references/branch-coverage.md` for the full specification and branch-map p
 
 ## Gap 5 — Project Scanner
 
-When approaching an unfamiliar codebase, use `regret scan` to discover candidate functions for clustering:
+When approaching an unfamiliar codebase, use `regret install --dry-run` to discover candidate functions for clustering:
 
 ```bash
-node scripts/scan.js
+regret install --dry-run
 ```
 
-This scans the project, identifies exported functions, estimates cyclomatic complexity, and suggests clusters. Use `--format manifest` to generate a starting manifest.json.
+This previews the manifest that would be written — every discovered exported function becomes one cluster entry, with cyclomatic complexity used to prioritize the suggestions. No `--format` flag is needed: the preview output IS the manifest.json content (the legacy `scan --format manifest` mode is now the default).
 
-The scanner also detects **non-serializable return types** (numpy arrays, openpyxl Workbooks, cv2 images, etc.) and flags them with a `🔴non-serializable-return` warning. These functions need an `outputTransform` in the manifest before they can be fingerprinted.
+The discovery scan also detects **non-serializable return types** (numpy arrays, openpyxl Workbooks, cv2 images, etc.) and flags them with a `🔴non-serializable-return` warning. These functions need an `outputTransform` in the manifest before they can be fingerprinted.
 
 ---
 
@@ -1682,8 +1698,8 @@ Tidak ada call lain yang terdeteksi selama trace — watches kosong, ini normal 
 
 This is the expected behavior — the previous behavior of filling `watches`
 with all exports as a misleading "module map" was never intended. Users who
-need a list of all module exports should use `regret scan` or `regret
-discover --static` instead.
+need a list of all module exports should use `regret install --dry-run` or
+`regret discover --static` instead.
 
 ### `regret install` — scope handling, export verification, probes, summary (#317 #320 #323 #319 #327)
 
