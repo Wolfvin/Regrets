@@ -607,8 +607,10 @@ async function main() {
 
   case 'ci': {
     console.warn('⚠️  DEPRECATED: `regret ci` is replaced by `regret validate --fail-fast`')
-    console.warn('   `regret validate --fail-fast` is functionally identical and is the')
-    console.warn('   standard CI/CD gate. Falling back to ci...\n')
+    console.warn('   `regret validate --fail-fast` is the standard CI/CD gate.')
+    console.warn('   Note: kotlin/zig validate scripts do not accept --fail-fast;')
+    console.warn('   for those stacks, `regret ci` runs all clusters (no early exit).')
+    console.warn('   Falling back to ci...\n')
     if (passThroughArgs.includes('--init')) {
       // Generate GitHub Actions workflow file
       const ciArgs = passThroughArgs.filter(a => a !== '--init')
