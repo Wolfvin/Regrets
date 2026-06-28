@@ -395,7 +395,7 @@ EOF
     continue
   fi
 
-  output_json=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$output")
+  output_json=$(PYTHONIOENCODING=utf-8 python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$output")
   current_hash=$(fingerprint "$first_input" "$output_json")
 
   # ─── Update mode ─────────────────────────────────────────────────────────
