@@ -50,12 +50,55 @@ open https://github.com/Wolfvin/worker-skills/blob/main/context-snapshot/Regrets
 
 ## TL;DR
 
-- **Stack:** Node.js (ESM + CJS mixed), Python
-- **Test runner:** `npm test` (must be green before PR)
-- **3-phase workflow:** `regret capture` → refactor freely → `regret validate`
-- **The `regrets/` folder is sacred.** Never edit `.regret` files manually.
-- **Conventions:** branch from `feat/`, `fix/`, or `docs/`; never push to `main` directly. Commit messages follow `feat(scope):`, `fix(scope):`, `docs(scope):`.
+- **Stack:** Node.js (ESM + CJS mixed), Python.
+- **Test runner:** `npm test` — must be green before every PR. The suite
+  spans **82 test files** under `tests/` (plus `.regret`, `.go`, `.json`
+  fixtures and helpers in the same directory).
+- **3-phase workflow:** `regret capture` → refactor freely → `regret validate`.
+- **Repo layout:** ~961 tracked files — 5 root markdowns (`README`,
+  `SKILL`, `AGENT_PROTOCOL`, `WORKERS`, `VERIFY_REACT_STACK`), `scripts/`
+  (the CLI + per-stack capture/validate glue), `references/` (130+ docs),
+  `proof/` + `proofs/` (~50 proof projects), `tests/`, and `mcp/` (the
+  MCP server that exposes Regrets as tools).
+- **CLI surface:** **25 active commands** plus **8 deprecated** (still work,
+  warn on use). See [`AGENT_PROTOCOL.md`](AGENT_PROTOCOL.md) for the full
+  list with flags; `scripts/regret.js` is the dispatch source of truth.
+- **Stacks:** **30 supported** (`awk`, `bash`, `c`, `cpp`, `crystal`,
+  `csharp`, `css`, `dart`, `fsharp`, `go`, `haskell`, `java`, `jq`,
+  `julia`, `kotlin`, `lua`, `make`, `nim`, `perl`, `php`, `react`,
+  `ruby`, `rust`, `scala`, `sql`, `swift`, `tcl`, `vue`, `zig` — `js`/`ts`
+  are handled by the un-suffixed `capture.js`/`validate.js`). See
+  [`README.md`](README.md) for the stacks table.
+- **Per-stack glue:** every supported stack ships
+  `scripts/capture_<stack>.*` and `scripts/validate_<stack>.*` (extensions
+  vary: `.sh`, `.py`, `.mjs`, `.lua`, `.pl`, `.php`, `.rb`, …).
+- **The `regrets/` folder is sacred.** Never edit `.regret` files manually
+  to make tests pass — regenerate them with `regret capture`.
+- **Conventions:** branch from `feat/`, `fix/`, or `docs/`; never push to
+  `main` directly. Commit messages follow `feat(scope):`, `fix(scope):`,
+  `docs(scope):`.
 
 For everything else (architecture, manifest schema, callee contract model,
 analyzer capabilities, ghost proxy internals, known gaps), read the
 [full context][_skills].
+
+## Common pitfalls for new workers
+
+- **Don't edit `.regret` files by hand.** The `regrets/` folder inside each
+  proof project is the captured ground truth. If a test fails because of a
+  `.regret` mismatch, the fix is to re-run `regret capture` after a
+  deliberate behavior change — not to massage the fixture.
+- **Don't add a stack half-way.** Supporting a new stack requires **three or four** coordinated additions depending on the pattern: a `capture_<stack>.*` script (and `validate_<stack>.*` if separate — Rust/Go/Scala combine them), a dispatch case in `scripts/regret.js` for BOTH capture and validate modes, **and** a `references/<stack>.md` doc. Missing the dispatch case is the silent-killer: the CLI exits 0 without doing anything (no else clause in the if-else chain). Missing references only affects docs, not runtime.
+- **Don't conflate `WORKERS.md` and `AGENT_PROTOCOL.md`.** This file is the
+  contributor context for hacking on Regrets itself; `AGENT_PROTOCOL.md` is
+  the contract for AI agents *invoking* Regrets from a host project. Wrong
+  audience → wrong edits.
+- **Don't edit the root markdowns in isolation.** `README.md`,
+  `AGENT_PROTOCOL.md`, and `SKILL.md` cross-reference each other and the
+  `scripts/regret.js` command list. After edits, re-scan for dangling links
+  and stale command/stack counts (e.g. the 25-active / 8-deprecated / 30-stack
+  figures above).
+- **Don't push to `main`.** Always work on `feat/`, `fix/`, or `docs/`
+  branches and open a PR.
+- **Don't open a PR with red tests.** Run `npm test` locally first — the
+  82-file suite must be green. CI will block otherwise.
