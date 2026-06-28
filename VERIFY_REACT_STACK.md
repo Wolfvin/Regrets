@@ -276,4 +276,4 @@ The React stack is now the most feature-complete non-JS stack in Regrets, as the
 
 ### What changed since the original report
 
-The React stack has been in active production use since the PRs merged, with `proof/react_demo/` (containing `demo.sh`, `demo_multi_input.sh`, and the live `regrets/` golden set) and `proofs/react_independent/` serving as ongoing regression checks on every relevant change to the React capture/validate pipeline. The multi-input INPUTS contract pattern pioneered by PR #410 has since been adopted by other non-JS stacks in the project, making it the de facto standard for catching breaking changes in `inputs[1+]` across the Regrets ecosystem.
+The React stack has since been in regular use across `proof/react_demo/` and `proofs/react_independent/` as ongoing verification, and the multi-input INPUTS contract pattern introduced by PR #410 has been adopted by other stacks (verify per-stack via `rg "INPUTS" scripts/validate_*.{js,mjs,sh,py}`).

@@ -36,7 +36,7 @@ call count) are included in the fingerprint, so dropped or changed side effects
 are detected even when the return value is unchanged.
 Python: use `module` + `pythonPath` instead of `file`. React: add `renderMode: "static"`.
 Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
-See [README.md](README.md#supported-stacks) for the full list of supported stacks (27+ stacks, including `js`, `ts`, `python`, `rust`, `go`, `react`, `php`, `css`, and many more).
+See [README.md](README.md#supported-stacks) for the full list of supported stacks (30+ stacks, including `js`, `ts`, `python`, `rust`, `go`, `react`, `php`, `css`, and many more).
 CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed. Rust supports capture + validate via `cargo test`.
 
 ### freezeTime — deterministic Date/Time

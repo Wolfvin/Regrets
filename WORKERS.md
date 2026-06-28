@@ -63,7 +63,7 @@ open https://github.com/Wolfvin/worker-skills/blob/main/context-snapshot/Regrets
 - **CLI surface:** **25 active commands** plus **8 deprecated** (still work,
   warn on use). See [`AGENT_PROTOCOL.md`](AGENT_PROTOCOL.md) for the full
   list with flags; `scripts/regret.js` is the dispatch source of truth.
-- **Stacks:** **27 supported** (`awk`, `bash`, `c`, `cpp`, `crystal`,
+- **Stacks:** **30 supported** (`awk`, `bash`, `c`, `cpp`, `crystal`,
   `csharp`, `css`, `dart`, `fsharp`, `go`, `haskell`, `java`, `jq`,
   `julia`, `kotlin`, `lua`, `make`, `nim`, `perl`, `php`, `react`,
   `ruby`, `rust`, `scala`, `sql`, `swift`, `tcl`, `vue`, `zig` — `js`/`ts`
@@ -88,10 +88,7 @@ analyzer capabilities, ghost proxy internals, known gaps), read the
   proof project is the captured ground truth. If a test fails because of a
   `.regret` mismatch, the fix is to re-run `regret capture` after a
   deliberate behavior change — not to massage the fixture.
-- **Don't add a stack half-way.** Supporting a new stack requires **four**
-  coordinated additions: `scripts/capture_<stack>.*`, `scripts/validate_<stack>.*`,
-  a dispatch case in `scripts/regret.js`, **and** a `references/<stack>.md`
-  doc. Missing any one of them leaves the stack half-broken.
+- **Don't add a stack half-way.** Supporting a new stack requires **three or four** coordinated additions depending on the pattern: a `capture_<stack>.*` script (and `validate_<stack>.*` if separate — Rust/Go/Scala combine them), a dispatch case in `scripts/regret.js` for BOTH capture and validate modes, **and** a `references/<stack>.md` doc. Missing the dispatch case is the silent-killer: the CLI exits 0 without doing anything (no else clause in the if-else chain). Missing references only affects docs, not runtime.
 - **Don't conflate `WORKERS.md` and `AGENT_PROTOCOL.md`.** This file is the
   contributor context for hacking on Regrets itself; `AGENT_PROTOCOL.md` is
   the contract for AI agents *invoking* Regrets from a host project. Wrong
@@ -99,7 +96,7 @@ analyzer capabilities, ghost proxy internals, known gaps), read the
 - **Don't edit the root markdowns in isolation.** `README.md`,
   `AGENT_PROTOCOL.md`, and `SKILL.md` cross-reference each other and the
   `scripts/regret.js` command list. After edits, re-scan for dangling links
-  and stale command/stack counts (e.g. the 25-active / 8-deprecated / 27-stack
+  and stale command/stack counts (e.g. the 25-active / 8-deprecated / 30-stack
   figures above).
 - **Don't push to `main`.** Always work on `feat/`, `fix/`, or `docs/`
   branches and open a PR.

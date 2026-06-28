@@ -9,7 +9,7 @@ Output-based regression testing for AI-driven refactoring — capture what code 
 npm install regret-testing
 
 # 2. Scan your project to discover clusters
-node scripts/regret.js scan --dir src/ --stack js
+node scripts/regret.js install --dir src/ --stack js --dry-run
 
 # 3. Create regrets/manifest.json (one cluster per behavioral contract)
 #    See "Manifest example" below
@@ -51,7 +51,7 @@ All green? Ship it. Any red? Fix your code, not the `.regret` files.
 Analyze the codebase and identify clusters of functions that produce distinct outputs. Write `regrets/manifest.json` with one entry per behavioral contract. Run `capture` to ghost-record inputs/outputs and compute fingerprints. Validate immediately — all clusters must be green before proceeding.
 
 ```bash
-node scripts/regret.js scan --dir src/       # discover clusters
+node scripts/regret.js install --dry-run --dir src/       # discover clusters
 node scripts/regret.js capture                # ghost-capture fingerprints
 node scripts/regret.js validate               # gate: all must pass
 ```

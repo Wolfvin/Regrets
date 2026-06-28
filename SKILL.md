@@ -451,7 +451,7 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `watches` | ✅ | Array of function names to monitor via Ghost Proxy |
 | `file` | JS/TS/Ruby/PHP/Go/Rust | Path to source file (relative to project root). Required for `js`/`ts`/`react`/`vue`/`ruby`/`php`/`css` stacks, and used informationally by `rust`/`go`/`c`/`cpp`/`crystal`/`zig`/`swift`/`nim`/`haskell`/`dart`/`tcl`/`bash`/`make`/`scala`/`java`/`kotlin`/`awk`/`jq`/`sql`/`julia`/`perl` (the per-stack capture script reads its own source). **Do NOT use for Python** — use `module` instead. |
 | `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
-| `stack` | ✅ | Runtime stack — any of the 29 supported stacks: `js`, `ts`, `python`, `rust`, `react`, `vue`, `go`, `php`, `ruby`, `csharp`, `fsharp`, `lua`, `kotlin`, `java`, `scala`, `swift`, `c`, `cpp`, `crystal`, `zig`, `nim`, `haskell`, `dart`, `tcl`, `bash`, `make`, `perl`, `awk`, `jq`, `sql`, `julia`, `css`, or `extension`. See the Stack Support table above for the matching capture/validate script per stack. |
+| `stack` | ✅ | Runtime stack — any of the 32 supported stacks: `js`, `ts`, `python`, `rust`, `react`, `vue`, `go`, `php`, `ruby`, `csharp`, `fsharp`, `lua`, `kotlin`, `java`, `scala`, `swift`, `c`, `cpp`, `crystal`, `zig`, `nim`, `haskell`, `dart`, `tcl`, `bash`, `make`, `perl`, `awk`, `jq`, `sql`, `julia`, `css`, or `extension`. See the Stack Support table above for the matching capture/validate script per stack. |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)
@@ -675,7 +675,7 @@ If you prefer calling individual scripts directly (per-stack):
   "regret:capture:react": "node ../../The-skill/regresion-testing/scripts/capture_react.mjs",
   "regret:capture:vue": "node ../../The-skill/regresion-testing/scripts/capture_vue.mjs",
   "regret:validate:vue": "node ../../The-skill/regresion-testing/scripts/validate_vue.mjs",
-  "regret:capture:rust": "bash ../../The-skill/regresion-testing/scripts/capture_rust.sh capture",
+  "regret:capture:rust": "bash ../../The-skill/regresion-testing/scripts/capture_rust.sh",
   "regret:capture:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh capture",
   "regret:validate:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh validate",
   "regret:health:go": "bash ../../The-skill/regresion-testing/scripts/capture_go.sh health",
@@ -996,9 +996,9 @@ The pure module can be fingerprinted directly. The original module delegates to 
 |-------|---------------|-------------------|-------|
 | JS/TS | Proxy wrapping (`capture.js`/`validate.js`) | Value / Schema / Mixed | Best support — no suffix on capture scripts |
 | Python | Ghost decorator + `importlib` (`capture.py`/`validate.py`) | Value / Schema / Mixed | Full support — see `references/python.md` |
-| Rust | Trait wrapping + `cargo test` (`capture_rust.sh`) | Value (default) | **Working** — see `references/rust.md` |
+| Rust | Trait wrapping + `cargo test` (`capture_rust.sh`) | Value (default) | Community Preview — see `references/rust.md` |
 | React/JSX | `renderToStaticMarkup` (`capture_react.mjs`/`validate_react.mjs`) | Rendered HTML / Schema | See `references/react.md` |
-| Vue 3 | SSR render (`capture_vue.mjs`/`validate_vue.mjs`) | Rendered HTML / Value | See `references/typescript.md` |
+| Vue 3 | SSR render (`capture_vue.mjs`/`validate_vue.mjs`) | Rendered HTML / Value | See `references/vue.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
 | Go | Generated test files + `go test` (`capture_go.sh` handles capture + validate + health) | Value / Schema / Mixed | **Working** — see `references/go.md` |
 | PHP | Ghost decorator (manual wrapping) (`capture_php.php`/`validate_php.php`) | Value / Schema / Mixed | See `references/php.md` |
@@ -1302,7 +1302,8 @@ regression-testing/
 │   ├── # Per-stack capture / validate handlers (see Stack Support table above):
 │   ├── capture_react.mjs / validate_react.mjs            ← React/JSX
 │   ├── capture_vue.mjs   / validate_vue.mjs              ← Vue 3
-│   ├── capture_rust.sh                                       ← Rust (capture+validate+health)
+│   ├── capture_rust.sh                                       ← Rust (capture only)
+│   ├── validate_rust.sh                                      ← Rust (validate only)
 │   ├── capture_go.sh                                         ← Go (capture+validate+health)
 │   ├── capture_kotlin.sh / validate_kotlin.sh               ← Kotlin
 │   ├── capture_lua.lua  / validate_lua.lua                  ← Lua
@@ -1412,9 +1413,8 @@ What stack is the target project?
 │   ├── Validate → node scripts/validate.js (with React re-render)
 │   └── Health → node scripts/health.js
 ├── Rust
-│   ├── Capture → bash scripts/capture_rust.sh capture
-│   ├── Validate → bash scripts/capture_rust.sh validate
-│   └── Health → bash scripts/capture_rust.sh health
+│   ├── Capture → bash scripts/capture_rust.sh
+│   └── Validate → bash scripts/validate_rust.sh
 ├── Go
 │   ├── Capture → bash scripts/capture_go.sh capture
 │   ├── Validate → bash scripts/capture_go.sh validate
