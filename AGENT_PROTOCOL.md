@@ -36,7 +36,7 @@ call count) are included in the fingerprint, so dropped or changed side effects
 are detected even when the return value is unchanged.
 Python: use `module` + `pythonPath` instead of `file`. React: add `renderMode: "static"`.
 Multi-arg: `"multiArgs": true` (inputs become arrays). Kwargs: `"kwargs": true`.
-Stack: `js` | `ts` | `css` | `python` | `rust` | `react` | `go` | `php` | `extension`.
+See [README.md](README.md#supported-stacks) for the full list of supported stacks (27+ stacks, including `js`, `ts`, `python`, `rust`, `go`, `react`, `php`, `css`, and many more).
 CSS uses JS runner (`capture.js` / `validate.js`) — no separate binary needed. Rust supports capture + validate via `cargo test`.
 
 ### freezeTime — deterministic Date/Time
@@ -188,6 +188,24 @@ Use `__expectThrow` to declare that a specific input MUST cause the function to 
 - Works for sync `throw` and async `Promise.reject` / `async` function throws
 - Error messages are normalized: stack traces stripped, line numbers stripped, `normalize` rules applied
 - `.regret` file stores `ERROR_CONTRACT` instead of `OUTPUT`, plus `expectThrow: true` in metadata
+
+### callees — wrapped callee contracts
+
+When a cluster declares `"callees": ["a", "b"]`, capture.js installs a Proxy on each
+named callee (in addition to the entry ghost) so every call records its args and
+result. Each callee that is actually called gets its own `.regret` file at
+`regrets/<parentClusterId>.calls.<calleeName>.regret`, forming a separate
+behavioral contract.
+
+`validate.js` re-runs each callee with its saved args and compares the live
+fingerprint to the golden — a callee whose behavior changed FAILs the run even
+when the parent's final output still matches.
+
+- Opt-in: when `callees` is absent or empty, capture behaves like the default Ghost Proxy.
+- Depth 1: only the named callees are wrapped; nested calls are recorded as part of the callee's own execution.
+- Accessible callees only: must be a top-level function-bearing declaration. Closure-private functions, class methods, and destructured exports are not interceptable — `wrapCallees` logs an actionable warning and skips.
+- `--skip-callees` opts out of callee re-validation AND missing-callee detection.
+- Missing callee `.regret` files FAIL the parent with a pointer to `regret capture --cluster <parent>`.
 
 ---
 
@@ -446,9 +464,11 @@ provides the input for that step. See `references/contest.md` for full details.
 
 ```
 INSTALL WORKFLOW:
+  regret setup                                Initial setup helper
   regret install [--dir src/] [--stack js] [--depth 3]   Auto-discover + capture entire project
                          [--dry-run]                      Preview only, no write/capture
                          [--skip-capture]                 Write manifest, skip capture
+  regret watch                                Continuous validation on file changes
   regret validate                             Verify all GREEN
   regret status [--json]                      Snapshot: safe to refactor?
   regret uninstall [--keep-manifest]          Clean up safety net
@@ -459,6 +479,9 @@ MANUAL WORKFLOW:
   regret check                                Verify exports exist
   regret drift [--runs N]                     Stability check
   regret update <id> --reason "..."           Update contract intentionally
+  regret truth                                Save dual truth baselines (KEBENARAN 1 + 2)
+  regret rollback <id>                        Re-capture + validate a single cluster
+  regret verify-kebenaran                     Verify KEBENARAN 1 vs KEBENARAN 2 cross-check
   regret validate --fail-fast                 CI/CD gate (replaces regret ci + regret guard)
 
 CHAIN TESTING:
@@ -473,6 +496,9 @@ ANALYSIS:
   regret diff                                 Show diff on FAIL
   regret list [--json]                        List all clusters
   regret analyze [dir] [--json]               Deep structural analysis
+  regret history                              Show audit log history for clusters
+  regret compare --pre <dir> --post <dir>     Compare pre vs post truth baselines
+  regret mutate-audit <path>                  Detect functions that mutate input args
 ```
 
 ### DEPRECATED COMMANDS (still work, but use replacement instead)

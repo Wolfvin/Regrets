@@ -449,13 +449,9 @@ AI writes this manifest during PHASE 1. It lives in `regrets/` alongside `.regre
 | `version` | ❌ | `.regret` file format version (currently `1`) |
 | `entry` | ✅ | Function name to call. For JS/TS: exported from `file`. For Python: defined in `module`. |
 | `watches` | ✅ | Array of function names to monitor via Ghost Proxy |
-| `file` | JS/TS/Ruby/PHP | Path to source file (relative to project root). Required for `js`/`ts`/`react`/`ruby`/`php` stacks. **Do NOT use for Python** — use `module` instead. |
+| `file` | JS/TS/Ruby/PHP/Go/Rust | Path to source file (relative to project root). Required for `js`/`ts`/`react`/`vue`/`ruby`/`php`/`css` stacks, and used informationally by `rust`/`go`/`c`/`cpp`/`crystal`/`zig`/`swift`/`nim`/`haskell`/`dart`/`tcl`/`bash`/`make`/`scala`/`java`/`kotlin`/`awk`/`jq`/`sql`/`julia`/`perl` (the per-stack capture script reads its own source). **Do NOT use for Python** — use `module` instead. |
 | `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
-| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `ruby`, `rust`, `react`, `go`, or `extension` |
-| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `php`, `csharp`, `rust`, `react`, `go`, or `extension` |
-| `file` | JS/TS only | Path to source file (relative to project root). Required for `js`/`ts`/`react` stacks, and also used by `ruby`/`php`/`nim` (relative source path) and `rust`/`go` (informational). **Do NOT use for Python** — use `module` instead. |
-| `module` | Python only | Dotted module path (e.g. `"invoice.processor"`) for `importlib.import_module`. Required for `python` stack. May also be used by `rust` (colon notation). |
-| `stack` | ✅ | Runtime stack: `js`, `ts`, `python`, `rust`, `react`, `vue`, `go`, `php`, `css`, `ruby`, `nim`, or `extension` |
+| `stack` | ✅ | Runtime stack — any of the 29 supported stacks: `js`, `ts`, `python`, `rust`, `react`, `vue`, `go`, `php`, `ruby`, `csharp`, `fsharp`, `lua`, `kotlin`, `java`, `scala`, `swift`, `c`, `cpp`, `crystal`, `zig`, `nim`, `haskell`, `dart`, `tcl`, `bash`, `make`, `perl`, `awk`, `jq`, `sql`, `julia`, `css`, or `extension`. See the Stack Support table above for the matching capture/validate script per stack. |
 | `fingerprintLevel` | ❌ | `entry` (default) or `full` (entire call sequence) |
 | `description` | ❌ | Human-readable purpose |
 | `inputs` | ❌ | Array of test inputs (all inputs are validated during validate)
@@ -637,8 +633,8 @@ Add these to the target project's `package.json`:
 ```
 
 - `regret:build` — tsc only (no bundle/minify) — preserves individual JS files for capture
-- `regret:ci` — fast validation for CI pipelines (fail-fast)
-- `regret:guard` — pre-deployment gate: fail-fast validation with explicit pass/fail verdict — use before merging or deploying (see `references/guard-and-drift.md`)
+- `regret:ci` — fast validation for CI pipelines (fail-fast) (deprecated → use `regret validate --fail-fast`)
+- `regret:guard` — pre-deployment gate: fail-fast validation with explicit pass/fail verdict — use before merging or deploying (deprecated → use `regret validate --fail-fast`; see `references/guard-and-drift.md`)
 - `regret:drift` — non-determinism detection: validates each cluster 5 times and flags inconsistent fingerprints — use after capture to confirm fingerprints are stable (see `references/guard-and-drift.md`)
 - `regret:test` — run the integration test suite (209 tests)
 - `regret:init` — scaffold regrets/ directory with manifest template
@@ -646,9 +642,22 @@ Add these to the target project's `package.json`:
 - `regret:chain` — chain testing (multi-step flow validation)
 - `regret:diff` — show output diff (what changed when a cluster goes RED)
 - `regret:coverage` — branch coverage analysis (detects under-covered clusters)
-- `regret:scan` — scan project for cluster suggestions (useful for new projects)
+- `regret:scan` — scan project for cluster suggestions (deprecated → use `regret install --dry-run`; useful for new projects)
 - `regret:list` — list all clusters with status, stack, and fingerprints
 - `regret:verify-kebenaran` — verify KEBENARAN 1 vs KEBENARAN 2 identity (auto-detects Python vs JS stack)
+- `regret:install` — auto-discover clusters from a directory or single file (`--scope <dir|file>`); recursive by default (`--flat` for top-level only)
+- `regret:uninstall` — remove a cluster and its associated `.regret` files
+- `regret:status` — snapshot of regrets/ state (counts, capture freshness, last validation result)
+- `regret:history <cluster>` — audit-log timeline for a single cluster
+- `regret:check` — fast pre-flight (manifest schema + capture sanity) before running validate
+- `regret:truth` — capture a baseline truth fingerprint for a cluster (PHP stack uses `truth_php.php`)
+- `regret:compare <a> <b>` — side-by-side diff of two `.regret` files (golden vs live, or two runs)
+- `regret:discover --entry <fn> --file <path>` — runtime trace to suggest a manifest cluster (`--static` for tree-sitter-only, no execution)
+- `regret:watch` — re-validate on file change (dev loop, watches manifest + watched source files)
+- `regret:risk` — per-cluster fragility risk score (uses `issue_probability_picker.py`)
+- `regret:setup` — one-shot project bootstrap (creates `regrets/` with manifest + a sample cluster)
+- `regret:analyze` — Python AST structure analyzer (replaces deprecated `structure`)
+- `regret:mutate-audit` — AST scan for input-mutating functions; suggests `ignoreFields` values
 - The unified runner (`regret.js`) auto-detects stack from manifest and dispatches to the right handler. You can also call individual scripts directly (see Decision Tree below).
 - Install globally with `npm link` (from the skill directory) to use `regret capture` directly
 - Programmatic API: `import { fingerprint, createGhost } from 'regret-testing'`
@@ -845,7 +854,7 @@ This directly addresses the critical gap: **"clusters only fingerprint one execu
 
 ### Scan Command
 
-For new projects, use `regret scan` to discover candidate functions:
+For new projects, use `regret scan` to discover candidate functions (deprecated → use `regret install --dry-run` for the same preview-without-writing behavior):
 
 ```bash
 node scripts/scan.js                              # scan entire project
@@ -862,7 +871,7 @@ Read `references/branch-coverage.md` for the full specification and branch-map p
 
 ## Gap 5 — Project Scanner
 
-When approaching an unfamiliar codebase, use `regret scan` to discover candidate functions for clustering:
+When approaching an unfamiliar codebase, use `regret scan` to discover candidate functions for clustering (deprecated → prefer `regret install --scope <dir> --dry-run`, which writes nothing and previews auto-discovered clusters):
 
 ```bash
 node scripts/scan.js
@@ -985,16 +994,38 @@ The pure module can be fingerprinted directly. The original module delegates to 
 
 | Stack | Capture method | Fingerprint target | Notes |
 |-------|---------------|-------------------|-------|
-| JS/TS | Proxy wrapping | Value / Schema / Mixed | Best support |
-| Python | Ghost decorator + `importlib` | Value / Schema / Mixed | Full support — see `references/python.md` |
-| Rust | Trait wrapping + `cargo test` | Value (default) | **Experimental** — see `references/rust.md` |
-| React/JSX | `renderToStaticMarkup` | Rendered HTML / Schema | See `references/react.md` |
+| JS/TS | Proxy wrapping (`capture.js`/`validate.js`) | Value / Schema / Mixed | Best support — no suffix on capture scripts |
+| Python | Ghost decorator + `importlib` (`capture.py`/`validate.py`) | Value / Schema / Mixed | Full support — see `references/python.md` |
+| Rust | Trait wrapping + `cargo test` (`capture_rust.sh`) | Value (default) | **Working** — see `references/rust.md` |
+| React/JSX | `renderToStaticMarkup` (`capture_react.mjs`/`validate_react.mjs`) | Rendered HTML / Schema | See `references/react.md` |
+| Vue 3 | SSR render (`capture_vue.mjs`/`validate_vue.mjs`) | Rendered HTML / Value | See `references/typescript.md` |
 | Browser extension | Pure logic extraction + Proxy | Value (default) | See `references/extension.md` |
-| Go | Generated test files + `go test` | Value / Schema / Mixed | **Working** — see `references/go.md` |
-| PHP | Ghost decorator (manual wrapping) | Value / Schema / Mixed | See `references/php.md` |
+| Go | Generated test files + `go test` (`capture_go.sh` handles capture + validate + health) | Value / Schema / Mixed | **Working** — see `references/go.md` |
+| PHP | Ghost decorator (manual wrapping) (`capture_php.php`/`validate_php.php`) | Value / Schema / Mixed | See `references/php.md` |
+| Ruby | Capture/validate shell runners (`capture_ruby.rb`/`validate_ruby.rb`) | Value (default) | Top-level fn / class method / instance method |
 | C# (.NET 8+) | Reflection via `Assembly.LoadFrom` + `MethodInfo.Invoke` | Value (default) + multi-input (issue #315) | See `references/csharp.md` and `proof/csharp-demo/` |
-| Go | Generated test files + `go test` | Value / Schema / Mixed | **Community Preview** — see `references/go.md` |
-| Lua | `dofile()` + vendored pure-Lua SHA-256 | Value (default) | **Working** — see `references/lua.md` |
+| F# (.NET) | `capture_fsharp.sh` + `fsharp_capture_harness` / `fsharp_validate_harness` | Value (default) | See `references/csharp.md` (same .NET runtime) |
+| Lua | `dofile()` + vendored pure-Lua SHA-256 (`capture_lua.lua`/`validate_lua.lua`) | Value (default) | **Working** — see `references/lua.md` |
+| Kotlin | `capture_kotlin.sh` / `validate_kotlin.sh` | Value (default) | Community preview — see `references/kotlin.md` |
+| Java | `capture_java.sh` / `validate_java.sh` (shell + javac) | Value (default) | JVM stack |
+| Scala | `capture_scala.sh` / `validate_scala.sh` | Value (default) | JVM stack |
+| Swift | `capture_swift.sh` / `validate_swift.sh` + `fingerprint_swift.sh` | Value (default) | Native compile per cluster |
+| C | `capture_c.sh` / `validate_c.sh` | Value (default) | Native compile per cluster |
+| C++ | `capture_cpp.sh` / `validate_cpp.sh` | Value (default) | Native compile per cluster |
+| Crystal | `capture_crystal.sh` / `validate_crystal.sh` + `scripts/crystal/runner.cr` | Value (default) | Crystal build runner |
+| Zig | `capture_zig.sh` / `validate_zig.sh` | Value (default) | Native compile per cluster |
+| Nim | `capture_nim.sh` / `validate_nim.sh` + `fingerprint_nim.nim` | Value (default) | Nimscript runner |
+| Haskell | `capture_haskell.sh` / `validate_haskell.sh` + `haskell_runner_template.hs` | Value (default) | GHC compile + run |
+| Dart | `capture_dart.sh` / `validate_dart.sh` + `_dart_capture_gen.cjs` / `_dart_validate_gen.cjs` | Value (default) | Codegen-driven harness |
+| Tcl | `capture_tcl.sh` / `validate_tcl.sh` + `fingerprint_tcl.sh` | Value (default) | Tcl shell runner |
+| Bash | `capture_bash.sh` / `validate_bash.sh` + `fingerprint_bash.sh` + `parity_test_bash.sh` | Value (default) | Subshell isolation |
+| Make | `capture_make.sh` / `validate_make.sh` + `fingerprint_make.sh` | Value (default) | Makefile rule capture |
+| Perl | `capture_perl.pl` / `validate_perl.pl` + `fingerprint_perl.pl` | Value (default) | Perl native |
+| Awk | `capture_awk.mjs` / `validate_awk.mjs` | Value (default) | Driver invokes `awk` |
+| Jq | `capture_jq.sh` / `validate_jq.sh` + `fingerprint_jq.sh` | Value (default) | Driver invokes `jq` |
+| SQL | `capture_sql.mjs` / `validate_sql.mjs` | Value (default) | In-process SQLite |
+| Julia | `capture_julia.sh` / `validate_julia.sh` + `_julia_harness_gen.cjs` + `fingerprint_julia.jl` | Value (default) | Codegen-driven harness |
+| CSS | `capture_css.mjs` / `validate_css.mjs` | Value (default) | Style fingerprinting |
 | TypeScript | Adapter module + compiled JS | Value / Schema / Mixed | See `references/typescript.md` |
 | Class-based APIs | Adapter pattern or wrapper module | Value / Schema / Mixed | See `references/class-adapter.md` and `references/class-based.md` |
 | Esolang interpreters | Pure logic extraction + adapter | Value (default) | See `references/esoteric-language.md` |
@@ -1008,6 +1039,8 @@ The pure module can be fingerprinted directly. The original module delegates to 
 | Factory pattern | Compiled barrel file + outputTransform | Value / Schema / Mixed | See `references/factory-pattern.md` — mathjs, inversifyJS, etc. |
 | Algorithm visualization | Adapter modules + `resetState` + `seed` | Value (default) | See `references/algorithm-visualization.md` — handles mutable globals, input mutation, auto-incrementing IDs |
 | Datetime & stateful | `freezeTime` + `maxYields` + `trackState` + adapter | Value (default) | See `references/datetime-stateful-patterns.md` — date/time libs, schedulers, stateful objects |
+
+The `scripts/regret.js` unified runner auto-detects the stack from each manifest cluster's `stack` field and dispatches to the matching `capture_<stack>` / `validate_<stack>` handler (or to `capture.js`/`validate.js` for `js`/`ts`, or to `capture_go.sh` for both capture and validate). Per-stack stack-verification shell scripts (`verify_<stack>_stack.sh`) exist for `css`, `go`, `java`, `lua`, `perl`, and `rust`.
 
 ---
 
@@ -1130,7 +1163,7 @@ Use with `"fingerprintMode": "render"` and `normalize: ["visualOutput"]` in the 
 ## Branch Map — Auto-Generate Coverage Guidance
 
 The `regret branch-map` command analyzes source code and generates `regrets/branch-map.md`,
-which maps every branch in watched functions and suggests inputs to cover each branch.
+which maps every branch in watched functions and suggests inputs to cover each branch. (Deprecated → use `regret coverage --suggest-inputs` for the same per-branch input suggestions without writing a separate markdown file.)
 
 ```bash
 node scripts/regret.js branch-map             # Generate from compiled JS
@@ -1207,98 +1240,139 @@ regression-testing/
 ├── bin/
 │   └── regret.js               ← CLI binary (regret capture/validate/...)
 ├── scripts/
-│   ├── ghost.js               ← shared Ghost Proxy utilities (createGhost, deepClone, normalizeHtml, normalizeVisualOutput)
-│   ├── validate.js             ← compares fingerprints, reports green/red (JS/TS/React)
-│   ├── health.js               ← cluster health score report (all stacks)
-│   ├── fingerprint.js          ← hashing logic (core algorithm)
-│   ├── fingerprint.py          ← hashing logic — Python shared module
 │   ├── regret.js               ← unified runner — auto-detect stack, dispatch to handler
 │   ├── regret.py               ← unified runner (Python version)
+│   ├── capture.js              ← JS/TS ghost-proxy capture (default stack handler)
+│   ├── validate.js             ← JS/TS/React fingerprint comparison, reports green/red
 │   ├── capture.py              ← ghost-decorator runner (Python)
 │   ├── validate.py             ← regression validator (Python)
+│   ├── ghost.js                ← shared Ghost Proxy utilities (createGhost, deepClone, normalizeHtml, normalizeVisualOutput, wrapCallees)
+│   ├── ghost.py                ← Python Ghost decorator + wrapCallees helper
+│   ├── fingerprint.js          ← hashing logic (core algorithm)
+│   ├── fingerprint.py          ← hashing logic — Python shared module
+│   ├── health.js               ← cluster health score report (all stacks)
 │   ├── health.py               ← cluster health report (Python)
-│   ├── capture_react.mjs       ← React component render capture
-│   ├── capture_vue.mjs         ← Vue 3 component SSR capture
-│   ├── validate_vue.mjs        ← Vue 3 component SSR validator
-│   ├── capture_rust.sh         ← Rust cluster capture runner (experimental)
-│   ├── capture_go.sh           ← Go cluster capture runner (working)
-│   ├── capture_kotlin.sh       ← Kotlin cluster capture runner (community preview, see references/kotlin.md)
-│   ├── validate_kotlin.sh      ← Kotlin cluster validate runner (community preview)
-│   ├── capture_go.sh           ← Go cluster capture runner (community preview)
-│   ├── capture_lua.lua         ← Lua cluster capture runner (pure-Lua SHA-256, no deps)
-│   ├── validate_lua.lua        ← Lua cluster regression validator
-│   ├── fingerprint_lua.lua     ← Lua hashing logic — stable_stringify + base36 + fingerprint
-│   ├── sha2.lua                ← vendored pure-Lua SHA-256 (FIPS 180-4, public-domain)
-│   ├── contest.mjs             ← chain testing MVP (multi-step flow validation, JS)
-│   ├── contest.py              ← chain testing for Python stack clusters
-│   ├── diff.js                 ← output diff — shows what changed when RED
-│   ├── diff.py                 ← output diff for Python clusters
-│   ├── coverage.js             ← branch coverage analysis (detect under-covered clusters)
-│   ├── branch-map.js           ← auto-generate regrets/branch-map.md with input suggestions
-│   ├── scan.js                 ← project scanner (suggest clusters from source)
-│   ├── scan.py                 ← Python project scanner (suggest clusters + non-serializable detection)
-│   ├── mutate_audit.py         ← Mutation audit (detect functions that mutate input args)
 │   ├── init.js                 ← scaffolding — creates regrets/ directory structure
-│   └── test.mjs                ← integration test suite (209 tests)
-└── references/
-    ├── phases.md               ← detailed per-phase AI instructions
-    ├── fingerprint-spec.md     ← edge cases, non-deterministic values, collision probability
-    ├── update-protocol.md      ← safe update + audit trail rules (with hash chain)
-    ├── python.md               ← Python stack — full implementation
-    ├── rust.md                 ← Rust stack — trait wrapping + cargo test
-    ├── go.md                   ← Go stack — generated test files + go test (Working)
-    ├── ruby.md                 ← Ruby stack — top-level fn / class method / instance method
-    ├── csharp.md               ← C# (.NET 8+) stack — reflection + dotnet runner
-    ├── go.md                   ← Go stack — generated test files + go test (Community Preview)
-    ├── lua.md                  ← Lua stack — dofile + pure-Lua SHA-256 (Working)
-    ├── react.md                ← React/JSX stack — render fingerprinting
-    ├── structural.md           ← Output Design Fingerprint (schema/mixed modes)
-    ├── extension.md            ← Browser extension variant
-    ├── class-based.md           ← Class-based library wrapper pattern
-    ├── esoteric-language.md     ← Esoteric language interpreter testing pattern
-    ├── nextjs.md                ← Next.js integration — adapter modules for noEmit projects
-    ├── factory-pattern.md       ← Factory pattern projects — barrel file + outputTransform
-    ├── tauri-apps.md            ← Tauri app integration — esbuild transpile + adapter modules
-    ├── zustand-store.md          ← Zustand store — extract pure logic from create() closures
-    ├── reexport-hub.md            ← Re-export hub pattern — backward-compatible decomposition
-    ├── colorimetry.md           ← Color science library pattern (circular ESM + class Color)
-    ├── deepClone-output-before-fingerprint.md ← Bug fix: output reproducibility
-    ├── contest.md              ← Chain testing — multi-step flow validation
-    ├── dual-truth-verification.md ← Dual-truth verification pattern for rigorous refactoring proof
-    ├── python-pipeline.md       ← Python pipeline pattern (OCR, NLP, data processing)
-    ├── ocr-pipeline.md          ← OCR pipeline pattern (mutation, LLM non-determinism, spatial data)
-    ├── ocr-parsing-pipeline.md ← OCR & parsing pipeline pattern (pure logic extraction + float precision)
-    ├── datetime-stateful-patterns.md ← Datetime & stateful object patterns (freezeTime, maxYields, trackState)
-    ├── branch-coverage.md     ← branch coverage analysis and branch-map pattern
-    ├── typescript-projects.md  ← TypeScript workflow guide (preBuild, source mapping, --ts flag)
-    ├── case-study-riimut.md    ← Case study: regression testing a runic alphabet translator
-    ├── case-study-pustaka.md    ← Case study: regression testing a calendar library
-    ├── case-study-korean-romanizer.md ← Case study: Python class-based API + structural refactor
-    ├── case-study-pyenigma.md  ← Case study: pyEnigma (stateful class-based API + roundtrip)
-    ├── case-study-lindenmayer.md ← Case study: lindenmayer (L-System, rollup naming collision)
-    ├── case-study-gimeltra.md  ← Case study: gimeltra (Semitic script transliteration, 25 scripts)
-    ├── TROUBLESHOOTING.md      ← Common problems and solutions
-    ├── WALKTHROUGH.md          ← Step-by-step refactoring walkthrough
-    ├── braille-encode.md       ← Case study: qntm/braille-encode (binary↔Braille)
-    ├── base1.md                ← Case study: qntm/base1 (unary encoding, BigInt)
-    ├── stateful-encoding.md    ← Stateful encoding libraries (Baudot, Morse, shift states)
-    ├── case-study-ogham.md     ← Case study: evanshortiss/ogham (CJS wrapper pattern)
-    ├── esoteric-language.md    ← Esoteric language interpreter testing pattern
-    ├── nested-functions.md     ← Nested function watch limitation and workarounds
-    ├── single-file-python.md   ← Single-file Python module integration pattern
-    ├── case-study-pustaka.md   ← Case study: Javanese Calendar library
-    ├── case-study-hebrew.md    ← Case study: Hebrew Gematria library
-    ├── case-study-isbn3.md     ← Case study: ISBN utility library
-    ├── case-study-korean-romanizer.md ← Case study: korean-romanizer (Python adapter pattern)
-    ├── case-study-petungan.md  ← Case study: petungan (Javanese calendar, circular dep)
-    ├── case-study-riimut.md    ← Case study: riimut (rune transliteration, dual-truth)
-    ├── case-study-shakespearelang.md ← Case study: shakespearelang (esoteric language)
-    ├── case-study-coretax.md       ← Case study: Coretax-Auto-Downloader (date-dependent output, discriminated unions, God Object)
-    ├── case-study-sdr.md      ← Case study: mhostetter/sdr (DSP/scientific computing, numpy arrays, complex numbers)
-    ├── dual-truth-verification.md ← Dual-truth verification pattern
-    ├── mapping-transliteration.md ← Mapping/transliteration library guide
-    └── guard-and-drift.md        ← guard and drift commands — when to use, output format, drift remediation
+│   ├── install.js              ← install command — auto-discover clusters from a scope
+│   ├── uninstall.js            ← uninstall command — remove a cluster + its .regret files
+│   ├── status.js               ← status command — snapshot of regrets/ state
+│   ├── status.py               ← status command (Python)
+│   ├── history.js              ← history command — audit-log timeline for a cluster
+│   ├── check.js                ← check command — fast pre-flight (manifest + capture sanity)
+│   ├── check.py                ← check command (Python)
+│   ├── truth.js                ← truth command — capture baseline truth fingerprint
+│   ├── truth.py                ← truth command (Python)
+│   ├── truth_php.php           ← truth command (PHP stack)
+│   ├── verify_kebenaran.js     ← verify-kebenaran command — KEBENARAN 1 vs 2 identity (JS)
+│   ├── verify_kebenaran.py     ← verify-kebenaran command (Python)
+│   ├── compare.js              ← compare command — diff two .regret files side by side
+│   ├── discover.js             ← discover command — runtime trace to suggest a cluster
+│   ├── discover-static.js      ← discover --static — tree-sitter-only variant (no execution)
+│   ├── diff.js                 ← diff command — output diff, shows what changed when RED
+│   ├── diff.py                 ← diff command for Python clusters
+│   ├── diff-utils.js           ← shared diff utilities
+│   ├── coverage.js             ← coverage command — branch coverage analysis
+│   ├── coverage.py             ← coverage command (Python)
+│   ├── branch-map.js           ← branch-map command (deprecated → use `coverage --suggest-inputs`)
+│   ├── branches.js             ← branches command (deprecated → use `coverage`)
+│   ├── scan.js                 ← scan command (deprecated → use `install --dry-run`; JS scanner)
+│   ├── scan.py                 ← scan command (Python scanner; also powers non-serializable detection)
+│   ├── analyze.py              ← analyze command — Python AST structure analyzer
+│   ├── structure.js            ← structure command (deprecated → use `analyze`)
+│   ├── audit.js                ← audit command (deprecated → use `status`)
+│   ├── audit.py                ← audit command (Python, deprecated → use `status`)
+│   ├── ci-init.js              ← ci command (deprecated → use `validate --fail-fast`)
+│   ├── diagnose.js             ← diagnose command (deprecated → use `discover --entry --file`)
+│   ├── watch.js                ← watch command — re-validate on file change (dev loop)
+│   ├── risk.js                 ← risk command — per-cluster fragility risk score
+│   ├── setup.js                ← setup command — one-shot project bootstrap (manifest + sample cluster)
+│   ├── mutate_audit.py         ← mutate-audit command — AST scan for input-mutating functions
+│   ├── confidence.js           ← confidence scoring helpers used by discover/status
+│   ├── analyzer.js             ← tree-sitter analyzer for JS/TS exports + callees
+│   ├── esm-callee-transform.js ← in-memory ESM source transformer for callee wrapping
+│   ├── cjs-callee-transform.js ← in-memory CJS source transformer for callee wrapping
+│   ├── cjs-wrapper.js          ← CJS module holder pattern for callee interception
+│   ├── cjs-merge.js            ← merge CJS capture results
+│   ├── generate-adapter.js     ← generate adapter module from manifest (Python/JS)
+│   ├── outputTransform.js      ← outputTransform implementations (str, json, keys, pojo, ...)
+│   ├── stack_selector.py      ← stack selector helper used by unified runner
+│   ├── list.js                 ← list command — list all clusters with status/stack/fingerprints
+│   ├── test.mjs                ← integration test suite (209 tests)
+│   │
+│   ├── # Per-stack capture / validate handlers (see Stack Support table above):
+│   ├── capture_react.mjs / validate_react.mjs            ← React/JSX
+│   ├── capture_vue.mjs   / validate_vue.mjs              ← Vue 3
+│   ├── capture_rust.sh                                       ← Rust (capture+validate+health)
+│   ├── capture_go.sh                                         ← Go (capture+validate+health)
+│   ├── capture_kotlin.sh / validate_kotlin.sh               ← Kotlin
+│   ├── capture_lua.lua  / validate_lua.lua                  ← Lua
+│   ├── fingerprint_lua.lua / sha2.lua                       ← Lua hashing + vendored SHA-256
+│   ├── capture_c.sh      / validate_c.sh                    ← C
+│   ├── capture_cpp.sh    / validate_cpp.sh                  ← C++
+│   ├── capture_crystal.sh / validate_crystal.sh             ← Crystal (+ scripts/crystal/runner.cr)
+│   ├── capture_csharp.sh / validate_csharp.sh               ← C# (.NET)
+│   ├── capture_css.mjs   / validate_css.mjs                 ← CSS
+│   ├── capture_dart.sh   / validate_dart.sh                 ← Dart (+ _dart_capture_gen.cjs / _dart_validate_gen.cjs)
+│   ├── capture_fsharp.sh / validate_fsharp.sh               ← F# (+ fsharp_capture_harness / fsharp_validate_harness)
+│   ├── capture_haskell.sh / validate_haskell.sh             ← Haskell (+ haskell_runner_template.hs)
+│   ├── capture_java.sh   / validate_java.sh                 ← Java
+│   ├── capture_jq.sh     / validate_jq.sh                   ← jq
+│   ├── capture_julia.sh  / validate_julia.sh                ← Julia (+ _julia_harness_gen.cjs)
+│   ├── capture_make.sh   / validate_make.sh                 ← Make
+│   ├── capture_nim.sh    / validate_nim.sh                  ← Nim (+ _nim_harness_gen.cjs / _nim_regret_write.cjs)
+│   ├── capture_perl.pl   / validate_perl.pl                 ← Perl
+│   ├── capture_php.php   / validate_php.php                 ← PHP
+│   ├── capture_ruby.rb   / validate_ruby.rb                 ← Ruby
+│   ├── capture_scala.sh  / validate_scala.sh                ← Scala
+│   ├── capture_sql.mjs   / validate_sql.mjs                 ← SQL
+│   ├── capture_swift.sh  / validate_swift.sh                ← Swift
+│   ├── capture_tcl.sh    / validate_tcl.sh                  ← Tcl
+│   ├── capture_awk.mjs   / validate_awk.mjs                 ← awk
+│   ├── capture_bash.sh   / validate_bash.sh                 ← bash
+│   ├── capture_zig.sh    / validate_zig.sh                  ← Zig
+│   │
+│   ├── # Per-stack fingerprint helpers (used by capture_*/validate_* above):
+│   ├── fingerprint_bash.sh, fingerprint_dart.dart, fingerprint_fsharp.fs,
+│   ├── fingerprint_haskell.sh, fingerprint_jq.sh, fingerprint_julia.jl,
+│   ├── fingerprint_make.sh, fingerprint_nim.nim, fingerprint_perl.pl,
+│   ├── fingerprint_php.php, fingerprint_rb.rb, fingerprint_swift.sh, fingerprint_tcl.sh
+│   │
+│   ├── # Per-stack stack-verification scripts (run after stack install to confirm toolchain):
+│   ├── verify_css_stack.sh, verify_go_stack.sh, verify_java_stack.sh,
+│   ├── verify_lua_stack.sh, verify_perl_stack.sh, verify_rust_stack.sh
+│   │
+│   ├── # Misc:
+│   ├── contest.mjs / contest.py    ← chain testing (multi-step flow validation, JS & Python)
+│   ├── _chain_step.py              ← shared chain-step helper for Python chains
+│   ├── freeze_time.py              ← freezeTime implementation (datetime, date.today, localtime)
+│   ├── issue_probability_picker.py ← used by risk command
+│   └── RegretFingerprint.cs        ← C# fingerprint helper used by capture_csharp.sh
+│
+└── references/   (130+ docs — selected highlights below; see the references/ directory for the full list)
+    ├── phases.md                          ← detailed per-phase AI instructions
+    ├── fingerprint-spec.md                ← edge cases, non-deterministic values, collision probability
+    ├── update-protocol.md                 ← safe update + audit trail rules (with hash chain)
+    ├── python.md, rust.md, go.md, ruby.md, csharp.md, lua.md, kotlin.md, php.md
+    ├── react.md, typescript.md, structural.md, extension.md, class-based.md, class-adapter.md
+    ├── esoteric-language.md, nextjs.md, factory-pattern.md, tauri-apps.md
+    ├── zustand-store.md, reexport-hub.md, colorimetry.md
+    ├── deepClone-output-before-fingerprint.md, contest.md, dual-truth-verification.md
+    ├── python-pipeline.md, ocr-pipeline.md, ocr-parsing-pipeline.md
+    ├── datetime-stateful-patterns.md, branch-coverage.md, typescript-projects.md
+    ├── scientific-computing.md, algorithm-visualization.md
+    ├── mapping-transliteration.md, guard-and-drift.md
+    ├── nested-functions.md, single-file-python.md, stateful-encoding.md
+    ├── braille-encode.md, base1.md
+    ├── TROUBLESHOOTING.md, WALKTHROUGH.md
+    └── case-study-*.md   ← 20+ case studies (riimut, pustaka, korean-romanizer, pyenigma,
+                            lindenmayer, gimeltra, ogham, hebrew, isbn3, petungan,
+                            shakespearelang, coretax, sdr, mahjong, musicpy, etc.)
 ```
+
+Notes:
+- The deprecated commands (`ci`, `scan`, `structure`, `branch-map`, `audit`, `diagnose`, `guard`, `branches`) still have their original scripts in `scripts/` for backward compatibility — the unified runner `regret.js` accepts them and prints a deprecation warning pointing at the recommended replacement.
+- `scan.js` / `scan.py` are kept for the `install --dry-run` preview path; direct invocation of `regret scan` is deprecated.
+- The Stack Support table above maps each `stack` value to its specific `capture_<stack>` / `validate_<stack>` script.
 
 ---
 

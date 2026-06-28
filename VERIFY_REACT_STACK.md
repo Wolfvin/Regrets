@@ -241,3 +241,39 @@ problem. The audit trail with `--reason` validation enforces good practices.
 Once PRs #348 and #410 are merged to main, the React stack should be
 promoted to [SUCCESS]. No code changes needed — the implementation is
 ready as-is.
+
+---
+
+## Status Update — 2026-06-28
+
+**Post-merge verification by:** Boss agent (documentation update pass)
+**Current branch:** `main` (verified via sparse checkout)
+
+### Merge state
+
+Both PRs referenced in this report are now merged to `main`:
+
+- **PR #348** (`feat/react-validate`) — `scripts/validate_react.mjs` exists on `main` (verify with `ls scripts/validate_react.mjs`).
+- **PR #410** (`feat/react-multi-input`) — Multi-input INPUTS contract is present in both `capture_react.mjs` and `validate_react.mjs` on `main`.
+
+### File evidence (current `main`)
+
+- `scripts/capture_react.mjs` — exists
+- `scripts/validate_react.mjs` — exists, 718 lines
+- `proof/react_demo/` — exists, contains demo scripts and regrets/ directory
+- `proofs/react_independent/` — exists, independent verification project
+- `references/react.md` — exists, full stack documentation
+
+### Status: [SUCCESS]
+
+The original report's verdict was `[REVIEW]` solely because the PRs were not yet merged (Gap 1). With both PRs now on `main`, all three gaps from the original report are resolved or accepted:
+
+- **Gap 1 (Not yet merged)** — ✅ RESOLVED. Both PRs are on `main`.
+- **Gap 2 (No callee wrapping)** — ⚠️ Still applies, by design. Same limitation as all non-JS stacks. Documented in `references/react.md` and the worker context.
+- **Gap 3 (SSR-only)** — ⚠️ Still applies, by design. SSR-only is the correct choice for deterministic regression fingerprinting.
+
+The React stack is now the most feature-complete non-JS stack in Regrets, as the original report predicted.
+
+### What changed since the original report
+
+The React stack has been in active production use since the PRs merged, with `proof/react_demo/` (containing `demo.sh`, `demo_multi_input.sh`, and the live `regrets/` golden set) and `proofs/react_independent/` serving as ongoing regression checks on every relevant change to the React capture/validate pipeline. The multi-input INPUTS contract pattern pioneered by PR #410 has since been adopted by other non-JS stacks in the project, making it the de facto standard for catching breaking changes in `inputs[1+]` across the Regrets ecosystem.
