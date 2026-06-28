@@ -249,7 +249,11 @@ async function main() {
       } else if (stack === 'lua') {
         success = await run('lua', [`${SCRIPTS_DIR}/capture_lua.lua`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'capture', ...passThroughArgs]) && success
+        // capture_rust.sh rejects unknown positional args (its `*)` branch
+        // exits with "Unknown flag" + exit 2 under `set -euo pipefail`).
+        // It defaults to capture mode when called with NO positional arg,
+        // so we drop the spurious `'capture'` that broke all Rust captures.
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'capture', ...passThroughArgs]) && success
       } else if (stack === 'cpp') {
@@ -274,6 +278,20 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_make.sh`, ...passThroughArgs]) && success
       } else if (stack === 'sql') {
         success = await run('node', [`${SCRIPTS_DIR}/capture_sql.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'crystal') {
+        // capture_crystal.sh defaults to capture mode when no positional arg
+        // is given (line 51: MODE="capture"). It also accepts a `capture`
+        // positional, but we omit it to match the no-positional convention
+        // used by capture_rust.sh / capture_dart.sh / etc.
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_crystal.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'dart') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_dart.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'fsharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_fsharp.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'kotlin') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_kotlin.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'zig') {
+        success = await run('bash', [`${SCRIPTS_DIR}/capture_zig.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -312,7 +330,7 @@ async function main() {
       } else if (stack === 'lua') {
         success = await run('lua', [`${SCRIPTS_DIR}/validate_lua.lua`, ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_rust.sh`, ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'cpp') {
@@ -337,6 +355,18 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...passThroughArgs]) && success
       } else if (stack === 'sql') {
         success = await run('node', [`${SCRIPTS_DIR}/validate_sql.mjs`, ...passThroughArgs]) && success
+      } else if (stack === 'crystal') {
+        // validate_crystal.sh is a thin wrapper that exec's
+        // `capture_crystal.sh validate "$@"` (and supports --runs for drift).
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_crystal.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'dart') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_dart.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'fsharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_fsharp.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'kotlin') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_kotlin.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'zig') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_zig.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -384,7 +414,7 @@ async function main() {
       // Vue uses the same `--update <id> --reason` form as Python/PHP/Rust/Go
       // (validate_vue.mjs expects the cluster id as the VALUE of --update,
       // mirroring validate.py / validate_php.php).
-      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make' || targetStack === 'haskell' || targetStack === 'tcl' || targetStack === 'julia' || targetStack === 'swift') {
+      if (targetStack === 'python' || targetStack === 'php' || targetStack === 'ruby' || targetStack === 'csharp' || targetStack === 'rust' || targetStack === 'go' || targetStack === 'c' || targetStack === 'lua' || targetStack === 'vue' || targetStack === 'nim' || targetStack === 'perl' || targetStack === 'react' || targetStack === 'jq' || targetStack === 'make' || targetStack === 'haskell' || targetStack === 'tcl' || targetStack === 'julia' || targetStack === 'swift' || targetStack === 'crystal' || targetStack === 'dart') {
         translatedArgs = ['--update', targetCluster, ...remainingArgs]
       } else {
         translatedArgs = ['--update', '--cluster', targetCluster, ...remainingArgs]
@@ -415,7 +445,7 @@ async function main() {
     } else if (targetStack === 'lua') {
       success = await run('lua', [`${SCRIPTS_DIR}/validate_lua.lua`, ...translatedArgs])
     } else if (targetStack === 'rust') {
-      success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...translatedArgs])
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_rust.sh`, ...translatedArgs])
     } else if (targetStack === 'go') {
       success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...translatedArgs])
     } else if (targetStack === 'css') {
@@ -445,6 +475,35 @@ async function main() {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, ...translatedArgs])
     } else if (targetStack === 'make') {
       success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, ...translatedArgs])
+    } else if (targetStack === 'crystal') {
+      // validate_crystal.sh wraps capture_crystal.sh, which accepts
+      // `--update <id> --reason "..."` natively (re-captures + appends audit.log).
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_crystal.sh`, ...translatedArgs])
+    } else if (targetStack === 'dart') {
+      // validate_dart.sh accepts `--update <id> --reason "..."` (re-captures
+      // via capture_dart.sh + appends audit.log).
+      success = await run('bash', [`${SCRIPTS_DIR}/validate_dart.sh`, ...translatedArgs])
+    } else if (targetStack === 'fsharp') {
+      // F# harness (fsharp_validate_harness/Program.fs) only accepts --cluster
+      // and --fail-fast — no --update mode yet (parity gap with JS/Python/Rust).
+      console.error('F# stack does not yet support --update mode.')
+      console.error('  Workaround: re-capture with `regret capture --cluster ' + targetCluster + '`')
+      console.error('             then commit the new .regret file with a reason in the commit message.')
+      success = false
+    } else if (targetStack === 'kotlin') {
+      // validate_kotlin.sh only accepts --cluster/--manifest/--quiet/--verbose
+      // (no --update mode yet — parity gap with JS/Python/Rust).
+      console.error('Kotlin stack does not yet support --update mode.')
+      console.error('  Workaround: re-capture with `regret capture --cluster ' + targetCluster + '`')
+      console.error('             then commit the new .regret file with a reason in the commit message.')
+      success = false
+    } else if (targetStack === 'zig') {
+      // validate_zig.sh only accepts --cluster/--manifest/--quiet/--verbose
+      // (no --update mode yet — parity gap with JS/Python/Rust).
+      console.error('Zig stack does not yet support --update mode.')
+      console.error('  Workaround: re-capture with `regret capture --cluster ' + targetCluster + '`')
+      console.error('             then commit the new .regret file with a reason in the commit message.')
+      success = false
     } else if (targetStack === 'julia') {
       // Julia harness does NOT support --update mode yet (parity gap with JS/Python/Bash/Perl/C++).
       // Print a clear error message instead of silently doing nothing.
@@ -511,7 +570,7 @@ async function main() {
       } else if (stack === 'lua') {
         console.log(`  ⏭️  Lua drift detection: run validate_lua.lua --runs manually (drift mode not yet implemented)`)
       } else if (stack === 'rust') {
-        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_rust.sh`, ...passThroughArgs]) && success
       } else if (stack === 'go') {
         console.log(`  ⏭️  Go drift detection: run capture_go.sh with --runs flag manually`)
       } else if (stack === 'bash') {
@@ -529,6 +588,18 @@ async function main() {
         console.log(`  ⏭️  jq drift detection: jq output is deterministic; use --runs manually if needed`)
       } else if (stack === 'make') {
         console.log(`  ⏭️  Make drift detection: make output is deterministic; use --runs manually if needed`)
+      } else if (stack === 'crystal') {
+        // validate_crystal.sh supports `--runs N` natively (drift wrapper that
+        // calls capture_crystal.sh validate N times and reports variation).
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_crystal.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'dart') {
+        console.log(`  ⏭️  Dart drift detection: not yet supported — run validate_dart.sh multiple times manually`)
+      } else if (stack === 'fsharp') {
+        console.log(`  ⏭️  F# drift detection: not yet supported — F# is pure FP (deterministic by default)`)
+      } else if (stack === 'kotlin') {
+        console.log(`  ⏭️  Kotlin drift detection: not yet supported — run validate_kotlin.sh multiple times manually`)
+      } else if (stack === 'zig') {
+        console.log(`  ⏭️  Zig drift detection: not yet supported — Zig is deterministic by default; run validate_zig.sh manually`)
       }
     }
     break
@@ -571,7 +642,7 @@ async function main() {
       } else if (stack === 'lua') {
         success = await run('lua', [`${SCRIPTS_DIR}/validate_lua.lua`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_rust.sh`, ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
@@ -586,6 +657,23 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'make') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'crystal') {
+        // validate_crystal.sh -> capture_crystal.sh accepts --fail-fast.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_crystal.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'dart') {
+        // validate_dart.sh accepts --fail-fast.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_dart.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'fsharp') {
+        // F# validate harness accepts --fail-fast.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_fsharp.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'kotlin') {
+        // validate_kotlin.sh does NOT accept --fail-fast (parser rejects unknown
+        // flags with exit 2). Pass through user args only.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_kotlin.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'zig') {
+        // validate_zig.sh does NOT accept --fail-fast (parser rejects unknown
+        // flags with exit 2). Pass through user args only.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_zig.sh`, ...passThroughArgs]) && success
       }
     }
     break
@@ -629,7 +717,7 @@ async function main() {
       } else if (stack === 'lua') {
         console.log(`  ⏭️  Lua truth capture: not yet supported (use regret capture/validate for Lua clusters)`)
       } else if (stack === 'rust') {
-        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_rust.sh`, ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
@@ -646,6 +734,17 @@ async function main() {
         console.log(`  ⏭️  jq truth capture: not yet supported — use bash scripts/validate_jq.sh for validation`)
       } else if (stack === 'make') {
         console.log(`  ⏭️  Make truth capture: not yet supported — use bash scripts/validate_make.sh for validation`)
+      } else if (stack === 'crystal') {
+        // No dedicated truth_crystal.sh — re-validate (matches Rust/Bash/C pattern).
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_crystal.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'dart') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_dart.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'fsharp') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_fsharp.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'kotlin') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_kotlin.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'zig') {
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_zig.sh`, ...passThroughArgs]) && success
       } else {
         console.log(`  ⏭️  Stack "${stack}" — truth capture not yet supported`)
       }
@@ -901,7 +1000,7 @@ async function main() {
       } else if (stack === 'lua') {
         success = await run('lua', [`${SCRIPTS_DIR}/validate_lua.lua`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'rust') {
-        success = await run('bash', [`${SCRIPTS_DIR}/capture_rust.sh`, 'validate', ...passThroughArgs]) && success
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_rust.sh`, ...passThroughArgs]) && success
       } else if (stack === 'go') {
         success = await run('bash', [`${SCRIPTS_DIR}/capture_go.sh`, 'validate', ...passThroughArgs]) && success
       } else if (stack === 'bash') {
@@ -914,6 +1013,23 @@ async function main() {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_jq.sh`, '--fail-fast', ...passThroughArgs]) && success
       } else if (stack === 'make') {
         success = await run('bash', [`${SCRIPTS_DIR}/validate_make.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'crystal') {
+        // validate_crystal.sh -> capture_crystal.sh accepts --fail-fast.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_crystal.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'dart') {
+        // validate_dart.sh accepts --fail-fast.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_dart.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'fsharp') {
+        // F# validate harness accepts --fail-fast.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_fsharp.sh`, '--fail-fast', ...passThroughArgs]) && success
+      } else if (stack === 'kotlin') {
+        // validate_kotlin.sh does NOT accept --fail-fast (parser rejects unknown
+        // flags with exit 2). Pass through user args only.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_kotlin.sh`, ...passThroughArgs]) && success
+      } else if (stack === 'zig') {
+        // validate_zig.sh does NOT accept --fail-fast (parser rejects unknown
+        // flags with exit 2). Pass through user args only.
+        success = await run('bash', [`${SCRIPTS_DIR}/validate_zig.sh`, ...passThroughArgs]) && success
       }
     }
     if (success) {
@@ -1061,7 +1177,7 @@ Auto-detects stack from manifest.json and dispatches to the right handler:
   php     → capture_php.php / validate_php.php
   lua     → capture_lua.lua / validate_lua.lua (pure-Lua SHA-256, no deps)
   react   → capture_react.mjs / validate.js
-  rust    → capture_rust.sh (capture + validate via cargo test)
+  rust    → capture_rust.sh / validate_rust.sh (via cargo test)
   go      → capture_go.sh (Community Preview)
   bash    → capture_bash.sh / validate_bash.sh (Community Preview)
 `)
