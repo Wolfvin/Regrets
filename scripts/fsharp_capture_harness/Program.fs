@@ -308,9 +308,33 @@ let runCluster (c: Cluster) (outDir: string) : bool =
                     lines.Add("OUTPUT " + JsonSerializer.Serialize(golden.Output))
                     lines.Add("HASH   " + fp)
 
+                    // Multi-input persistence (issue #535 parity with Haskell/Crystal/Tcl):
+                    // inputs 2..N are persisted in an INPUTS line (JSON array of
+                    // {input, output, hash}) written AFTER the HASH line. Input #1
+                    // is already covered by INPUT/OUTPUT/HASH above. Without this,
+                    // the validate harness can only check input #1 and a breaking
+                    // change affecting only input #2+ silently passes.
+                    if results.Count > 1 then
+                        let extraParts =
+                            results
+                            |> Seq.skip 1
+                            |> Seq.map (fun r ->
+                                // Manual JSON assembly — guarantees key order
+                                // {input, output, hash} matches Haskell/Crystal/Tcl.
+                                let inputJson = JsonSerializer.Serialize(r.Input)
+                                let outputJson = JsonSerializer.Serialize(r.Output)
+                                let hashJson = JsonSerializer.Serialize(r.Fp)
+                                "{\"input\":" + inputJson + ",\"output\":" + outputJson + ",\"hash\":" + hashJson + "}")
+                            |> String.concat ","
+                        let inputsLine = "INPUTS [" + extraParts + "]"
+                        lines.Add(inputsLine)
+
                     File.WriteAllLines(regretPath, lines)
 
-                    Console.WriteLine("   ✅ Fingerprint: " + fp)
+                    let inputCountStr =
+                        if results.Count > 1 then string results.Count + " inputs"
+                        else "1 input"
+                    Console.WriteLine("   ✅ Fingerprint: " + fp + " (" + inputCountStr + ")")
                     Console.WriteLine("   📄 Saved: regrets/" + c.Id + ".regret")
                     if skippedTrivial > 0 then
                         Console.WriteLine("   ℹ️  " + string skippedTrivial + " trivial/threw case(s) skipped.")

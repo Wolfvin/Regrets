@@ -46,6 +46,10 @@ type RegretFile = {
     MultiArgs: bool
     Input: obj
     Output: obj
+    // Inputs 2..N parsed from the INPUTS line (issue #535 parity with Haskell/Crystal/Tcl).
+    // Empty for older .regret files that only persisted input #1 — backward compat:
+    // validate then behaves exactly like before (only first input is checked).
+    ExtraInputs: (obj * string) list  // (input, hash) — output is re-derived live
 }
 
 let parseListField (v: string) : string list =
@@ -82,10 +86,14 @@ let parseRegret (content: string) : RegretFile option =
         let mutable inputLine = None
         let mutable outputLine = None
         let mutable hashLine = None
+        let mutable inputsLine = None
         for line in dataSection.Split('\n') do
             if line.StartsWith("INPUT ") then inputLine <- Some (line.Substring("INPUT ".Length))
             if line.StartsWith("OUTPUT ") then outputLine <- Some (line.Substring("OUTPUT ".Length))
             if line.StartsWith("HASH ") then hashLine <- Some (line.Substring("HASH ".Length))
+            // INPUTS line (plural, issue #535): only matches the multi-input line
+            // "INPUTS [...]", never "INPUT " (singular, which is matched above).
+            if line.StartsWith("INPUTS ") then inputsLine <- Some (line.Substring("INPUTS ".Length))
         let parseJson (s: string option) : obj =
             match s with
             | None -> null
@@ -97,6 +105,35 @@ let parseRegret (content: string) : RegretFile option =
                         let cloned = doc.RootElement.Clone()
                         box cloned
                     with _ -> box v
+        // Parse INPUTS line (issue #535): JSON array of {input, output, hash}.
+        // Returns list of (input-obj, hash-string) tuples. Output field is parsed
+        // for forward-compat but not stored — validate re-derives output live.
+        // Returns [] for missing/empty/malformed INPUTS line (backward compat).
+        let parseExtraInputs (s: string option) : (obj * string) list =
+            match s with
+            | None -> []
+            | Some v ->
+                if String.IsNullOrWhiteSpace(v) then []
+                else
+                    try
+                        use doc = JsonDocument.Parse(v)
+                        if doc.RootElement.ValueKind <> JsonValueKind.Array then []
+                        else
+                            doc.RootElement.EnumerateArray()
+                            |> Seq.map (fun el ->
+                                let mutable inputEl = Unchecked.defaultof<JsonElement>
+                                let hasInput = el.TryGetProperty("input", &inputEl)
+                                let mutable hashEl = Unchecked.defaultof<JsonElement>
+                                let hasHash = el.TryGetProperty("hash", &hashEl)
+                                let inputObj =
+                                    if hasInput then box (inputEl.Clone())
+                                    else null
+                                let hashStr =
+                                    if hasHash && hashEl.ValueKind = JsonValueKind.String then hashEl.GetString()
+                                    else ""
+                                (inputObj, hashStr))
+                            |> Seq.toList
+                    with _ -> []
         match metaMap.TryFind("stack") with
         | Some s when s.Trim() = "fsharp" ->
             Some {
@@ -110,6 +147,7 @@ let parseRegret (content: string) : RegretFile option =
                 MultiArgs = (metaMap.TryFind("multiArgs") |> Option.defaultValue "false") = "true"
                 Input = parseJson inputLine
                 Output = parseJson outputLine
+                ExtraInputs = parseExtraInputs inputsLine
             }
         | _ -> None
 
@@ -263,10 +301,42 @@ let validateOne (r: RegretFile) : (ValidateResult * string option * obj option *
                         Skip, None, Some actualOutput, Some "trivial output"
                     else
                         let actualHash = fingerprint r.Input actualOutput r.NormalizeRules r.IgnoreFields
-                        if actualHash = r.GoldenHash then
-                            Pass, Some actualHash, Some actualOutput, None
-                        else
+                        if actualHash <> r.GoldenHash then
                             Fail, Some actualHash, Some actualOutput, Some "hash mismatch"
+                        else
+                            // First input passed. Now validate inputs 2..N from the
+                            // INPUTS line (issue #535 parity with Haskell/Crystal/Tcl).
+                            //
+                            // Backward compat: older .regret files without an INPUTS
+                            // line have r.ExtraInputs = [] and this loop is a no-op,
+                            // so they continue to validate exactly like before
+                            // (first input only). No false-FAIL on legacy .regret files.
+                            //
+                            // A mismatch on any input #2+ is a regression and FAILs
+                            // the whole cluster — that's the bug being fixed.
+                            let mutable extraError: string option = None
+                            let mutable extraIdx = 2  // 1-indexed; input #1 already validated above
+                            for (eiInput, eiHash) in r.ExtraInputs do
+                                if Option.isNone extraError then
+                                    let eiInputJson =
+                                        if isNull eiInput then "null"
+                                        else JsonSerializer.Serialize(eiInput)
+                                    match invokeViaHarness targetAbsPath r.Entry r.MultiArgs eiInputJson with
+                                    | Error e ->
+                                        extraError <- Some (sprintf "INPUTS[%d] invocation threw: %s" extraIdx e)
+                                    | Ok eiActualOutput ->
+                                        if isTrivialOutput eiActualOutput then
+                                            extraError <- Some (sprintf "INPUTS[%d] trivial output" extraIdx)
+                                        else
+                                            let eiActualHash = fingerprint eiInput eiActualOutput r.NormalizeRules r.IgnoreFields
+                                            if eiActualHash <> eiHash then
+                                                extraError <- Some (
+                                                    sprintf "INPUTS[%d] hash mismatch (golden: %s, live: %s)"
+                                                        extraIdx eiHash eiActualHash)
+                                extraIdx <- extraIdx + 1
+                            match extraError with
+                            | Some e -> Fail, Some actualHash, Some actualOutput, Some e
+                            | None -> Pass, Some actualHash, Some actualOutput, None
     with
     | e -> Fail, None, None, Some ("exception: " + e.Message)
 
@@ -305,7 +375,9 @@ let main argv =
                 let (result, actualHash, actualOutput, error) = validateOne r
                 match result with
                 | Pass ->
-                    Console.WriteLine("✅ PASS  " + r.Cluster + "  hash=" + (defaultArg actualHash ""))
+                    let nInputs = 1 + List.length r.ExtraInputs
+                    let inputWord = if nInputs > 1 then " inputs" else " input"
+                    Console.WriteLine("✅ PASS  " + r.Cluster + "  hash=" + (defaultArg actualHash "") + "  (" + string nInputs + inputWord + ")")
                     pass <- pass + 1
                 | Fail ->
                     Console.WriteLine("❌ FAIL  " + r.Cluster)
