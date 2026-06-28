@@ -62,10 +62,10 @@ echo ""
 
 # ─── Step 3: apply a VALID refactor (fibonacci: iterative → Binet) ──────────
 echo "═══ Step 3: Apply VALID refactor — fibonacci iterative → Binet's formula ═══"
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 old = '''long demo_fibonacci(int n) {
     if (n < 0) throw std::invalid_argument("n must be >= 0");
     if (n == 0) return 0L;
@@ -88,7 +88,7 @@ new = '''long demo_fibonacci(int n) {
     return static_cast<long>((std::pow(phi, n) - std::pow(psi, n)) / std::sqrt(5.0));
 }'''
 assert old in src, "Original fibonacci body not found"
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 print("   ✅ fibonacci: iterative → Binet's formula (output preserved for n=10)")
 PYEOF
 echo ""
@@ -108,10 +108,10 @@ echo ""
 # ─── Step 5: restore + apply a BREAKING refactor ────────────────────────────
 cp "${BACKUP}" "${DEMO_SRC}"
 echo "═══ Step 5: Apply BREAKING refactor — fibonacci becomes 1-indexed (n=10 → 89) ═══"
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 old = '''long demo_fibonacci(int n) {
     if (n < 0) throw std::invalid_argument("n must be >= 0");
     if (n == 0) return 0L;
@@ -138,7 +138,7 @@ new = '''long demo_fibonacci(int n) {
     return b;
 }'''
 assert old in src
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 print("   ✅ fibonacci: 0-indexed → 1-indexed (output CHANGED for n=10: 55 → 89)")
 PYEOF
 echo ""
@@ -160,10 +160,10 @@ cp "${BACKUP}" "${DEMO_SRC}"
 echo "═══ Step 7: Demonstrate C++ exception safety — make factorial throw always ═══"
 echo "    (Previously-working function that now throws is a REGRESSION, so"
 echo "    validate should FAIL the cluster — not crash the harness.)"
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 old = '''long MathUtils::factorial(int n) const {
     if (n < 0) throw std::invalid_argument("n must be >= 0");
     long r = 1;
@@ -176,7 +176,7 @@ new = '''long MathUtils::factorial(int n) const {
     throw std::runtime_error("intentional exception for demo");
 }'''
 assert old in src
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 print("   ✅ MathUtils::factorial: now always throws std::runtime_error")
 PYEOF
 echo ""

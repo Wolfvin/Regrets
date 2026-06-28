@@ -157,10 +157,14 @@ JAVA_BACKUP="$(mktemp)"
 cp "${JAVA_FILE}" "${JAVA_BACKUP}"
 trap 'cp "${JAVA_BACKUP}" "${JAVA_FILE}" && rm -f "${JAVA_BACKUP}" && cp -r "${BACKUP_DIR}/." "${PROOF_DIR}/regrets/" && rm -rf "${BACKUP_DIR}"' EXIT
 
-JAVA_FILE="${JAVA_FILE}" python3 << 'PYEOF'
+JAVA_FILE="${JAVA_FILE}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['JAVA_FILE']
-src = open(path).read()
+# #521: explicit encoding='utf-8' — the Java source file contains
+# non-ASCII characters (em-dashes in comments, ❌ emoji in error
+# messages). On Windows native Python, open() defaults to cp1252,
+# which raises UnicodeDecodeError on the multi-byte UTF-8 sequences.
+src = open(path, encoding='utf-8').read()
 old = '''    /** Compute the n-th Fibonacci number (0-indexed, iterative). */
     public static long fibonacci(int n) {
         if (n < 0) throw new IllegalArgumentException("n must be >= 0");
@@ -184,7 +188,7 @@ new = '''    /** Compute the n-th Fibonacci number (0-indexed, via Binet's formu
         return Math.round((Math.pow(phi, n) - Math.pow(psi, n)) / Math.sqrt(5.0));
     }'''
 assert old in src, "Original fibonacci body not found"
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 PYEOF
 info "Applied valid refactor: fibonacci iterative → Binet's formula"
 
@@ -207,10 +211,11 @@ section "5. Apply BREAKING refactor (fibonacci: 0-indexed → 1-indexed, n=10 �
 # Restore the original first, then apply the breaking change
 cp "${JAVA_BACKUP}" "${JAVA_FILE}"
 
-JAVA_FILE="${JAVA_FILE}" python3 << 'PYEOF'
+JAVA_FILE="${JAVA_FILE}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['JAVA_FILE']
-src = open(path).read()
+# #521: explicit encoding='utf-8' (see comment in step 4 above).
+src = open(path, encoding='utf-8').read()
 old = '''    /** Compute the n-th Fibonacci number (0-indexed, iterative). */
     public static long fibonacci(int n) {
         if (n < 0) throw new IllegalArgumentException("n must be >= 0");
@@ -238,7 +243,7 @@ new = '''    /** Compute the n-th Fibonacci number (1-indexed — BREAKING refac
         return b;
     }'''
 assert old in src
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 PYEOF
 info "Applied breaking refactor: fibonacci 0-indexed → 1-indexed (output 55 → 89 for n=10)"
 
