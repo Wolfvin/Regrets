@@ -25,9 +25,15 @@ set -euo pipefail
 #   - strings → JSON-escaped
 #   - arrays → [elem1,elem2,...] (no spaces)
 #   - objects → {"key1":val1,"key2":val2,...} (keys sorted, no spaces)
+#
+# #521: PYTHONIOENCODING=utf-8 — the snippet below uses
+# `json.dumps(obj, ensure_ascii=False)` which can produce non-ASCII stdout
+# (e.g., for unicode inputs). On Windows native Python (default cp1252
+# stdout), this would crash with UnicodeEncodeError. The env var forces
+# UTF-8 for stdin/stdout/stderr so the function is cross-platform.
 stable_stringify() {
   local json="$1"
-  python3 -c '
+  PYTHONIOENCODING=utf-8 python3 -c '
 import json, sys
 
 def stable_stringify(obj):

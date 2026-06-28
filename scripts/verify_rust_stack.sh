@@ -128,12 +128,15 @@ log ""
 log "─── 3. breaking change (add() returns a-b) — validate exit non-zero, FAIL ───"
 
 python3 -c "
-with open('$LIB_RS') as f:
+# #521: explicit encoding='utf-8' — lib.rs contains em-dashes
+# in comments. On Windows native Python, open() defaults to cp1252
+# which raises UnicodeDecodeError on the multi-byte UTF-8 sequences.
+with open('$LIB_RS', encoding='utf-8') as f:
     src = f.read()
 old = 'pub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}'
 new = 'pub fn add(a: i64, b: i64) -> i64 {\n    a - b\n}'
 assert old in src, 'add() body not found'
-with open('$LIB_RS', 'w') as f:
+with open('$LIB_RS', 'w', encoding='utf-8') as f:
     f.write(src.replace(old, new))
 "
 
@@ -157,7 +160,8 @@ log ""
 log "─── 4. valid refactor (add() uses loop, same output) — exit 0, PASS ───"
 
 python3 -c "
-with open('$LIB_RS') as f:
+# #521: explicit encoding='utf-8' (see comment in step 3 above).
+with open('$LIB_RS', encoding='utf-8') as f:
     src = f.read()
 old = 'pub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}'
 new = '''pub fn add(a: i64, b: i64) -> i64 {
@@ -172,7 +176,7 @@ new = '''pub fn add(a: i64, b: i64) -> i64 {
     result
 }'''
 assert old in src, 'add() body not found'
-with open('$LIB_RS', 'w') as f:
+with open('$LIB_RS', 'w', encoding='utf-8') as f:
     f.write(src.replace(old, new))
 "
 

@@ -118,7 +118,13 @@ except Exception as e:
     input: request,
     encoding: 'utf8',
     timeout: 30_000,
-    env: { ...process.env },
+    // #521: PYTHONIOENCODING=utf-8 forces UTF-8 for the Python child's
+    // stdin/stdout/stderr. Without this, Windows native Python defaults
+    // to cp1252, and json.loads(sys.stdin.read()) crashes with
+    // UnicodeDecodeError when the SQL request JSON contains UTF-8
+    // multi-byte chars (e.g., unicode strings in bind_params or setup_sql).
+    // No-op on Linux/Mac (UTF-8 is already the default there).
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
   })
 
   if (result.status !== 0) {

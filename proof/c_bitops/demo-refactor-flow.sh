@@ -63,10 +63,10 @@ echo ""
 
 # ─── Step 3: apply a VALID refactor — rotate_left uses branchless shift-mask ─
 echo "═══ Step 3: Apply VALID refactor — rotate_left: mod+branch → branchless shift-mask ═══"
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 old = '''uint32_t bitops_rotate_left(uint32_t n, uint32_t shift) {
     shift &= 31u;  // mod 32
     if (shift == 0) return n;
@@ -81,7 +81,7 @@ new = '''uint32_t bitops_rotate_left(uint32_t n, uint32_t shift) {
     return (mask * ((n << s) | (n >> hi))) + (1u - mask) * n;
 }'''
 assert old in src, "Original rotate_left body not found"
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 print("   ✅ rotate_left: mod+branch → branchless shift-mask (output preserved)")
 PYEOF
 echo ""
@@ -104,10 +104,10 @@ cp "${BACKUP}" "${DEMO_SRC}"
 
 # ─── Step 5: apply a BREAKING refactor — count_set_bits off-by-one init ─────
 echo "═══ Step 5: Apply BREAKING refactor — count_set_bits: count init 0 → 1 (off-by-one) ═══"
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 old = '''uint32_t bitops_count_set_bits(uint32_t n) {
     // Brian Kernighan's algorithm: each iteration clears the lowest set
     // bit, so the loop body runs exactly popcount(n) times.
@@ -131,7 +131,7 @@ new = '''uint32_t bitops_count_set_bits(uint32_t n) {
     return count;
 }'''
 assert old in src, "Original count_set_bits body not found"
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 print("   💥 count_set_bits: count init 0 → 1 (off-by-one; every output +1)")
 PYEOF
 echo ""

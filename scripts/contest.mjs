@@ -388,6 +388,12 @@ class ContestRunner {
         encoding: 'utf8',
         cwd: CWD,
         maxBuffer: 10 * 1024 * 1024,
+        // #521: PYTHONIOENCODING=utf-8 forces UTF-8 for the Python child's
+        // stdin/stdout/stderr. _chain_step.py prints json.dumps(result,
+        // ensure_ascii=False) to stdout (line 133) and ❌ emoji to stderr
+        // (lines 21/64/87/103) — both crash with UnicodeEncodeError on
+        // Windows native Python's cp1252 stdout/stderr. No-op on Linux/Mac.
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       })
       const parsed = JSON.parse(result.trim())
       return {

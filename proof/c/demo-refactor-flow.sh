@@ -58,10 +58,10 @@ echo ""
 
 # ─── Step 3: apply a VALID refactor (fibonacci: iterative → Binet) ──────────
 echo "═══ Step 3: Apply VALID refactor — fibonacci iterative → Binet's formula ═══"
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 old = '''long demo_fibonacci(int n) {
     if (n < 0) return -1;  // error sentinel (skipped via trivial guard? no — non-null)
     if (n == 0) return 0L;
@@ -84,18 +84,18 @@ new = '''long demo_fibonacci(int n) {
     return (long)ldexp((pow(phi, n) - pow(psi, n)) / sqrt(5.0), 0);
 }'''
 assert old in src, "Original fibonacci body not found"
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 print("   ✅ fibonacci: iterative → Binet's formula (output preserved for n=10)")
 PYEOF
 # Need to add math.h include for sqrt/pow/ldexp
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 # Add math.h if not already included
 if '#include <math.h>' not in src:
     src = src.replace('#include <ctype.h>', '#include <ctype.h>\n#include <math.h>')
-open(path, 'w').write(src)
+open(path, 'w', encoding='utf-8').write(src)
 PYEOF
 echo ""
 
@@ -114,10 +114,10 @@ echo ""
 # ─── Step 5: restore + apply a BREAKING refactor ────────────────────────────
 cp "${BACKUP}" "${DEMO_SRC}"
 echo "═══ Step 5: Apply BREAKING refactor — fibonacci becomes 1-indexed (n=10 → 89) ═══"
-DEMO_SRC="${DEMO_SRC}" python3 << 'PYEOF'
+DEMO_SRC="${DEMO_SRC}" PYTHONIOENCODING=utf-8 python3 << 'PYEOF'
 import os
 path = os.environ['DEMO_SRC']
-src = open(path).read()
+src = open(path, encoding='utf-8').read()
 old = '''long demo_fibonacci(int n) {
     if (n < 0) return -1;  // error sentinel (skipped via trivial guard? no — non-null)
     if (n == 0) return 0L;
@@ -144,7 +144,7 @@ new = '''long demo_fibonacci(int n) {
     return b;
 }'''
 assert old in src
-open(path, 'w').write(src.replace(old, new))
+open(path, 'w', encoding='utf-8').write(src.replace(old, new))
 print("   ✅ fibonacci: 0-indexed → 1-indexed (output CHANGED for n=10: 55 → 89)")
 PYEOF
 echo ""

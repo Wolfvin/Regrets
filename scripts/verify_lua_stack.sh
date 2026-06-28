@@ -149,16 +149,19 @@ mv "$FIXTURE/strings.lua.bak" "$FIXTURE/strings.lua"
 step "4. valid refactor (same output) — validate exit 0, PASS"
 cp "$FIXTURE/strings.lua" "$FIXTURE/strings.lua.bak"
 # Refactor reverse() to use a manual loop — output identical, fingerprint unchanged
+# #521: explicit encoding='utf-8' — strings.lua contains em-dashes in
+# comments. On Windows native Python, open() defaults to cp1252 which
+# raises UnicodeDecodeError on the multi-byte UTF-8 sequences.
 python3 -c "
 import re
-with open('$FIXTURE/strings.lua') as f: src = f.read()
+with open('$FIXTURE/strings.lua', encoding='utf-8') as f: src = f.read()
 new = re.sub(
     r'function M\.reverse\(s\)\n    return string\.reverse\(s\)\nend',
     'function M.reverse(s)\n    -- Refactored: manual loop (same output)\n    local t = {}\n    for i = #s, 1, -1 do t[#t + 1] = s:sub(i, i) end\n    return table.concat(t)\nend',
     src,
 )
 assert new != src, 'refactor pattern did not match'
-with open('$FIXTURE/strings.lua', 'w') as f: f.write(new)
+with open('$FIXTURE/strings.lua', 'w', encoding='utf-8') as f: f.write(new)
 "
 ( cd "$FIXTURE" && lua "$SCRIPT_DIR/validate_lua.lua" > /tmp/verify_lua_validate3.txt 2>&1 )
 rc=$?

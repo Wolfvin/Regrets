@@ -26,6 +26,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/fingerprint_make.sh"
 
+# ─── Windows Git Bash path conversion (#519) ────────────────────────────────
+# GNU Make (native Windows binary) and Python (native Windows binary) do not
+# resolve POSIX-style paths the way Git Bash does — /c/Users/... gets
+# misread as a relative path under the current drive, producing nonsense
+# like C:\c\Users\.... Convert via cygpath when available (Git Bash / MSYS2
+# / Cygwin) so every `make -f` invocation, every `${mk_path}` heredoc
+# interpolation, and every `MK_PATH` env var passed to Python gets a path
+# Make/Python actually understand. No-op on Linux/Mac.
+tool_path() {
+  if command -v cygpath &> /dev/null; then
+    cygpath -m "$1"
+  else
+    echo "$1"
+  fi
+}
+
 # ─── Parse CLI args ──────────────────────────────────────────────────────────
 CLUSTER_FILTER=""
 MANIFEST_PATH="regrets/manifest.json"
@@ -167,6 +183,12 @@ get_last_chain() {
 # Re-compute hashes for ALL inputs of a cluster (for INPUTS line refresh).
 # Args: <manifest_path> <cluster_id> <mk_path> <entry> <multi_args>
 # Outputs: space-separated list of input hashes (one per input).
+#
+# #519: caller is expected to pass a cygpath-converted `mk_path` via the
+# MK_PATH env var so that the `f.write(f"include {mk_path}\n")` line below
+# produces a path native Windows GNU Make can resolve.
+# #521: PYTHONIOENCODING=utf-8 set by caller so json.load(stdin) handles
+# UTF-8 multi-byte inputs correctly on Windows native Python.
 recompute_inputs_hashes() {
   local manifest="$1"
   local cluster_id="$2"
@@ -177,7 +199,7 @@ recompute_inputs_hashes() {
   local inputs_json
   inputs_json=$(get_cluster_inputs "$manifest" "$cluster_id")
 
-  echo "$inputs_json" | python3 -c '
+  echo "$inputs_json" | MK_PATH="$mk_path" ENTRY="$entry" MULTI_ARGS="$multi_args" PYTHONIOENCODING=utf-8 python3 -c '
 import json, sys, hashlib, subprocess, os
 
 inputs = json.load(sys.stdin)
@@ -327,12 +349,14 @@ while IFS= read -r cluster_id; do
     if [[ "$FAIL_FAST" == "true" ]]; then break; fi
     continue
   fi
+  # #519: convert to Windows-friendly path for native GNU Make + Python.
+  mk_path_make="$(tool_path "$mk_path")"
 
   # Re-invoke the function with the stored input
   first_input="$golden_input"
 
   if [[ "$multi_args" == "true" ]]; then
-    call_args=$(echo "$first_input" | python3 -c '
+    call_args=$(echo "$first_input" | PYTHONIOENCODING=utf-8 python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 if isinstance(data, list):
@@ -341,7 +365,7 @@ else:
     print(str(data))
 ')
   else
-    call_args=$(echo "$first_input" | python3 -c '
+    call_args=$(echo "$first_input" | PYTHONIOENCODING=utf-8 python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 if isinstance(data, str):
@@ -351,9 +375,11 @@ else:
 ')
   fi
 
+  # #519: use mk_path_make (cygpath-converted) so native Windows GNU Make
+  # can resolve the include path.
   tmp_mk=$(mktemp)
   cat > "$tmp_mk" << EOF
-include ${mk_path}
+include ${mk_path_make}
 \$(error \$(call ${entry},${call_args}))
 EOF
 
@@ -382,7 +408,7 @@ EOF
     # Compute new INPUTS line hashes if present
     new_inputs_line=""
     if [[ "$has_inputs_line" == "true" ]]; then
-      new_inputs_hashes=$(MK_PATH="$mk_path" ENTRY="$entry" MULTI_ARGS="$multi_args" recompute_inputs_hashes "$MANIFEST_FULL" "$cluster_id" "$mk_path" "$entry" "$multi_args")
+      new_inputs_hashes=$(MK_PATH="$mk_path_make" ENTRY="$entry" MULTI_ARGS="$multi_args" recompute_inputs_hashes "$MANIFEST_FULL" "$cluster_id" "$mk_path_make" "$entry" "$multi_args")
       if [[ "$new_inputs_hashes" == "ERROR" ]]; then
         echo "✗ ${cluster_id}: failed to recompute INPUTS hashes during update" >&2
         FAILED=$((FAILED + 1))
