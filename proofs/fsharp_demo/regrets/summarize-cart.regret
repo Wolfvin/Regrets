@@ -1,7 +1,7 @@
 cluster: summarize-cart
 version: 1
 fingerprint: 2rw7gy8
-captured: 2026-06-21T07:35:53.4898747Z
+captured: 2026-06-28T07:06:41.1857791Z
 watches: [MathUtils.summarizeCart]
 entry: MathUtils.summarizeCart
 stack: fsharp
@@ -11,3 +11,4 @@ file: lib/MathUtils.fs
 INPUT  [{"name":"Nasi Goreng","price":25000,"qty":2},{"name":"Es Teh","price":5000,"qty":1}]
 OUTPUT {"subtotal":55000,"tax":6050,"total":61050,"itemCount":3}
 HASH   2rw7gy8
+INPUTS [{"input":[{"name":"Ayam Bakar","price":35000,"qty":1},{"name":"Es Jeruk","price":8000,"qty":3},{"name":"Kerupuk","price":3000,"qty":2}],"output":{"subtotal":65000,"tax":7150,"total":72150,"itemCount":6},"hash":"5z3n7oh"}]

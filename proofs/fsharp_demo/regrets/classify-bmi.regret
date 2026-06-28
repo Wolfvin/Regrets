@@ -1,7 +1,7 @@
 cluster: classify-bmi
 version: 1
 fingerprint: 3jnqnr4
-captured: 2026-06-21T07:35:25.5160772Z
+captured: 2026-06-28T07:06:12.9338996Z
 watches: [MathUtils.classifyBmi]
 entry: MathUtils.classifyBmi
 stack: fsharp
@@ -11,3 +11,4 @@ file: lib/MathUtils.fs
 INPUT  17.0
 OUTPUT "Underweight"
 HASH   3jnqnr4
+INPUTS [{"input":22.5,"output":"Normal","hash":"38re0o3"},{"input":27.3,"output":"Overweight","hash":"5n129p9"},{"input":31.2,"output":"Obese","hash":"912kt2t"},{"input":18.5,"output":"Normal","hash":"2klcbco"},{"input":25.0,"output":"Overweight","hash":"1u768zv"},{"input":30.0,"output":"Obese","hash":"2xat0g1"}]

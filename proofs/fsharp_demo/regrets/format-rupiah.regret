@@ -1,7 +1,7 @@
 cluster: format-rupiah
 version: 1
 fingerprint: 56z4nqt
-captured: 2026-06-21T07:35:45.3905396Z
+captured: 2026-06-28T07:06:33.1116710Z
 watches: [MathUtils.formatRupiah]
 entry: MathUtils.formatRupiah
 stack: fsharp
@@ -11,3 +11,4 @@ file: lib/MathUtils.fs
 INPUT  0
 OUTPUT "Rp 0"
 HASH   56z4nqt
+INPUTS [{"input":1500000,"output":"Rp 1.500.000","hash":"64m26i8"},{"input":9999,"output":"Rp 9.999","hash":"6100krz"},{"input":123456789,"output":"Rp 123.456.789","hash":"50q5snc"},{"input":-75000,"output":"-Rp 75.000","hash":"3xc00re"}]
