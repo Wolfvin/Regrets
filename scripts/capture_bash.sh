@@ -275,33 +275,23 @@ for i in $(seq 0 $((CLUSTER_COUNT - 1))); do
       printf '%s\n' "$arg_json" | jq -r '.'
     done > "$ARGS_FILE"
 
-    # Capture stdout in a variable. Use a subshell so the sourced functions
-    # don't leak into the parent.
-    OUTPUT=$(bash -c '
-      set -uo pipefail
-      # Read args from stdin, one per line, set as positional params
-      mapfile -t ARGS <<< "$1"
-      set -- "${ARGS[@]}"
-      # Source all the source files
-      shift
-      for f in "$@"; do
-        source "$f" || exit 2
-      done
-      # Invoke the entry function
-      "$0" "$@"
-    ' "$ENTRY" "$ARGS_FILE" "${RESOLVED_FILES[@]}" 2>/dev/null)
-
-    # Wait — the above bash -c has issues. Let me use a cleaner approach.
-    # Actually let me rewrite this with a here-doc.
-
-    # Simpler approach: source files in subshell, then call function
+    # Source files in subshell, then call function
     OUTPUT=$(
       {
         for f in "${RESOLVED_FILES[@]}"; do
           source "$f" || exit 2
         done
-        # Read args from file
-        mapfile -t ARGS < "$ARGS_FILE"
+        # Read args from file. jq.exe (Windows build) emits CRLF line endings
+        # on -r text output, so each arg written above can carry a trailing
+        # \r that `mapfile -t` (which only strips \n) preserves -- silently
+        # corrupting every argument (e.g. "Hello, World!" becomes
+        # "Hello, World!\r", which then fails exact string comparisons in
+        # user code). Same root cause as the confirmed jq-stack bug (#519).
+        # Strip \r from the file via `tr` BEFORE mapfile reads it -- a
+        # post-hoc `${ARGS[i]%$'\r'}` strip inside this command-substitution
+        # nesting does not reliably take effect (reproduced in isolation;
+        # work around it instead of relying on it).
+        mapfile -t ARGS < <(tr -d '\r' < "$ARGS_FILE")
         # Invoke entry with positional args
         "$ENTRY" "${ARGS[@]}"
       } 2>/dev/null

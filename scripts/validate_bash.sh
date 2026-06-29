@@ -222,7 +222,22 @@ for i in $(seq 0 $((CLUSTER_COUNT - 1))); do
         for f in "${RESOLVED_FILES[@]}"; do
           source "$f" || exit 2
         done
-        mapfile -t ARGS < "$args_file"
+        # jq.exe (Windows build) emits CRLF line endings on -r text output,
+        # so each arg written above can carry a trailing \r that
+        # `mapfile -t` (which only strips \n) preserves -- silently
+        # corrupting every argument and defeating exact string comparisons
+        # in user code (same root cause as the confirmed jq-stack bug,
+        # #519). This is the actual cause of the #315 multi-input
+        # validation silently passing on a mutation that changes only a
+        # non-first input: the mutated branch's string comparison never
+        # matched because the live arg always carried a trailing \r.
+        # Strip \r from the file via `tr` BEFORE mapfile reads it -- a
+        # post-hoc `${ARGS[i]%$'\r'}` strip inside this command-substitution
+        # nesting does not take effect (reproduced: a minimal repro shows
+        # the same suffix-removal pattern works at top level and in a plain
+        # subshell, but silently no-ops here; root cause not fully
+        # understood, work around it instead of relying on it).
+        mapfile -t ARGS < <(tr -d '\r' < "$args_file")
         "$ENTRY" "${ARGS[@]}"
       } 2>/dev/null
     )

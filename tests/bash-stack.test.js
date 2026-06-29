@@ -3,11 +3,19 @@ import assert from 'node:assert/strict'
 import { execSync, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __dirname = resolve(fileURLToPath(import.meta.url), '..')
-const REPO_ROOT = resolve(__dirname, '..')
-const SCRIPTS = join(REPO_ROOT, 'scripts')
+// REPO_ROOT/SCRIPTS get embedded unquoted into bash -c command strings
+// throughout this file. On native Windows, resolve()/join() produce
+// backslash-separated paths, and bash's own command-string parser treats
+// every unquoted '\X' as an escaped literal X -- silently DROPPING every
+// backslash (e.g. "C:\Users\user\foo" becomes "C:Usersuserfoo"), which
+// then fails to resolve as a file path at all. Forward slashes are valid
+// path separators on Windows too, so normalizing here fixes every call
+// site at once (same root cause/class as issue #519).
+const REPO_ROOT = resolve(__dirname, '..').replaceAll('\\', '/')
+const SCRIPTS = join(REPO_ROOT, 'scripts').replaceAll('\\', '/')
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -334,7 +342,10 @@ describe('Bash stack — cross-stack parity', () => {
       bash(`bash ${SCRIPTS}/capture_bash.sh --quiet`, { cwd: tmpDir })
 
       // Import parseRegret from validate.js and verify it can read the .regret
-      const { parseRegret } = await import(join(SCRIPTS, 'validate.js'))
+      // pathToFileURL: Node's ESM loader on Windows requires a file:// URL
+      // for absolute-path dynamic imports -- a raw "c:/..." string throws
+      // ERR_UNSUPPORTED_ESM_URL_SCHEME.
+      const { parseRegret } = await import(pathToFileURL(join(SCRIPTS, 'validate.js')))
       const content = readFileSync(join(tmpDir, 'regrets', 'bash-slugify.regret'), 'utf8')
       const parsed = parseRegret(content)
 
