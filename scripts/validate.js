@@ -828,13 +828,42 @@ export async function runCluster(clusterDef, regret, options = {}) {
   let mutationDetected = false
   let liveMutationFingerprint = null
 
-  // Determine which inputs to validate: golden from .regret + all from manifest
-  // Note: empty array `[]` in manifest is treated as "no inputs specified"
-  const allInputs = (clusterDef.inputs && clusterDef.inputs.length > 0) ? clusterDef.inputs : [regret.input]
+  // Issue #556: only validate inputs that are recorded in the .regret contract.
+  // The .regret file is the golden contract — it only contains inputs that were
+  // successfully captured. Inputs that threw during capture are NOT in the
+  // contract and must NOT be re-validated (they would cause false FAILs).
+  // Previously, validate read ALL inputs from the manifest (clusterDef.inputs),
+  // including inputs that capture had already excluded due to throws — causing
+  // ~30% false FAIL clusters on first validation with no code change.
+  //
+  // Source of truth for inputs to validate:
+  //   1. regret.input  (golden, always present)
+  //   2. regret.goldenInputs  (INPUTS line, inputs 1+ that were captured)
+  //
+  // Inputs in the manifest but NOT in the contract are reported as
+  // "uncovered" (informational) — the user should run capture to include them.
   const inputsToValidate = [regret.input]  // Always validate golden first
-  for (const inp of allInputs) {
-    if (JSON.stringify(inp) !== JSON.stringify(regret.input)) {
-      inputsToValidate.push(inp)
+  if (Array.isArray(regret.goldenInputs) && regret.goldenInputs.length > 0) {
+    for (const goldenEntry of regret.goldenInputs) {
+      if (goldenEntry && typeof goldenEntry === 'object' && 'input' in goldenEntry) {
+        const inp = goldenEntry.input
+        if (JSON.stringify(inp) !== JSON.stringify(regret.input)) {
+          inputsToValidate.push(inp)
+        }
+      }
+    }
+  }
+
+  // Detect uncovered inputs: in manifest but not in .regret contract.
+  // Reported as informational — NOT a FAIL. The user should re-capture
+  // to include them in the contract.
+  let uncoveredInputCount = 0
+  if (clusterDef.inputs && clusterDef.inputs.length > 0) {
+    const contractInputStrs = new Set(inputsToValidate.map(i => JSON.stringify(i)))
+    for (const manifestInput of clusterDef.inputs) {
+      if (!contractInputStrs.has(JSON.stringify(manifestInput))) {
+        uncoveredInputCount++
+      }
     }
   }
 
@@ -1224,7 +1253,7 @@ export async function runCluster(clusterDef, regret, options = {}) {
     obj[key] = original
   }
 
-  return { hashes, hashesPerInput, liveInputs, lastOutput, lastErrorContract, mutationMatch, mutationDetected, liveMutationFingerprint, lastSideEffectRecording, goldenSideEffects: regret.goldenSideEffects }
+  return { hashes, hashesPerInput, liveInputs, lastOutput, lastErrorContract, mutationMatch, mutationDetected, liveMutationFingerprint, lastSideEffectRecording, goldenSideEffects: regret.goldenSideEffects, uncoveredInputCount }
 }
 
 // ─── Update a .regret ─────────────────────────────────────────────────────────
@@ -1970,7 +1999,8 @@ for (const file of regretFiles) {
             mutationDetected: clusterMutationDetected,
             liveMutationFingerprint: clusterLiveMutationFp,
             lastSideEffectRecording: clusterLastSERecording,
-            goldenSideEffects: clusterGoldenSE } = await runCluster(def, regret, { runs: effectiveRuns })
+            goldenSideEffects: clusterGoldenSE,
+            uncoveredInputCount: clusterUncoveredInputCount } = await runCluster(def, regret, { runs: effectiveRuns })
     if (skipped) { results.push({ id, pass: true, skipped: true, confidence: clusterConfidence.label }); continue }
 
     // ── trackMutation check: mutation mismatch takes priority over fingerprint match ──
@@ -2256,7 +2286,16 @@ for (const file of regretFiles) {
         // Issue #315: include per-input failures in JSON output so CI
         // tooling can attribute the FAIL to the specific input that broke.
         ...(multiInputFailures.length > 0 ? { multiInputFailures } : {}),
+        // Issue #556: include uncovered input count so CI tooling knows
+        // some manifest inputs are not yet in the contract.
+        ...(clusterUncoveredInputCount > 0 ? { uncoveredInputs: clusterUncoveredInputCount } : {}),
       })
+      // Issue #556: informational message for uncovered inputs.
+      // These are manifest inputs not in the .regret contract (e.g. inputs
+      // that threw during capture). NOT a FAIL — just a hint to re-capture.
+      if (clusterUncoveredInputCount > 0 && !quiet && !jsonOutput) {
+        console.log(`    ℹ️  ${clusterUncoveredInputCount} input(s) in manifest not covered by contract — run capture to include them`)
+      }
     }
 
   } catch (err) {
@@ -2618,6 +2657,9 @@ if (reporter === 'junit') {
         ...(r.multiInputFailures && r.multiInputFailures.length > 0
           ? { multiInputFailures: r.multiInputFailures }
           : {}),
+        // Issue #556: uncovered inputs (in manifest but not in .regret contract).
+        // Informational — NOT a FAIL. Signals that capture should be re-run.
+        ...(r.uncoveredInputs ? { uncoveredInputs: r.uncoveredInputs } : {}),
       }
     }),
     callees: {
