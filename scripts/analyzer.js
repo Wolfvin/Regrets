@@ -422,6 +422,202 @@ export async function analyzeScope(scopePath) {
   }
 }
 
+// ─── #557: TypeScript parameter type extraction ───────────────────────────────
+//
+// For TypeScript files, extract string-literal-union type information from
+// function parameters. This enables install.js to generate probe inputs that
+// match the actual literal values in the union, rather than generic probes
+// that never exercise union-gated logic branches.
+//
+// The function resolves:
+//   - Inline union types: (mode: 'a' | 'b' | 'c')
+//   - Type alias references: type Mode = 'a' | 'b'; function f(m: Mode)
+//   - Number literal unions: (level: 1 | 2 | 3)
+//   - Boolean literal unions: (flag: true | false)
+//
+// Non-literal-union parameters (string, number, custom types, etc.) are not
+// included in the result — they fall back to DEFAULT_PROBE_INPUTS in install.js.
+
+/**
+ * Extract literal values from a union_type or literal_type AST node.
+ * Recursively walks nested union_type nodes (tree-sitter represents
+ * N-way unions as left-leaning binary trees).
+ *
+ * @param {object} node - tree-sitter AST node
+ * @returns {Array<string|number|boolean>} extracted literal values
+ */
+function extractLiteralValues(node) {
+  if (node.type === 'literal_type') {
+    const child = node.child(0)
+    if (!child) return []
+    if (child.type === 'string') {
+      // Remove surrounding quotes ('xxx' or "xxx")
+      const text = child.text
+      return [text.slice(1, -1)]
+    }
+    if (child.type === 'number') {
+      return [Number(child.text)]
+    }
+    if (child.type === 'true') return [true]
+    if (child.type === 'false') return [false]
+    // Other literal types (e.g. null, undefined) — skip
+    return []
+  }
+  // union_type is left-recursive: union_type(union_type, '|', literal_type)
+  // or union_type(literal_type, '|', literal_type)
+  const values = []
+  for (let i = 0; i < node.childCount; i++) {
+    const child = node.child(i)
+    if (child.type === 'literal_type' || child.type === 'union_type') {
+      values.push(...extractLiteralValues(child))
+    }
+  }
+  return values
+}
+
+/**
+ * Extract parameter type information for TypeScript functions in a file.
+ *
+ * For each function that has at least one parameter with a string-literal-union
+ * (or number-literal-union / boolean-literal-union) type, returns an entry
+ * mapping the function name to an array of parameter descriptions.
+ *
+ * Type alias resolution: top-level `type X = 'a' | 'b' | 'c'` declarations
+ * are collected first, and parameter annotations that reference them by name
+ * are resolved to their literal values.
+ *
+ * @param {string} scopePath - absolute path to a TypeScript file
+ * @returns {Promise<Map<string, Array<{paramName: string, literalValues: Array<string|number|boolean>}>>>}
+ *   Map from function name → array of parameter type info. Only parameters
+ *   whose type resolves to a non-empty literal-union are included.
+ */
+export async function extractParameterTypes(scopePath) {
+  const result = new Map()
+
+  const lang = await detectLanguage(scopePath)
+  if (lang !== 'typescript') return result
+
+  const config = LANG_CONFIG[lang]
+  if (!config) return result
+
+  let source
+  try {
+    source = readFileSync(scopePath, 'utf8')
+  } catch {
+    return result
+  }
+
+  let language
+  try {
+    language = await loadLanguage(config.grammarName)
+  } catch {
+    return result
+  }
+
+  const parser = await getParser()
+  parser.setLanguage(language)
+
+  let tree
+  try {
+    tree = parser.parse(source)
+  } catch {
+    return result
+  }
+  if (!tree) return result
+
+  try {
+    const root = tree.rootNode
+
+    // Pass 1: Collect type alias declarations → { name: literalValues[] }
+    const typeAliases = new Map()
+    walk(root, (node) => {
+      if (node.type === 'type_alias_declaration') {
+        const nameNode = node.childForFieldName('name')
+        const valueNode = node.childForFieldName('value')
+        if (nameNode && valueNode) {
+          const literals = extractLiteralValues(valueNode)
+          if (literals.length > 0) {
+            typeAliases.set(nameNode.text, literals)
+          }
+        }
+      }
+    })
+
+    // Pass 2: For each function, extract parameter type info
+    const processFunctionNode = (fnNode, fnName) => {
+      if (!fnName) return
+      const params = fnNode.childForFieldName('parameters')
+      if (!params) return
+
+      const paramTypes = []
+      for (let i = 0; i < params.childCount; i++) {
+        const p = params.child(i)
+        if (p.type !== 'required_parameter' && p.type !== 'optional_parameter') continue
+
+        // Get parameter name — field name is 'pattern' for required_parameter
+        const patternNode = p.childForFieldName('pattern')
+        const paramName = patternNode ? patternNode.text : null
+
+        // Get type annotation
+        const typeAnn = p.childForFieldName('type')
+        if (!typeAnn || typeAnn.childCount < 2) continue
+
+        // The actual type node is the second child (after ':')
+        const typeNode = typeAnn.child(1)
+        if (!typeNode) continue
+
+        let literalValues = []
+
+        if (typeNode.type === 'union_type') {
+          // Inline union: (mode: 'a' | 'b' | 'c')
+          literalValues = extractLiteralValues(typeNode)
+        } else if (typeNode.type === 'type_identifier') {
+          // Type alias reference: (mode: AccessMode)
+          literalValues = typeAliases.get(typeNode.text) || []
+        }
+        // Other types (predefined_type, generic_type, etc.) — skip
+
+        if (literalValues.length > 0 && paramName) {
+          paramTypes.push({ paramName, literalValues })
+        }
+      }
+
+      if (paramTypes.length > 0) {
+        result.set(fnName, paramTypes)
+      }
+    }
+
+    // Find function declarations and arrow function declarations
+    walk(root, (node) => {
+      if (config.functionKinds.includes(node.type)) {
+        const name = readNameField(node)
+        if (name && !node.hasError) {
+          processFunctionNode(node, name)
+        }
+      }
+      // Arrow functions: const fn = (params) => { ... }
+      if (config.declarationKinds.includes(node.type) && !node.hasError) {
+        for (let i = 0; i < node.childCount; i++) {
+          const declarator = node.child(i)
+          if (!declarator || declarator.type !== 'variable_declarator') continue
+          const nameNode = declarator.childForFieldName('name')
+          const valueNode = declarator.childForFieldName('value')
+          if (!nameNode || !valueNode) continue
+          if (valueNode.type === 'arrow_function') {
+            processFunctionNode(valueNode, nameNode.text)
+          }
+        }
+      }
+    })
+
+    return result
+  } catch {
+    return result
+  } finally {
+    tree.delete()
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**

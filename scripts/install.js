@@ -26,7 +26,7 @@ import { execFileSync } from 'child_process'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { dirname } from 'path'
 import { mergeCjsModule } from './cjs-merge.js'
-import { analyzeScope, detectLanguage } from './analyzer.js'
+import { analyzeScope, detectLanguage, extractParameterTypes } from './analyzer.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPTS_DIR = __dirname
@@ -1266,6 +1266,79 @@ async function installForScope({
       // here in case a future change breaks that invariant.
     }
 
+    // ── #557: Extract TypeScript parameter type info for union-literal probe inputs ──
+    //
+    // For TS/TSX files, extractParameterTypes() uses tree-sitter to find
+    // parameters whose declared type is a string/number/boolean literal union
+    // (either inline or via type alias). The returned map drives probe-input
+    // generation that covers all union branches — without it, generic probes
+    // like "" / "test" / 0 / 1 never match any literal in the union, so
+    // union-gated logic branches are never exercised during capture.
+    //
+    // Non-TS files or parse failures return an empty Map — cluster generation
+    // falls back to DEFAULT_PROBE_INPUTS (same as before this change).
+    let paramTypesByFn = new Map()
+    if (ext === '.ts' || ext === '.tsx') {
+      try {
+        const ptMap = await extractParameterTypes(filePath)
+        if (ptMap.size > 0) paramTypesByFn = ptMap
+      } catch {
+        // Silently skip — generic probes will be used instead.
+      }
+    }
+
+    /**
+     * #557: Generate probe inputs that cover literal-union parameter types.
+     *
+     * For single-argument functions where the first parameter has a
+     * literal-union type, the probe inputs are the union literal values,
+     * replacing (not supplementing) the generic DEFAULT_PROBE_INPUTS.
+     * This is correct because the generic probes (""/0/{}/etc.) never
+     * match any literal in the union, so they provide zero branch coverage.
+     *
+     * For multi-parameter functions, we keep DEFAULT_PROBE_INPUTS as-is
+     * and add the union values as ADDITIONAL probe inputs. This ensures
+     * the union values are always tested while preserving existing coverage
+     * for non-union parameters. (A future enhancement could generate
+     * multiArgs probes combining union values with generic values for
+     * other parameters.)
+     *
+     * @param {string} fnName - function name
+     * @returns {Array} probe inputs for this function
+     */
+    function generateProbeInputs(fnName) {
+      const paramTypes = paramTypesByFn.get(fnName)
+      if (!paramTypes || paramTypes.length === 0) {
+        return DEFAULT_PROBE_INPUTS.map(v =>
+          Array.isArray(v) ? [...v] : (v !== null && typeof v === 'object' ? { ...v } : v)
+        )
+      }
+
+      // If the function has a single parameter and that parameter is a
+      // literal union, the union values ARE the probe inputs — generic
+      // probes add nothing (they never match any union literal).
+      if (paramTypes.length === 1) {
+        return [...paramTypes[0].literalValues]
+      }
+
+      // Multi-parameter function: keep generic probes as the base (they
+      // test the function with non-union arg combos) and APPEND the union
+      // values so every literal gets exercised at least once. The first
+      // union parameter's values are appended as single-arg calls (the
+      // other params get default/generic values from the runtime).
+      const base = DEFAULT_PROBE_INPUTS.map(v =>
+        Array.isArray(v) ? [...v] : (v !== null && typeof v === 'object' ? { ...v } : v)
+      )
+      for (const pt of paramTypes) {
+        for (const val of pt.literalValues) {
+          if (!base.some(b => b === val)) {
+            base.push(val)
+          }
+        }
+      }
+      return base
+    }
+
     for (const fnName of publicFns) {
       const stack = detectStack(ext)
       const clusterId = generateClusterId(fnName, relPath)
@@ -1287,9 +1360,7 @@ async function installForScope({
         watches: [],
         stack,
         fingerprintLevel: 'entry',
-        inputs: DEFAULT_PROBE_INPUTS.map(v =>
-          Array.isArray(v) ? [...v] : (v !== null && typeof v === 'object' ? { ...v } : v)
-        ),
+        inputs: generateProbeInputs(fnName),
       }
 
       // #279 / #309: For Python clusters, emit `module` (dotted import path)
