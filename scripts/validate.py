@@ -1253,12 +1253,30 @@ def main():
             last_output = None
             live_return_state = None
 
-            # Determine which inputs to validate: golden from .regret + all from manifest
-            all_inputs = cluster_def.get('inputs', [regret.get('input')])
+            # Issue #556: only validate inputs that are recorded in the .regret contract.
+            # The .regret file is the golden contract — it only contains inputs that were
+            # successfully captured. Inputs that threw during capture are NOT in the
+            # contract and must NOT be re-validated (they would cause false FAILs).
+            # Previously, validate read ALL inputs from the manifest (cluster_def['inputs']),
+            # including inputs that capture had already excluded due to throws.
             inputs_to_validate = [regret.get('input')]
-            for inp in all_inputs:
-                if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
-                    inputs_to_validate.append(inp)
+            golden_inputs = regret.get('goldenInputs')
+            if isinstance(golden_inputs, list) and len(golden_inputs) > 0:
+                for golden_entry in golden_inputs:
+                    if isinstance(golden_entry, dict) and 'input' in golden_entry:
+                        inp = golden_entry['input']
+                        if json.dumps(inp, sort_keys=True) != json.dumps(regret.get('input'), sort_keys=True):
+                            inputs_to_validate.append(inp)
+
+            # Detect uncovered inputs: in manifest but not in .regret contract.
+            # Reported as informational — NOT a FAIL.
+            uncovered_input_count = 0
+            manifest_inputs = cluster_def.get('inputs', [])
+            if manifest_inputs:
+                contract_input_strs = set(json.dumps(i, sort_keys=True) for i in inputs_to_validate)
+                for manifest_input in manifest_inputs:
+                    if json.dumps(manifest_input, sort_keys=True) not in contract_input_strs:
+                        uncovered_input_count += 1
 
             # Determine fingerprint mode: .regret file takes precedence over manifest
             effective_fp_mode = regret.get('fingerprintMode') or fp_mode or 'value'
@@ -2159,7 +2177,12 @@ def main():
                     'id': cluster_id, 'pass': is_match,
                     'golden': regret.get('goldenHash'), 'live': live_hash,
                     **({'multiInputFailures': multi_input_failures} if multi_input_failures else {}),
+                    # Issue #556: uncovered inputs (in manifest but not in .regret contract).
+                    **({'uncoveredInputs': uncovered_input_count} if uncovered_input_count > 0 else {}),
                 })
+                # Issue #556: informational message for uncovered inputs.
+                if uncovered_input_count > 0 and not json_output:
+                    print(f"    ℹ️  {uncovered_input_count} input(s) in manifest not covered by contract — run capture to include them")
 
         except Exception as err:
             if not json_output:
